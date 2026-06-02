@@ -25,11 +25,13 @@
 export { RoomClient } from './RoomClient.js';
 export { SignalingTransport } from './SignalingTransport.js';
 export type {
+  ConnectOptions,
+} from './RoomClient.js';
+export type {
   PocketStationConfig,
   RoomCredentials,
   SessionStats,
-  ConnectOptions,
-} from './RoomClient.js';
+} from './types.js';
 export type {
   ClientMessage,
   ServerMessage,

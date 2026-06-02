@@ -124,7 +124,7 @@ export class RoomClient {
         jitter = Math.max(jitter, (r.jitter ?? 0) * 1000);
       }
       if (report.type === 'remote-inbound-rtp') {
-        const r = report as RTCRemoteInboundRtpStreamStats;
+        const r = report as RTCInboundRtpStreamStats & { roundTripTime?: number };
         if (r.roundTripTime != null) {
           roundTripTime = r.roundTripTime * 1000;
         }
