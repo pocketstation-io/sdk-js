@@ -8,5 +8,5 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: npm ci || npm install || true
-      - run: npm test || true
+      - run: npm ci
+      - run: npm test
