@@ -1,4 +1,4 @@
-# ADR-004-backpressure-policy — Backpressure Policy on Pool / Ring Exhaustion
+# JS-007-capability-negotiation — Capability Negotiation
 
 ## Status
 Accepted for v2.3 scaffold. Reversal requires Phase 0/1 measurement data.
@@ -7,7 +7,7 @@ Accepted for v2.3 scaffold. Reversal requires Phase 0/1 measurement data.
 PocketStation v2.3 requires this ADR before implementation lands. See `docs/architecture/pocketstation-v2.3.md`.
 
 ## Decision
-Drop newest when the pool or SPSC ring is full. Stable latency is more important than preserving every frame. Blocking the producer is forbidden.
+Auto-insert adapter nodes such as ResampleNode and MonoMixNode, but expose NegotiatedCapability to the caller.
 
 ## Options considered
 

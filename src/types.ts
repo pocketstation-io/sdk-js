@@ -11,7 +11,7 @@ export interface RoomCredentials {
   roomId: string;
   sourceToken: string;
   listenerToken: string;
-  /** ICE server list when embedded TURN is configured (ADR-023). */
+  /** ICE server list when embedded TURN is configured (JS-023). */
   iceServers?: RTCIceServer[];
 }
 

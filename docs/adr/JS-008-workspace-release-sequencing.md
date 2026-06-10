@@ -1,4 +1,4 @@
-# ADR-008-workspace-release-sequencing — Workspace Release Sequencing
+# JS-008-workspace-release-sequencing — Workspace Release Sequencing
 
 ## Status
 Accepted for v2.3 scaffold. Reversal requires Phase 0/1 measurement data.

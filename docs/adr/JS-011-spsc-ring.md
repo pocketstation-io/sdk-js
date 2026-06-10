@@ -1,4 +1,4 @@
-# ADR-011-spsc-ring — SPSC Ring Buffer Choice
+# JS-011-spsc-ring — SPSC Ring Buffer Choice
 
 ## Status
 Accepted for v2.3 scaffold. Reversal requires Phase 0/1 measurement data.

@@ -34,9 +34,9 @@ These are typical scaffolds expected at Phase 0 exit. Replace this section with 
 
 | Component | Status | Repo / File | What's missing | Replace by | Blocked on |
 |---|---|---|---|---|---|
-| Opus encoder/decoder | MOCK | audio-core / pocketstation-codec | Real libopus bindings; current mock copies bytes | Phase 1 | ADR-013 sample format finalized, libopus-sys dep approval |
-| JitterBuffer | PARTIAL | audio-core / pocketstation-codec | NetEQ-class adaptive algorithm; current scaffold is fixed-delay | Phase 5 | ADR-010 algorithm choice |
-| ClockSync | PARTIAL | audio-core / pocketstation-bus | PI controller per ADR-006; current scaffold is fixed-rate | Phase 1 | ADR-006 resolution |
+| Opus encoder/decoder | MOCK | audio-core / pocketstation-codec | Real libopus bindings; current mock copies bytes | Phase 1 | JS-013 sample format finalized, libopus-sys dep approval |
+| JitterBuffer | PARTIAL | audio-core / pocketstation-codec | NetEQ-class adaptive algorithm; current scaffold is fixed-delay | Phase 5 | JS-010 algorithm choice |
+| ClockSync | PARTIAL | audio-core / pocketstation-bus | PI controller per JS-006; current scaffold is fixed-rate | Phase 1 | JS-006 resolution |
 | DHAT allocation check | DEFERRED | audio-core / tools/pocketstation-alloccheck | Real DHAT integration; current is cargo-bloat placeholder | Phase 1 | DHAT setup in CI |
 
 ## Phase 1 expected additions
