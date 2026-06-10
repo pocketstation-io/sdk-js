@@ -1,4 +1,4 @@
-# ADR-010-jitter-buffer — Jitter Buffer Algorithm
+# JS-006-clock-sync-src — Clock Sync / Async Sample Rate Conversion
 
 ## Status
 Accepted for v2.3 scaffold. Reversal requires Phase 0/1 measurement data.
@@ -7,7 +7,7 @@ Accepted for v2.3 scaffold. Reversal requires Phase 0/1 measurement data.
 PocketStation v2.3 requires this ADR before implementation lands. See `docs/architecture/pocketstation-v2.3.md`.
 
 ## Decision
-Start with adaptive jitter buffer target depth. Keep room to replace with NetEQ-class behavior after Phase 1 measurement.
+Use PI-controlled linear interpolation for voice default. Keep a hook for higher-quality SRC in music mode.
 
 ## Options considered
 

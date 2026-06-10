@@ -1,4 +1,4 @@
-# ADR-006-clock-sync-src — Clock Sync / Async Sample Rate Conversion
+# JS-005-relay-listener-slice — Relay Listener Slice Model
 
 ## Status
 Accepted for v2.3 scaffold. Reversal requires Phase 0/1 measurement data.
@@ -7,7 +7,7 @@ Accepted for v2.3 scaffold. Reversal requires Phase 0/1 measurement data.
 PocketStation v2.3 requires this ADR before implementation lands. See `docs/architecture/pocketstation-v2.3.md`.
 
 ## Decision
-Use PI-controlled linear interpolation for voice default. Keep a hook for higher-quality SRC in music mode.
+Phase 1 may use RWMutex around the listener slice. Phase 2 migrates to copy-on-write atomic pointer to avoid per-packet lock contention.
 
 ## Options considered
 
