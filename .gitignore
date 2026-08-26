@@ -12,3 +12,14 @@ coverage/
 .vscode/
 .idea/
 .claude/
+
+# Private development records
+AGENTS.md
+CLAUDE.md
+CURRENT_PLAN.md
+PHASE*_PROGRESS.md
+PHASE*_QUEUE.md
+docs/REPO_CONTRACT.md
+docs/adr/
+docs/architecture/pocketstation-v*.md
+docs/standards/

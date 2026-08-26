@@ -1,12 +1,23 @@
-# sdk-js
+# PocketStation JavaScript SDK
 
-**Organization:** `pocketstation-io`  
-**Repository:** `pocketstation-io/sdk-js`  
-**v2.3 tier:** Tier 2 — Client SDKs  
-**Activation phase:** Phase 5  
-**Language/package:** TypeScript/npm  
-**Release strategy:** SemVer independent; npm
+Use TypeScript or JavaScript to connect browser media to PocketStation.
 
-This is an independently releasable PocketStation v2.3 repository folder. It is not meant to be merged permanently into a monorepo.
+> **Status: early preview.** This package is not published to npm. Its current
+> `RoomClient` prototype uses the earlier room-based Relay API and is not yet
+> compatible with the current `RelaySession` and named `AudioBus` contract. Do
+> not use it for a new integration yet.
 
-Agents must respect the phase gate in `docs/REPO_CONTRACT.md`.
+## Develop locally
+
+You need Node.js 22 or newer.
+
+```bash
+npm ci
+npm run typecheck
+npm test
+npm run build
+```
+
+The first supported quickstart will be added after the browser client uses the
+current control-plane tokens, Relay signaling, and `BusSubscription` vocabulary.
+Until then, the source and tests document the prototype behavior only.

@@ -1,16 +1,16 @@
 /**
  * @pocketstation/client — PocketStation TypeScript/JavaScript SDK.
  *
- * Phase 5 implementation. Connects to the PocketStation relay for
- * real-time audio transport.
+ * Early browser Relay client. The public README describes its compatibility
+ * limits.
  *
  * @example
  * ```ts
  * import { RoomClient } from '@pocketstation/client';
  *
  * const client = new RoomClient({
- *   apiUrl: 'https://api.pocketstation.io',
- *   relayUrl: 'wss://relay.pocketstation.io',
+ *   apiUrl: 'https://control.example.com',
+ *   relayUrl: 'wss://relay.example.com',
  * });
  *
  * // As source (publish microphone audio):

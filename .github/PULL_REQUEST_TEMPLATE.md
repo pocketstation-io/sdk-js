@@ -4,12 +4,11 @@ Closes #
 
 ## Summary
 
-## Scope control
+## Compatibility
 
-- [ ] I modified only this repo.
-- [ ] I respected the repo phase gate.
-- [ ] I did not edit architecture docs unless explicitly assigned.
-- [ ] I did not add dependencies without approval.
+- [ ] Public API changes are described.
+- [ ] No credentials or private development records are included.
+- [ ] New dependencies are explained.
 
 ## Tests run
 
@@ -20,4 +19,3 @@ Closes #
 ## Risks
 
 ## Reviewer focus
-

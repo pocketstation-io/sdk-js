@@ -9,8 +9,6 @@
  *
  * Ownership: caller owns the RoomClient; call disconnect() on teardown.
  * Failure behavior: throws PocketStationError on network / protocol failure.
- *
- * Phase scope: Phase 5.
  */
 import { SignalingTransport } from './SignalingTransport.js';
 import {

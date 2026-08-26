@@ -5,8 +5,6 @@
  * Invariant: one transport per session. Not reusable after close().
  * Ownership: caller owns all callbacks; transport does not hold external state.
  * Failure behavior: network errors reject the open() promise or call onError.
- *
- * Phase scope: Phase 5.
  */
 import { ClientMessage, ServerMessage, PocketStationError } from './types.js';
 

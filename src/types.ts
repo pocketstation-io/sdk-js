@@ -1,6 +1,6 @@
 /** Configuration for connecting to a PocketStation relay. */
 export interface PocketStationConfig {
-  /** Base URL of the api-server (e.g. https://api.pocketstation.io). */
+  /** Base URL of the control plane, for example https://control.example.com. */
   apiUrl: string;
   /** Base URL of the relay WebSocket server (e.g. wss://relay.pocketstation.io). */
   relayUrl: string;
@@ -11,7 +11,7 @@ export interface RoomCredentials {
   roomId: string;
   sourceToken: string;
   listenerToken: string;
-  /** ICE server list when embedded TURN is configured (JS-023). */
+  /** ICE servers returned by the control plane. */
   iceServers?: RTCIceServer[];
 }
 
