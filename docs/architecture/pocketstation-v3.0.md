@@ -1549,7 +1549,7 @@ pocketstation-io/protocol
 ```
 pocketstation-io/sdk-ios        Swift Package Index   PocketStation
 pocketstation-io/sdk-android    Maven Central         io.pocketstation:android
-pocketstation-io/sdk-js         npm                   @pocketstation/client
+pocketstation-io/sdk-js         npm                   pocketstation
 pocketstation-io/sdk-rust       crates.io             pocketstation-client
 pocketstation-io/sdk-python     PyPI                  pocketstation
 ```
