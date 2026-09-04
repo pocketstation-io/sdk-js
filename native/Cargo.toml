@@ -1,0 +1,19 @@
+[package]
+name = "pocketstation-js"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Native PocketStation runtime bindings for the JavaScript SDK"
+license = "MIT"
+repository = "https://github.com/pocketstation-io/sdk-js"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+napi = { version = "3.12.2", features = ["napi8"] }
+napi-derive = "3.6.3"
+pocketstation = "=1.1.10"
+
+[build-dependencies]
+napi-build = "2.4.1"

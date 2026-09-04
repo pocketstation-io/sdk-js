@@ -234,7 +234,7 @@ UniversalCaptureSource
 Good names:
 
 ```
-RoomClient
+RelaySession
 RelayConnection
 SignalingMessage
 ConnectionState

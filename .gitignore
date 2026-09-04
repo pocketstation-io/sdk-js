@@ -3,6 +3,8 @@
 .env.*
 !.env.example
 target/
+native-dist/
+temp/
 node_modules/
 dist/
 build/
