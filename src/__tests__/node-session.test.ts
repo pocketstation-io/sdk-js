@@ -56,7 +56,7 @@ describe('native Node Session', () => {
       failure = error;
     }
     expect(failure).toBeInstanceOf(PocketStationError);
-    expect((failure as PocketStationError).code).toBe('session.start_failed');
+    expect((failure as PocketStationError).code).toBe('capture.backend_failed');
   });
 
   it('Given a non-PocketStation Endpoint When sent Then it is rejected before native code', () => {

@@ -77,11 +77,170 @@ interface NativeCapturePermissionLifecycleConstructor {
 
 export interface NativeEndpointHandle {
   readonly id: string;
+  readonly sessionId: string;
 }
 
 export interface NativeStemHandle {
   readonly id: string;
-  send(endpoint: NativeEndpointHandle): string;
+  send(endpoint: NativeEndpointHandle, inputPort?: string): string;
+  connect(input: NativeOperatorInputHandle): string;
+  through(
+    operator: NativeOperatorHandle,
+    inputPort?: string,
+    outputPort?: string,
+  ): NativeDerivedStreamHandle;
+  record(name: string): NativeEndpointHandle;
+}
+
+export interface NativeSignalOptions {
+  format?: string;
+  customId?: string;
+  role?: string;
+  schema?: string;
+}
+
+export interface NativeSignalSpecHandle {
+  readonly kind: string;
+  readonly format?: string | null;
+  readonly customId?: string | null;
+  readonly role?: string | null;
+  readonly schema?: string | null;
+  readonly wireId: string;
+  readonly isAudio: boolean;
+  isCompatibleWith(other: NativeSignalSpecHandle): boolean;
+}
+
+interface NativeSignalSpecConstructor {
+  new (kind: string, options?: NativeSignalOptions): NativeSignalSpecHandle;
+}
+
+export interface NativeMediaOptions {
+  format?: string;
+  sampleRateHz?: number;
+  frameSamples?: number;
+  channelLayout?: string;
+}
+
+export interface NativeMediaCapsHandle {
+  readonly kind: string;
+  readonly format?: string | null;
+  readonly sampleRateHz?: number | null;
+  readonly frameSamples?: number | null;
+  readonly channelLayout?: string | null;
+  isCompatibleWith(other: NativeMediaCapsHandle): boolean;
+  negotiate(other: NativeMediaCapsHandle): NativeMediaCapsHandle | null | undefined;
+  supportsSignal(signal: NativeSignalSpecHandle): boolean;
+}
+
+interface NativeMediaCapsConstructor {
+  new (kind: string, options?: NativeMediaOptions): NativeMediaCapsHandle;
+}
+
+export interface NativePortSpecHandle {
+  readonly name: string;
+  readonly direction: string;
+  readonly signal: NativeSignalSpecHandle;
+  readonly media: NativeMediaCapsHandle;
+  readonly multiplicity: string;
+  readonly required: boolean;
+}
+
+interface NativePortSpecConstructor {
+  new (
+    name: string,
+    direction: string,
+    signal: NativeSignalSpecHandle,
+    media: NativeMediaCapsHandle,
+    multiplicity: string,
+    required: boolean,
+  ): NativePortSpecHandle;
+}
+
+export interface NativeDeliveryPolicyHandle {
+  readonly clock: string;
+  readonly latencyBudgetMs?: number | null;
+  readonly jitterBudgetMs?: number | null;
+  readonly backpressure: string;
+  readonly delivery: string;
+  readonly loss: string;
+  readonly copyPolicy: string;
+  readonly observability: string;
+  readonly maxPayloadBytes?: number | null;
+  withBackpressure(value: string): NativeDeliveryPolicyHandle;
+  withCopyPolicy(value: string): NativeDeliveryPolicyHandle;
+  withJitterBudgetMs(value?: number): NativeDeliveryPolicyHandle;
+  withMaxPayloadBytes(value: number): NativeDeliveryPolicyHandle;
+}
+
+interface NativeDeliveryPolicyConstructor {
+  realtimeAudio(): NativeDeliveryPolicyHandle;
+  buffered(): NativeDeliveryPolicyHandle;
+}
+
+export interface NativeRouteSettingsHandle {
+  readonly media: NativeMediaCapsHandle;
+  readonly deliveryPolicy: NativeDeliveryPolicyHandle;
+  withMedia(media: NativeMediaCapsHandle): NativeRouteSettingsHandle;
+  withDelivery(delivery: NativeDeliveryPolicyHandle): NativeRouteSettingsHandle;
+}
+
+interface NativeRouteSettingsConstructor {
+  new (
+    media: NativeMediaCapsHandle,
+    delivery: NativeDeliveryPolicyHandle,
+  ): NativeRouteSettingsHandle;
+  realtimeAudio(): NativeRouteSettingsHandle;
+  buffered(): NativeRouteSettingsHandle;
+}
+
+export interface NativeConfigurationEntry {
+  key: string;
+  value: string;
+  sensitive?: boolean;
+}
+
+export interface NativeOperatorHandle {}
+
+interface NativeOperatorConstructor {
+  new (
+    operatorId: string,
+    configuration?: NativeConfigurationEntry[],
+  ): NativeOperatorHandle;
+}
+
+export interface NativeEndpointDefinitionHandle {}
+
+interface NativeEndpointDefinitionConstructor {
+  new (
+    nodeType: string,
+    operatorId: string,
+    configuration?: NativeConfigurationEntry[],
+    route?: NativeRouteSettingsHandle,
+  ): NativeEndpointDefinitionHandle;
+}
+
+export interface NativeOperatorInputHandle {
+  readonly portName: string;
+}
+
+export interface NativeOperatorInstanceHandle {
+  readonly instanceId: string;
+  input(portName: string): NativeOperatorInputHandle;
+  output(portName: string): NativeDerivedStreamHandle;
+}
+
+export interface NativeDerivedStreamHandle {
+  readonly operatorInstanceId: string;
+  readonly outputPort?: string | null;
+  output(portName: string): NativeDerivedStreamHandle;
+  connect(input: NativeOperatorInputHandle): string;
+  send(endpoint: NativeEndpointHandle, inputPort?: string): string;
+  through(
+    operator: NativeOperatorHandle,
+    inputPort?: string,
+    outputPort?: string,
+  ): NativeDerivedStreamHandle;
+  reenterAudio(): NativeStemHandle;
 }
 
 export interface NativeAudioFrame {
@@ -176,11 +335,39 @@ export interface NativeRunningSessionHandle {
   cancel(): Promise<NativeStopResult>;
 }
 
+export interface NativeCompileDiagnostic {
+  code: string;
+  nodeIndex?: number | null;
+  edgeIndex?: number | null;
+  operatorId?: string | null;
+  operatorInstanceId?: string | null;
+  nodeTypeId?: string | null;
+  sourceTypeId?: string | null;
+  portName?: string | null;
+  direction?: string | null;
+  expected?: string | null;
+  actual?: string | null;
+}
+
+export interface NativeStartFailure {
+  code: string;
+  message: string;
+  diagnostic?: NativeCompileDiagnostic | null;
+}
+
+export interface NativeStartResultHandle {
+  readonly failure?: NativeStartFailure | null;
+  takeRunning(): NativeRunningSessionHandle | null | undefined;
+}
+
 export interface NativeSessionHandle {
   readonly id: string;
   capture(source: NativeSourceHandle): NativeStemHandle;
   audio(): NativeEndpointHandle;
-  start(): Promise<NativeRunningSessionHandle>;
+  audioWithRoute(route: NativeRouteSettingsHandle): NativeEndpointHandle;
+  operator(operator: NativeOperatorHandle): NativeOperatorInstanceHandle;
+  endpoint(definition: NativeEndpointDefinitionHandle): NativeEndpointHandle;
+  start(): Promise<NativeStartResultHandle>;
 }
 
 interface NativeSessionConstructor {
@@ -188,6 +375,7 @@ interface NativeSessionConstructor {
     sampleRateHz?: number;
     channels?: number;
     frameDurationMs?: number;
+    recordingRoot?: string;
   }): NativeSessionHandle;
 }
 
@@ -195,6 +383,13 @@ export interface NativeAddon {
   NativeSource: NativeSourceConstructor;
   NativeSession: NativeSessionConstructor;
   NativeCapturePermissionLifecycle: NativeCapturePermissionLifecycleConstructor;
+  NativeSignalSpec: NativeSignalSpecConstructor;
+  NativeMediaCaps: NativeMediaCapsConstructor;
+  NativePortSpec: NativePortSpecConstructor;
+  NativeDeliveryPolicy: NativeDeliveryPolicyConstructor;
+  NativeRouteSettings: NativeRouteSettingsConstructor;
+  NativeOperator: NativeOperatorConstructor;
+  NativeEndpointDefinition: NativeEndpointDefinitionConstructor;
   discoverSources(
     queryKind?: string,
     value?: string,

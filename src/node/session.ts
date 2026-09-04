@@ -1,12 +1,22 @@
 import { nativeCall, nativeCallSync } from './errors.js';
 import {
   nativeAddon,
+  type NativeDerivedStreamHandle,
+  type NativeCompileDiagnostic,
   type NativeEndpointHandle,
+  type NativeOperatorInputHandle,
+  type NativeOperatorInstanceHandle,
   type NativeRunningSessionHandle,
   type NativeSessionHandle,
   type NativeStemHandle,
   type NativeStopResult,
 } from './native.js';
+import { PocketStationError } from '../errors.js';
+import {
+  EndpointDefinition,
+  Operator,
+  RouteSettings,
+} from './graph.js';
 import { Source, nativeSource } from './sources.js';
 import { AudioStream } from './streams.js';
 import { EventStream } from './events.js';
@@ -19,6 +29,8 @@ export interface SessionOptions {
   channels?: 1 | 2;
   /** Frame duration in milliseconds. Defaults to 20. */
   frameDurationMs?: 10 | 20;
+  /** Directory where declared multistem recordings are written. */
+  recordingRoot?: string;
 }
 
 /** Final result returned after a running Session stops or is cancelled. */
@@ -47,6 +59,67 @@ export interface StopResult {
   readonly sourceSendRejectionsTotal: bigint;
   /** Number of runtime events retained by the Session. */
   readonly runtimeEventsTotal: bigint;
+}
+
+/** Stable location details returned when Core rejects a Session declaration. */
+export interface CompileDiagnostic {
+  /** Stable Core diagnostic code. */
+  readonly code: string;
+  /** Zero-based node index when one declaration caused the failure. */
+  readonly nodeIndex?: number;
+  /** Zero-based route index when one connection caused the failure. */
+  readonly edgeIndex?: number;
+  /** Registered Operator identifier involved in the failure. */
+  readonly operatorId?: string;
+  /** Session-local Operator instance identity. */
+  readonly operatorInstanceId?: bigint;
+  /** Node type involved in the failure. */
+  readonly nodeTypeId?: string;
+  /** Source type involved in the failure. */
+  readonly sourceTypeId?: string;
+  /** Named port involved in the failure. */
+  readonly portName?: string;
+  /** Input or output direction when relevant. */
+  readonly direction?: string;
+  /** Value required by the compiler. */
+  readonly expected?: string;
+  /** Value found in the Session declaration. */
+  readonly actual?: string;
+}
+
+/** Startup failure reported by the native Session owner. */
+export class SessionStartError extends PocketStationError {
+  /** Precise Core location data when startup failed during compilation. */
+  public readonly diagnostic: CompileDiagnostic | undefined;
+
+  /** Create a typed projection of one native startup failure. */
+  public constructor(
+    code: string,
+    message: string,
+    diagnostic?: NativeCompileDiagnostic | null,
+  ) {
+    super(code, message);
+    this.name = 'SessionStartError';
+    this.diagnostic =
+      diagnostic == null
+        ? undefined
+        : Object.freeze({
+            code: diagnostic.code,
+            nodeIndex: diagnostic.nodeIndex ?? undefined,
+            edgeIndex: diagnostic.edgeIndex ?? undefined,
+            operatorId: diagnostic.operatorId ?? undefined,
+            operatorInstanceId:
+              diagnostic.operatorInstanceId == null
+                ? undefined
+                : BigInt(diagnostic.operatorInstanceId),
+            nodeTypeId: diagnostic.nodeTypeId ?? undefined,
+            sourceTypeId: diagnostic.sourceTypeId ?? undefined,
+            portName: diagnostic.portName ?? undefined,
+            direction: diagnostic.direction ?? undefined,
+            expected: diagnostic.expected ?? undefined,
+            actual: diagnostic.actual ?? undefined,
+          });
+  }
 }
 
 /** A destination declared in a Session. */
@@ -101,12 +174,186 @@ export class Stem {
   }
 
   /** Route this Stem to an Endpoint and return the Session-local route identity. */
-  public send(endpoint: Endpoint): bigint {
+  public send(endpoint: Endpoint, options: { input?: string } = {}): bigint {
     if (!endpoint._belongsTo(this.#session)) {
       throw new TypeError('Stem and Endpoint belong to different Sessions');
     }
     return BigInt(
-      nativeCallSync(() => this.#native.send(endpoint._nativeHandle())),
+      nativeCallSync(() =>
+        this.#native.send(endpoint._nativeHandle(), options.input),
+      ),
+    );
+  }
+
+  /** Connect this Stem to one named Operator input. */
+  public connect(input: OperatorInput): bigint {
+    return BigInt(nativeCallSync(() => this.#native.connect(input._nativeHandle())));
+  }
+
+  /** Apply one Operator and select its output. */
+  public through(
+    operator: Operator,
+    options: { input?: string; output?: string } = {},
+  ): DerivedStream {
+    return DerivedStream._create(
+      this.#session,
+      nativeCallSync(() =>
+        this.#native.through(
+          operator._nativeHandle(),
+          options.input,
+          options.output,
+        ),
+      ),
+    );
+  }
+
+  /** Record this Stem under a stable name in the Session recording directory. */
+  public record(name: string): Endpoint {
+    return Endpoint._create(
+      this.#session,
+      nativeCallSync(() => this.#native.record(name)),
+    );
+  }
+}
+
+/** One named input on a Session-owned Operator instance. */
+export class OperatorInput {
+  readonly #native: NativeOperatorInputHandle;
+
+  private constructor(native: NativeOperatorInputHandle) {
+    this.#native = native;
+  }
+
+  /** @internal */
+  public static _create(native: NativeOperatorInputHandle): OperatorInput {
+    return new OperatorInput(native);
+  }
+
+  /** Named input selected on the Operator instance. */
+  public get name(): string {
+    return this.#native.portName;
+  }
+
+  /** @internal */
+  public _nativeHandle(): NativeOperatorInputHandle {
+    return this.#native;
+  }
+}
+
+/** One configured Operator declared on a Session. */
+export class OperatorInstance {
+  readonly #session: Session;
+  readonly #native: NativeOperatorInstanceHandle;
+
+  private constructor(session: Session, native: NativeOperatorInstanceHandle) {
+    this.#session = session;
+    this.#native = native;
+  }
+
+  /** @internal */
+  public static _create(
+    session: Session,
+    native: NativeOperatorInstanceHandle,
+  ): OperatorInstance {
+    return new OperatorInstance(session, native);
+  }
+
+  /** Session-local Operator instance identity. */
+  public get id(): bigint {
+    return BigInt(this.#native.instanceId);
+  }
+
+  /** Select a named input without starting the Operator. */
+  public input(name: string): OperatorInput {
+    return OperatorInput._create(
+      nativeCallSync(() => this.#native.input(name)),
+    );
+  }
+
+  /** Select a named output without starting the Operator. */
+  public output(name: string): DerivedStream {
+    return DerivedStream._create(
+      this.#session,
+      nativeCallSync(() => this.#native.output(name)),
+    );
+  }
+}
+
+/** One named Operator output that can be connected, routed, or returned as audio. */
+export class DerivedStream {
+  readonly #session: Session;
+  readonly #native: NativeDerivedStreamHandle;
+
+  private constructor(session: Session, native: NativeDerivedStreamHandle) {
+    this.#session = session;
+    this.#native = native;
+  }
+
+  /** @internal */
+  public static _create(
+    session: Session,
+    native: NativeDerivedStreamHandle,
+  ): DerivedStream {
+    return new DerivedStream(session, native);
+  }
+
+  /** Session-local identity of the Operator that emits this stream. */
+  public get operatorId(): bigint {
+    return BigInt(this.#native.operatorInstanceId);
+  }
+
+  /** Selected output port, or `undefined` before an explicit output is chosen. */
+  public get outputName(): string | undefined {
+    return this.#native.outputPort ?? undefined;
+  }
+
+  /** Select another named output on the same Operator instance. */
+  public output(name: string): DerivedStream {
+    return DerivedStream._create(
+      this.#session,
+      nativeCallSync(() => this.#native.output(name)),
+    );
+  }
+
+  /** Connect this output to one named Operator input. */
+  public connect(input: OperatorInput): bigint {
+    return BigInt(nativeCallSync(() => this.#native.connect(input._nativeHandle())));
+  }
+
+  /** Route this output to an Endpoint. */
+  public send(endpoint: Endpoint, options: { input?: string } = {}): bigint {
+    if (!endpoint._belongsTo(this.#session)) {
+      throw new TypeError('DerivedStream and Endpoint belong to different Sessions');
+    }
+    return BigInt(
+      nativeCallSync(() =>
+        this.#native.send(endpoint._nativeHandle(), options.input),
+      ),
+    );
+  }
+
+  /** Apply another Operator and select its output. */
+  public through(
+    operator: Operator,
+    options: { input?: string; output?: string } = {},
+  ): DerivedStream {
+    return DerivedStream._create(
+      this.#session,
+      nativeCallSync(() =>
+        this.#native.through(
+          operator._nativeHandle(),
+          options.input,
+          options.output,
+        ),
+      ),
+    );
+  }
+
+  /** Return generated PCM to Core as a normal source-aware Stem. */
+  public reenterAudio(): Stem {
+    return Stem._create(
+      this.#session,
+      nativeCallSync(() => this.#native.reenterAudio()),
     );
   }
 }
@@ -211,12 +458,50 @@ export class Session {
   }
 
   /** Add an Endpoint that exposes audio to the Node process. */
-  public audio(): Endpoint {
-    return Endpoint._create(this, nativeCallSync(() => this.#native.audio()));
+  public audio(route?: RouteSettings): Endpoint {
+    return Endpoint._create(
+      this,
+      nativeCallSync(() =>
+        route === undefined
+          ? this.#native.audio()
+          : this.#native.audioWithRoute(route._nativeHandle()),
+      ),
+    );
+  }
+
+  /** Declare one configured Operator and select its named ports. */
+  public operator(operator: Operator): OperatorInstance {
+    return OperatorInstance._create(
+      this,
+      nativeCallSync(() => this.#native.operator(operator._nativeHandle())),
+    );
+  }
+
+  /** Declare one native Endpoint implementation. */
+  public endpoint(definition: EndpointDefinition): Endpoint {
+    return Endpoint._create(
+      this,
+      nativeCallSync(() => this.#native.endpoint(definition._nativeHandle())),
+    );
   }
 
   /** Validate the declaration, open native resources, and start capture. */
   public async start(): Promise<RunningSession> {
-    return RunningSession._create(await nativeCall(() => this.#native.start()));
+    const result = await nativeCall(() => this.#native.start());
+    if (result.failure != null) {
+      throw new SessionStartError(
+        result.failure.code,
+        result.failure.message,
+        result.failure.diagnostic,
+      );
+    }
+    const running = result.takeRunning();
+    if (running == null) {
+      throw new PocketStationError(
+        'session.start_result_missing',
+        'native Session start returned neither a running Session nor a failure',
+      );
+    }
+    return RunningSession._create(running);
   }
 }

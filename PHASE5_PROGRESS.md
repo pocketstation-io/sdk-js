@@ -2,26 +2,26 @@
 
 ## Active work
 
-`W21-JAVASCRIPT-SOURCE-LIFECYCLE` is active under the recorded
+`W21-JAVASCRIPT-GRAPH-DECLARATIONS` is active under the recorded
 `phase-exception-approved` decision.
 
 The repository now contains a browser Relay client and the first working Node
 binding for native capture. It must not yet be described as feature-equivalent
 to the Rust or Python packages.
 
-This step adds every built-in Core Source selection, native discovery,
-non-prompting permission observations, pre-open authorization evidence,
-permission-change tracking, and one typed Session event stream. The event
-stream includes source disappearance without consuming or hiding other Session
-events.
+This step projects Core signals, media requirements, named ports, route
+settings, Operators, Endpoints, recording, generated-audio reentry, and compiler
+diagnostics into strict TypeScript. Core remains the only compiler, recorder,
+and generated-audio owner.
 
-This step adds the first real Node slice:
+The current Node slice is:
 
 ```text
 Source declaration
 → Rust Session
-→ source-aware Stem
-→ Core audio endpoint
+→ source-aware Stem or registered Operator
+→ named routes and native Endpoints
+→ recording, generated audio, or Node audio
 → native Session worker
 → JavaScript async iterator
 ```
@@ -43,6 +43,13 @@ callback and does not implement another media engine.
 - Source lifecycle: `PARTIAL`; all built-in selectors and local macOS
   discovery, permission inspection, lifecycle transitions, and Session events
   pass. Windows and Linux target execution remain later gates.
+- Graph declarations: `PARTIAL`; native validation, negotiation, route settings,
+  named-port composition, recording declarations, generated-audio lowering, and
+  compiler diagnostics pass. JavaScript provider implementations and typed
+  signal consumption remain later work.
+- Recording: `PARTIAL`; a real local macOS system-audio Session captured five
+  non-silent frames and finalized a 917,572-byte WAV with no recorded gaps or
+  Session failures. Per-Stem outcome projection remains later observation work.
 - npm package: not published.
 
 The browser entry now uses `RelaySession`, shares `PocketStationError` with the
@@ -70,21 +77,23 @@ npm audit
 
 The installed-package gate packs the package into a new directory, installs
 only the tarball, loads the native addon, performs native discovery and
-permission inspection, declares each built-in Source form, and verifies a
-typed startup failure without opening a microphone.
+permission inspection, declares each built-in Source form, validates native
+signal and route values, and verifies precise capture and compiler failures
+without opening a microphone.
 
-## Staff Bar Self-Check — JavaScript Source lifecycle
+## Staff Bar Self-Check — JavaScript graph declarations
 
-- Smallest correct design: yes — Core remains the source of discovery,
-  permission, identity, and lifecycle truth; TypeScript provides safe values
-  and explicit selection.
-- Tests added or updated: yes — every selector, discovery filters, permission
-  transitions, authorization evidence, Session event projection, reader
-  exclusivity, abort, package exports, and a clean tarball consumer.
+- Smallest correct design: yes — Core remains the source of signal validation,
+  media negotiation, compilation, recording, and generated-audio identity;
+  TypeScript provides immutable declarations and Session-scoped handles.
+- Tests added or updated: yes — signal validation, media negotiation, named
+  ports, route settings, cross-Session rejection, native compiler diagnostics,
+  recording, package exports, and a clean tarball consumer.
 - Hot-path safe: yes — Core remains authoritative and the addon copies frames
   only after the native endpoint receives them.
-- Public API changed: yes — the unpublished Node entry gains Source discovery,
-  permissions, exact selectors, and Session events.
+- Public API changed: yes — the unpublished Node entry gains signals, media
+  requirements, route settings, named Operator ports, native Endpoint
+  declarations, recording, generated-audio reentry, and compiler diagnostics.
 - New dependency: yes — the user-approved implementation uses released Core
   `1.1.10`, napi-rs, and API Extractor for the public API report. No provider or
   media-runtime dependency is added, and the installed package has no runtime
@@ -92,14 +101,15 @@ typed startup failure without opening a microphone.
 - Phase scope respected: yes — the execution task records
   `phase-exception-approved`.
 - Unsafe added: no.
-- Remaining risk: target-specific native packaging and real Windows/Linux
-  execution are later gates and must not be inferred from the local macOS run.
+- Remaining risk: provider execution, typed signal consumption, per-Stem
+  recording outcomes, target packages, and real Windows/Linux execution are
+  later gates and must not be inferred from the local macOS run.
 
 ## Intentionally not included in this step
 
 - provider packages or API keys;
 - Electron application code;
-- application-owned PCM, custom Sources, graph Operators, Connectors, sidecars,
-  extensions, Relay composition, or voice composition;
+- application-owned PCM, JavaScript Operator or Endpoint implementations,
+  Connectors, sidecars, extensions, Relay composition, or voice composition;
 - publication, tags, or version selection;
 - cross-platform or performance claims.

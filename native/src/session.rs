@@ -8,6 +8,10 @@ use napi::{Env, Result, Task};
 use napi_derive::napi;
 
 use crate::errors::{error, state_unavailable};
+use crate::graph::{
+    NativeEndpointDefinition, NativeOperator, NativeOperatorInput, NativeOperatorInstance,
+    NativeRouteSettings,
+};
 use crate::sources::{platform_name, source_kind_name, NativeSource};
 use crate::streams::{copy_audio, NativeAudioRead};
 
@@ -58,6 +62,7 @@ pub struct NativeSessionOptions {
     pub sample_rate_hz: Option<u32>,
     pub channels: Option<u8>,
     pub frame_duration_ms: Option<u32>,
+    pub recording_root: Option<String>,
 }
 
 #[napi(object)]
@@ -77,10 +82,53 @@ pub struct NativeStopResult {
     pub remaining_events: Vec<NativeSessionEvent>,
 }
 
+#[napi(object)]
+#[derive(Clone)]
+pub struct NativeCompileDiagnostic {
+    pub code: String,
+    pub node_index: Option<u32>,
+    pub edge_index: Option<u32>,
+    pub operator_id: Option<String>,
+    pub operator_instance_id: Option<String>,
+    pub node_type_id: Option<String>,
+    pub source_type_id: Option<String>,
+    pub port_name: Option<String>,
+    pub direction: Option<String>,
+    pub expected: Option<String>,
+    pub actual: Option<String>,
+}
+
+#[napi(object)]
+#[derive(Clone)]
+pub struct NativeStartFailure {
+    pub code: String,
+    pub message: String,
+    pub diagnostic: Option<NativeCompileDiagnostic>,
+}
+
+#[napi(js_name = "NativeStartResult")]
+pub struct NativeStartResult {
+    running: Option<NativeRunningSession>,
+    failure: Option<NativeStartFailure>,
+}
+
+#[napi]
+impl NativeStartResult {
+    #[napi(getter)]
+    pub fn failure(&self) -> Option<NativeStartFailure> {
+        self.failure.clone()
+    }
+
+    #[napi]
+    pub fn take_running(&mut self) -> Option<NativeRunningSession> {
+        self.running.take()
+    }
+}
+
 #[napi(js_name = "NativeEndpoint")]
 pub struct NativeEndpoint {
-    session_id: u64,
-    handle: pocketstation::EndpointHandle,
+    pub(crate) session_id: u64,
+    pub(crate) handle: pocketstation::EndpointHandle,
 }
 
 #[napi]
@@ -89,12 +137,17 @@ impl NativeEndpoint {
     pub fn id(&self) -> String {
         self.handle.id().get().to_string()
     }
+
+    #[napi(getter)]
+    pub fn session_id(&self) -> String {
+        self.session_id.to_string()
+    }
 }
 
 #[napi(js_name = "NativeStem")]
 pub struct NativeStem {
-    session_id: u64,
-    handle: pocketstation::StemHandle,
+    pub(crate) session_id: u64,
+    pub(crate) handle: pocketstation::StemHandle,
 }
 
 #[napi]
@@ -105,7 +158,7 @@ impl NativeStem {
     }
 
     #[napi]
-    pub fn send(&self, endpoint: &NativeEndpoint) -> Result<String> {
+    pub fn send(&self, endpoint: &NativeEndpoint, input_port: Option<String>) -> Result<String> {
         if endpoint.session_id != self.session_id {
             return Err(error(
                 "session.mismatched_resource",
@@ -113,9 +166,41 @@ impl NativeStem {
             ));
         }
         self.handle
-            .send(endpoint.handle)
+            .send_to(endpoint.handle, input_port)
             .map(|route_id| route_id.get().to_string())
             .map_err(|failure| error("session.invalid_route", failure.to_string()))
+    }
+
+    #[napi]
+    pub fn connect(&self, input: &NativeOperatorInput) -> Result<String> {
+        self.connect_input(input)
+    }
+
+    #[napi]
+    pub fn through(
+        &self,
+        operator: &NativeOperator,
+        input_port: Option<String>,
+        output_port: Option<String>,
+    ) -> Result<crate::graph::NativeDerivedStream> {
+        self.through_operator(operator, input_port, output_port)
+    }
+
+    #[napi]
+    pub fn record(&self, name: String) -> Result<NativeEndpoint> {
+        if name.trim().is_empty() {
+            return Err(error(
+                "session.invalid_recording_name",
+                "recording name cannot be empty",
+            ));
+        }
+        self.handle
+            .record(name)
+            .map(|handle| NativeEndpoint {
+                session_id: self.session_id,
+                handle,
+            })
+            .map_err(|failure| error("session.invalid_recording", failure.to_string()))
     }
 }
 
@@ -133,6 +218,7 @@ impl NativeSession {
             sample_rate_hz: None,
             channels: None,
             frame_duration_ms: None,
+            recording_root: None,
         });
         let sample_rate_hz = options.sample_rate_hz.unwrap_or(48_000);
         let channels = options.channels.unwrap_or(1);
@@ -152,14 +238,23 @@ impl NativeSession {
                 ))
             }
         };
-        let session = pocketstation::Session::builder()
+        let mut builder = pocketstation::Session::builder()
             .sample_spec(pocketstation::SampleSpec::new(
                 sample_rate_hz,
                 channels,
                 pocketstation::SampleFormat::F32Interleaved,
             ))
-            .audio_frame_duration(frame_duration)
-            .build();
+            .audio_frame_duration(frame_duration);
+        if let Some(recording_root) = options.recording_root {
+            if recording_root.trim().is_empty() {
+                return Err(error(
+                    "session.invalid_recording_root",
+                    "recordingRoot cannot be empty",
+                ));
+            }
+            builder = builder.recording_root(recording_root);
+        }
+        let session = builder.build();
         let session_id = session.id().get();
         Ok(Self {
             session: Arc::new(Mutex::new(Some(session))),
@@ -190,6 +285,45 @@ impl NativeSession {
         self.with_session(|session| {
             session
                 .polled_audio()
+                .map(|handle| NativeEndpoint {
+                    session_id: self.session_id,
+                    handle,
+                })
+                .map_err(|failure| error("session.invalid_endpoint", failure.to_string()))
+        })
+    }
+
+    #[napi]
+    pub fn audio_with_route(&self, route: &NativeRouteSettings) -> Result<NativeEndpoint> {
+        self.with_session(|session| {
+            session
+                .polled_audio_with_route_settings(route.value)
+                .map(|handle| NativeEndpoint {
+                    session_id: self.session_id,
+                    handle,
+                })
+                .map_err(|failure| error("session.invalid_endpoint", failure.to_string()))
+        })
+    }
+
+    #[napi]
+    pub fn operator(&self, operator: &NativeOperator) -> Result<NativeOperatorInstance> {
+        self.with_session(|session| {
+            session
+                .operator(operator.value.clone())
+                .map(|handle| NativeOperatorInstance {
+                    session_id: self.session_id,
+                    handle,
+                })
+                .map_err(|failure| error("session.invalid_operator", failure.to_string()))
+        })
+    }
+
+    #[napi]
+    pub fn endpoint(&self, definition: &NativeEndpointDefinition) -> Result<NativeEndpoint> {
+        self.with_session(|session| {
+            session
+                .endpoint(definition.value.clone())
                 .map(|handle| NativeEndpoint {
                     session_id: self.session_id,
                     handle,
@@ -238,8 +372,8 @@ pub struct StartTask {
 }
 
 impl Task for StartTask {
-    type Output = NativeRunningSession;
-    type JsValue = NativeRunningSession;
+    type Output = NativeStartResult;
+    type JsValue = NativeStartResult;
 
     fn compute(&mut self) -> Result<Self::Output> {
         let session = self
@@ -248,14 +382,46 @@ impl Task for StartTask {
             .map_err(|_| state_unavailable("Session"))?
             .take()
             .ok_or_else(|| error("session.draft_frozen", "Session has already started"))?;
-        let running = session
-            .start()
-            .map_err(|failure| error("session.start_failed", failure.to_string()))?;
-        NativeRunningSession::spawn(running, self.session_id)
+        match session.start() {
+            Ok(running) => NativeRunningSession::spawn(running, self.session_id).map(|running| {
+                NativeStartResult {
+                    running: Some(running),
+                    failure: None,
+                }
+            }),
+            Err(failure) => Ok(NativeStartResult {
+                running: None,
+                failure: Some(project_start_failure(&failure)),
+            }),
+        }
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
         Ok(output)
+    }
+}
+
+fn project_start_failure(failure: &pocketstation::SessionStartError) -> NativeStartFailure {
+    NativeStartFailure {
+        code: failure.code().as_str().to_owned(),
+        message: failure.message().to_owned(),
+        diagnostic: failure
+            .compile_diagnostic()
+            .map(|diagnostic| NativeCompileDiagnostic {
+                code: diagnostic.code().to_owned(),
+                node_index: diagnostic.node_index(),
+                edge_index: diagnostic.edge_index(),
+                operator_id: diagnostic.operator_id().map(str::to_owned),
+                operator_instance_id: diagnostic
+                    .operator_instance_id()
+                    .map(|value| value.to_string()),
+                node_type_id: diagnostic.node_type_id().map(str::to_owned),
+                source_type_id: diagnostic.source_type_id().map(str::to_owned),
+                port_name: diagnostic.port_name().map(str::to_owned),
+                direction: diagnostic.direction().map(str::to_owned),
+                expected: diagnostic.expected().map(str::to_owned),
+                actual: diagnostic.actual().map(str::to_owned),
+            }),
     }
 }
 

@@ -40,7 +40,13 @@ try {
   const source = `
     import {
       CapturePermissionLifecycle,
+      DeliveryPolicy,
+      MediaCaps,
+      Operator,
+      RouteSettings,
       Session,
+      SessionStartError,
+      SignalSpec,
       Source,
       discoverSources,
       microphonePermissionObservation,
@@ -64,12 +70,28 @@ try {
     Source.microphone('missing-device');
     const session = new Session({ frameDurationMs: 10 });
     const application = session.capture(Source.application('__pks_missing_application__'));
-    application.send(session.audio());
+    const delivery = DeliveryPolicy.realtimeAudio().withQueuePressure('drop-newest');
+    const route = RouteSettings.create(MediaCaps.audio({ frameSamples: 480 }), delivery);
+    application.send(session.audio(route));
+    if (SignalSpec.audio().wireId !== 'pks.signal.pcm-audio.v1') {
+      throw new Error('native SignalSpec did not resolve through Core');
+    }
     try {
       await session.start();
       throw new Error('missing application unexpectedly started');
     } catch (error) {
-      if (error?.code !== 'session.start_failed') throw error;
+      if (error?.code !== 'capture.backend_failed') throw error;
+    }
+    const invalid = new Session();
+    const desktop = invalid.capture(Source.systemAudio());
+    desktop.through(new Operator('org.example.missing.v1')).send(invalid.audio());
+    try {
+      await invalid.start();
+      throw new Error('unknown Operator unexpectedly compiled');
+    } catch (error) {
+      if (!(error instanceof SessionStartError)) throw error;
+      if (error.code !== 'session.compile_failed') throw error;
+      if (error.diagnostic?.code !== 'compile.unknown_async_operator') throw error;
     }
     const browser = await import('pocketstation/browser');
     if (typeof browser.RelaySession !== 'function') {
