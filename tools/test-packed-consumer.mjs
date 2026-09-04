@@ -38,7 +38,30 @@ try {
   );
 
   const source = `
-    import { Session, Source } from 'pocketstation/node';
+    import {
+      CapturePermissionLifecycle,
+      Session,
+      Source,
+      discoverSources,
+      microphonePermissionObservation,
+    } from 'pocketstation/node';
+    const sources = await discoverSources();
+    if (sources.length === 0) throw new Error('native discovery returned no sources');
+    const permission = await microphonePermissionObservation();
+    if (typeof permission !== 'string') throw new Error('permission observation is not typed');
+    const lifecycle = new CapturePermissionLifecycle(permission);
+    if (lifecycle.permissionEpoch !== 1n) throw new Error('invalid permission epoch');
+    Source.applicationName('PocketStation missing application');
+    Source.applicationId('io.pocketstation.missing');
+    Source.applicationProcessId(42);
+    Source.applicationStableId({ platform: 'macos', kind: 'application', stableKey: 'missing' });
+    Source.application({
+      processId: 42,
+      stableId: { platform: 'macos', kind: 'application', stableKey: 'missing' },
+    });
+    Source.systemAudio();
+    Source.defaultMicrophone();
+    Source.microphone('missing-device');
     const session = new Session({ frameDurationMs: 10 });
     const application = session.capture(Source.application('__pks_missing_application__'));
     application.send(session.audio());

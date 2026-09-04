@@ -18,6 +18,7 @@ const STOP_RESULT: NativeStopResult = {
   lineageFailuresTotal: '0',
   sourceSendRejectionsTotal: '0',
   runtimeEventsTotal: '0',
+  remainingEvents: [],
 };
 
 function nativeReader(reads: NativeAudioRead[]): NativeRunningSessionHandle {
@@ -25,6 +26,7 @@ function nativeReader(reads: NativeAudioRead[]): NativeRunningSessionHandle {
     sessionId: '1',
     readAudio: async () =>
       reads.shift() ?? { frames: [], sessionState: 'stopped' },
+    readEvent: async () => ({ sessionState: 'stopped' }),
     stop: async () => STOP_RESULT,
     cancel: async () => STOP_RESULT,
   };

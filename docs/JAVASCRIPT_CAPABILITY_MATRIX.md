@@ -8,14 +8,14 @@ the named behavior. `PARTIAL` names the cases that work and leaves the missing
 cases visible. Browser tests that replace the service with mocked fetch remain
 `MOCKED`.
 
-| Area | Rust 1.1.10 | Python 0.1.4 | JavaScript before this task | JavaScript owner |
+| Area | Rust 1.1.10 | Python 0.1.4 | JavaScript now | JavaScript owner |
 |---|---|---|---|---|
 | Session declaration and start | `REAL` | `REAL` | `PARTIAL`; native start and typed failure pass on macOS | `src/node/session.ts`, `native/src/session.rs` |
 | Application Source, including exact smart string selection | `REAL` | `REAL` | `PARTIAL`; declaration and physical macOS capture pass | `src/node/sources.ts`, `native/src/sources.rs` |
-| Explicit microphone Source | `REAL` | `REAL` | `PARTIAL`; declaration works, physical proof pending | source lifecycle wave |
-| Explicit system-audio Source | `REAL` | `REAL` | `PARTIAL`; declaration works, physical proof pending | source lifecycle wave |
-| Source discovery and permission observations | `REAL` | `REAL` | absent | source lifecycle wave |
-| Stable Source identity and process-instance selection | `REAL` | `REAL` | absent | source lifecycle wave |
+| Explicit microphone Source | `REAL` | `REAL` | `PARTIAL`; default and stable device declarations work, physical proof pending | `src/node/sources.ts`, `native/src/sources.rs` |
+| Explicit system-audio Source | `REAL` | `REAL` | `PARTIAL`; declaration and real local Session start pass, audio proof pending | `src/node/sources.ts`, `native/src/sources.rs` |
+| Source discovery and permission observations | `REAL` | `REAL` | `REAL` on the local macOS host; target evidence pending | `src/node/sources.ts`, `native/src/sources.rs` |
+| Stable Source identity and process-instance selection | `REAL` | `REAL` | `REAL`; exact 64-bit identity and all Core selection forms pass | `src/node/sources.ts`, `native/src/sources.rs` |
 | Source-aware audio frames and full lineage | `REAL` | `REAL` | `PARTIAL`; macOS application frames preserve all current Core fields | `src/node/streams.ts`, `native/src/streams.rs` |
 | 10 ms and 20 ms frame profiles | `REAL` | `REAL` | `PARTIAL`; both declare, physical 10 ms macOS proof passes with unreleased Core fix | `src/node/session.ts`, native Session construction |
 | Exclusive async stream readers | `REAL` | `REAL` | `REAL`; direct reads and iteration reject a concurrent reader | stream protocols wave |
@@ -28,7 +28,7 @@ cases visible. Browser tests that replace the service with mocked fetch remain
 | Class and function Connector authoring | `REAL` | `REAL` | absent | provider-authoring wave |
 | Source and Operator authoring | `REAL` | `REAL` | absent | provider-authoring wave |
 | Recording and per-stem outcomes | `REAL` | `REAL` | absent | graph and observation waves |
-| Events, metrics, traces, and terminal outcomes | `REAL` | `REAL` | absent | observation wave |
+| Events, metrics, traces, and terminal outcomes | `REAL` | `REAL` | `PARTIAL`; lifecycle, source, Endpoint, rollback, finalization, and terminal events work; metrics and traces remain | `src/node/events.ts`, observation wave |
 | Native extension libraries | `REAL` | `REAL` | absent | extensions and sidecars wave |
 | Managed sidecars | `REAL` | `REAL` | absent | extensions and sidecars wave |
 | Shared Relay publication | `REAL` | `REAL` | absent in Node | Relay workflow wave |

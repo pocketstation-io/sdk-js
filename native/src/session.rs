@@ -1,18 +1,57 @@
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use napi::bindgen_prelude::AsyncTask;
 use napi::{Env, Result, Task};
 use napi_derive::napi;
 
 use crate::errors::{error, state_unavailable};
-use crate::sources::NativeSource;
+use crate::sources::{platform_name, source_kind_name, NativeSource};
 use crate::streams::{copy_audio, NativeAudioRead};
 
 const COMMAND_CAPACITY_COUNT: usize = 8;
 const MAXIMUM_AUDIO_WAIT_MS: u32 = 1_000;
+
+#[napi(object)]
+pub struct NativeSessionEvent {
+    pub event_type: String,
+    pub session_id: String,
+    pub session_state: Option<String>,
+    pub source_event_kind: Option<String>,
+    pub stem_id: Option<String>,
+    pub source_platform: Option<String>,
+    pub source_kind: Option<String>,
+    pub source_stable_key: Option<String>,
+    pub source_id: Option<String>,
+    pub source_generation: Option<u32>,
+    pub source_recovery_requirement: Option<String>,
+    pub source_failure_operation: Option<String>,
+    pub source_failure_class: Option<String>,
+    pub source_platform_status_code: Option<i32>,
+    pub source_backend_class: Option<String>,
+    pub route_id: Option<String>,
+    pub endpoint_id: Option<String>,
+    pub failure_stage: Option<String>,
+    pub failure_message: Option<String>,
+    pub failure_code: Option<String>,
+    pub failure_retryability: Option<String>,
+    pub component_kind: Option<String>,
+    pub component_id: Option<String>,
+    pub failure_operation: Option<String>,
+    pub failure_error_class: Option<String>,
+    pub source_failures_total: Option<String>,
+    pub endpoint_failures_total: Option<String>,
+    pub rollback_failures_total: Option<String>,
+    pub finalization_failures_total: Option<String>,
+}
+
+#[napi(object)]
+pub struct NativeEventRead {
+    pub event: Option<NativeSessionEvent>,
+    pub session_state: String,
+}
 
 #[napi(object)]
 pub struct NativeSessionOptions {
@@ -35,6 +74,7 @@ pub struct NativeStopResult {
     pub lineage_failures_total: String,
     pub source_send_rejections_total: String,
     pub runtime_events_total: String,
+    pub remaining_events: Vec<NativeSessionEvent>,
 }
 
 #[napi(js_name = "NativeEndpoint")]
@@ -224,6 +264,10 @@ enum SessionCommand {
         timeout: Duration,
         response: SyncSender<Result<NativeAudioRead>>,
     },
+    ReadEvent {
+        timeout: Duration,
+        response: SyncSender<Result<NativeEventRead>>,
+    },
     Stop {
         response: SyncSender<NativeStopResult>,
     },
@@ -262,6 +306,20 @@ impl NativeRunningSession {
         let commands = self.commands()?;
         Ok(AsyncTask::new(ReadAudioTask {
             commands,
+            timeout: Duration::from_millis(u64::from(timeout_ms)),
+        }))
+    }
+
+    #[napi]
+    pub fn read_event(&self, timeout_ms: u32) -> Result<AsyncTask<ReadEventTask>> {
+        if timeout_ms > MAXIMUM_AUDIO_WAIT_MS {
+            return Err(error(
+                "stream.invalid_timeout",
+                "timeoutMs must be between 0 and 1000",
+            ));
+        }
+        Ok(AsyncTask::new(ReadEventTask {
+            commands: self.commands()?,
             timeout: Duration::from_millis(u64::from(timeout_ms)),
         }))
     }
@@ -319,6 +377,36 @@ impl NativeRunningSession {
             .map_err(|_| state_unavailable("running Session"))?
             .take()
             .ok_or_else(|| error("session.stopped", "Session has stopped"))
+    }
+}
+
+pub struct ReadEventTask {
+    commands: SyncSender<SessionCommand>,
+    timeout: Duration,
+}
+
+impl Task for ReadEventTask {
+    type Output = NativeEventRead;
+    type JsValue = NativeEventRead;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        let (response, receiver) = sync_channel(1);
+        self.commands
+            .send(SessionCommand::ReadEvent {
+                timeout: self.timeout,
+                response,
+            })
+            .map_err(|_| error("session.stopped", "native Session worker has stopped"))?;
+        receiver.recv().map_err(|_| {
+            error(
+                "session.worker_stopped",
+                "native Session worker did not return an event",
+            )
+        })?
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output)
     }
 }
 
@@ -428,8 +516,16 @@ fn session_worker(mut running: pocketstation::RunningSession, receiver: Receiver
                     .map_err(|failure| error("stream.read_failed", failure));
                 let _ = response.send(frames);
             }
+            SessionCommand::ReadEvent { timeout, response } => {
+                let event = read_event(&running, timeout).map(|event| NativeEventRead {
+                    event,
+                    session_state: lifecycle_state_name(running.state()).to_owned(),
+                });
+                let _ = response.send(event);
+            }
             SessionCommand::Stop { response } => {
                 let stop = running.stop();
+                let remaining_events = drain_events(&running);
                 let _ = response.send(stop_result(
                     &running,
                     stop.is_success(),
@@ -439,11 +535,13 @@ fn session_worker(mut running: pocketstation::RunningSession, receiver: Receiver
                     ),
                     "stopped",
                     &stop.outcome(),
+                    remaining_events,
                 ));
                 return;
             }
             SessionCommand::Cancel { response } => {
                 let cancel = running.cancel();
+                let remaining_events = drain_events(&running);
                 let _ = response.send(stop_result(
                     &running,
                     cancel.is_success(),
@@ -453,6 +551,7 @@ fn session_worker(mut running: pocketstation::RunningSession, receiver: Receiver
                     ),
                     "cancelled",
                     &cancel.outcome(),
+                    remaining_events,
                 ));
                 return;
             }
@@ -465,12 +564,241 @@ fn session_worker(mut running: pocketstation::RunningSession, receiver: Receiver
     let _ = running.stop();
 }
 
+fn read_event(
+    running: &pocketstation::RunningSession,
+    timeout: Duration,
+) -> Result<Option<NativeSessionEvent>> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        match running.try_recv_event() {
+            pocketstation::SessionEventReceive::Event(event) => {
+                return Ok(Some(project_session_event(&event)))
+            }
+            pocketstation::SessionEventReceive::Closed => return Ok(None),
+            pocketstation::SessionEventReceive::Empty if Instant::now() >= deadline => {
+                return Ok(None)
+            }
+            pocketstation::SessionEventReceive::Empty => {
+                thread::sleep(Duration::from_millis(1));
+            }
+        }
+    }
+}
+
+fn drain_events(running: &pocketstation::RunningSession) -> Vec<NativeSessionEvent> {
+    let mut events = Vec::new();
+    while let pocketstation::SessionEventReceive::Event(event) = running.try_recv_event() {
+        events.push(project_session_event(&event));
+    }
+    events
+}
+
+fn empty_event(event_type: &str, session_id: u64) -> NativeSessionEvent {
+    NativeSessionEvent {
+        event_type: event_type.to_owned(),
+        session_id: session_id.to_string(),
+        session_state: None,
+        source_event_kind: None,
+        stem_id: None,
+        source_platform: None,
+        source_kind: None,
+        source_stable_key: None,
+        source_id: None,
+        source_generation: None,
+        source_recovery_requirement: None,
+        source_failure_operation: None,
+        source_failure_class: None,
+        source_platform_status_code: None,
+        source_backend_class: None,
+        route_id: None,
+        endpoint_id: None,
+        failure_stage: None,
+        failure_message: None,
+        failure_code: None,
+        failure_retryability: None,
+        component_kind: None,
+        component_id: None,
+        failure_operation: None,
+        failure_error_class: None,
+        source_failures_total: None,
+        endpoint_failures_total: None,
+        rollback_failures_total: None,
+        finalization_failures_total: None,
+    }
+}
+
+fn project_session_event(event: &pocketstation::SessionEvent) -> NativeSessionEvent {
+    let session_id = event.session_id().get();
+    match event.kind() {
+        pocketstation::SessionEventKind::Lifecycle(state) => {
+            let mut result = empty_event("lifecycle", session_id);
+            result.session_state = Some(lifecycle_state_name(*state).to_owned());
+            result
+        }
+        pocketstation::SessionEventKind::Source(failure) => {
+            let (event_kind, stable_id, generation, recovery, runtime_failure) =
+                match failure.event() {
+                    pocketstation::SourceRuntimeEvent::SourceUnavailable {
+                        stable_id,
+                        generation,
+                        recovery_requirement,
+                        failure,
+                    } => (
+                        "source-unavailable",
+                        stable_id,
+                        generation.0,
+                        Some(match recovery_requirement {
+                            pocketstation::SourceRecoveryRequirement::ExplicitRediscoveryAndNewSession => {
+                                "explicit-rediscovery-and-new-session"
+                            }
+                        }),
+                        failure,
+                    ),
+                    pocketstation::SourceRuntimeEvent::BackendFailure {
+                        stable_id,
+                        generation,
+                        failure,
+                    } => ("backend-failure", stable_id, generation.0, None, failure),
+                };
+            let mut result = empty_event("source-failure", session_id);
+            result.source_event_kind = Some(event_kind.to_owned());
+            result.stem_id = Some(failure.stem_id().get().to_string());
+            result.source_platform = Some(platform_name(stable_id.platform).to_owned());
+            result.source_kind = Some(source_kind_name(stable_id.kind).to_owned());
+            result.source_stable_key = Some(stable_id.stable_key.clone());
+            result.source_id = Some(stable_id.source_id().get().to_string());
+            result.source_generation = Some(generation);
+            result.source_recovery_requirement = recovery.map(str::to_owned);
+            result.source_failure_operation = Some(runtime_failure.operation.to_owned());
+            match &runtime_failure.error_class {
+                pocketstation::CaptureRuntimeFailureClass::SourceInstanceExited => {
+                    result.source_failure_class = Some("source-instance-exited".to_owned());
+                }
+                pocketstation::CaptureRuntimeFailureClass::PlatformStatus { status_code } => {
+                    result.source_failure_class = Some("platform-status".to_owned());
+                    result.source_platform_status_code = Some(*status_code);
+                }
+                pocketstation::CaptureRuntimeFailureClass::BackendClass { class } => {
+                    result.source_failure_class = Some("backend-class".to_owned());
+                    result.source_backend_class = Some(class.clone());
+                }
+            }
+            result
+        }
+        pocketstation::SessionEventKind::Endpoint(failure) => {
+            let mut result = empty_event("endpoint-failure", session_id);
+            result.route_id = Some(failure.route_id().get().to_string());
+            result.endpoint_id = Some(failure.endpoint_id().get().to_string());
+            result.failure_stage = Some(endpoint_stage_name(failure.stage()).to_owned());
+            result.failure_message = Some(failure.failure().message().to_owned());
+            result.failure_code = failure.failure().code().map(str::to_owned);
+            result.failure_retryability = failure
+                .failure()
+                .retryability()
+                .map(endpoint_retryability_name)
+                .map(str::to_owned);
+            result
+        }
+        pocketstation::SessionEventKind::Rollback(failure) => {
+            let mut result = empty_event("rollback-failure", session_id);
+            result.failure_stage = Some(debug_name(failure.stage()));
+            project_control_failure(&mut result, failure.failure());
+            result
+        }
+        pocketstation::SessionEventKind::Finalization(failure) => {
+            let mut result = empty_event("finalization-failure", session_id);
+            result.failure_stage = Some(debug_name(failure.stage()));
+            project_control_failure(&mut result, failure.failure());
+            result
+        }
+        pocketstation::SessionEventKind::Terminal(outcome) => {
+            let mut result = empty_event("terminal", session_id);
+            result.session_state = Some(
+                match outcome.state() {
+                    pocketstation::SessionTerminalState::Stopped => "stopped",
+                    pocketstation::SessionTerminalState::Failed => "failed",
+                }
+                .to_owned(),
+            );
+            result.source_failures_total = Some(outcome.source_failures().len().to_string());
+            result.endpoint_failures_total = Some(outcome.endpoint_failures().len().to_string());
+            result.rollback_failures_total = Some(outcome.rollback_failures().len().to_string());
+            result.finalization_failures_total =
+                Some(outcome.finalization_failures().len().to_string());
+            result
+        }
+    }
+}
+
+fn project_control_failure(
+    result: &mut NativeSessionEvent,
+    failure: &pocketstation::SessionControlFailure,
+) {
+    let (kind, id) = match failure.component() {
+        pocketstation::SessionComponentId::Source { stem_id } => {
+            ("source", stem_id.get().to_string())
+        }
+        pocketstation::SessionComponentId::Endpoint {
+            route_id,
+            endpoint_id,
+        } => (
+            "endpoint",
+            format!("{}:{}", route_id.get(), endpoint_id.get()),
+        ),
+        pocketstation::SessionComponentId::Operator {
+            operator_instance_id,
+        } => ("operator", operator_instance_id.value().to_string()),
+        pocketstation::SessionComponentId::Sidecar { sidecar_id } => {
+            ("sidecar", sidecar_id.to_string())
+        }
+        pocketstation::SessionComponentId::Runtime => ("runtime", "0".to_owned()),
+    };
+    result.component_kind = Some(kind.to_owned());
+    result.component_id = Some(id);
+    result.failure_operation = Some(failure.operation().to_owned());
+    result.failure_error_class = Some(failure.error_class().to_owned());
+}
+
+const fn endpoint_stage_name(stage: pocketstation::EndpointFailureStage) -> &'static str {
+    match stage {
+        pocketstation::EndpointFailureStage::Prepare => "prepare",
+        pocketstation::EndpointFailureStage::CancelPreparation => "cancel-preparation",
+        pocketstation::EndpointFailureStage::Start => "start",
+        pocketstation::EndpointFailureStage::RequestStop => "request-stop",
+        pocketstation::EndpointFailureStage::JoinFinalize => "join-finalize",
+    }
+}
+
+const fn endpoint_retryability_name(
+    value: pocketstation::EndpointFailureRetryability,
+) -> &'static str {
+    match value {
+        pocketstation::EndpointFailureRetryability::Never => "never",
+        pocketstation::EndpointFailureRetryability::Retryable => "retryable",
+        pocketstation::EndpointFailureRetryability::ReconfigurationRequired => {
+            "reconfiguration-required"
+        }
+    }
+}
+
+fn debug_name(value: impl std::fmt::Debug) -> String {
+    let mut output = String::new();
+    for (index, character) in format!("{value:?}").chars().enumerate() {
+        if character.is_ascii_uppercase() && index > 0 {
+            output.push('-');
+        }
+        output.push(character.to_ascii_lowercase());
+    }
+    output
+}
+
 fn stop_result(
     running: &pocketstation::RunningSession,
     success: bool,
     already_stopped: bool,
     disposition: &str,
     outcome: &pocketstation::SessionStopOutcome,
+    remaining_events: Vec<NativeSessionEvent>,
 ) -> NativeStopResult {
     NativeStopResult {
         success,
@@ -495,6 +823,7 @@ fn stop_result(
         lineage_failures_total: outcome.lineage_failures_total().to_string(),
         source_send_rejections_total: outcome.source_send_rejections_total().to_string(),
         runtime_events_total: outcome.runtime_events_total().to_string(),
+        remaining_events,
     }
 }
 

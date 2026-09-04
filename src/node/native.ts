@@ -4,8 +4,75 @@ export interface NativeSourceHandle {}
 
 export interface NativeSourceConstructor {
   application(nameOrApplicationId: string): NativeSourceHandle;
+  applicationName(name: string): NativeSourceHandle;
+  applicationId(applicationId: string): NativeSourceHandle;
+  applicationProcessId(processId: number): NativeSourceHandle;
+  applicationStableId(platform: string, stableKey: string): NativeSourceHandle;
+  applicationProcessInstance(
+    processId: number,
+    platform: string,
+    stableKey: string,
+  ): NativeSourceHandle;
   systemAudio(): NativeSourceHandle;
   defaultMicrophone(): NativeSourceHandle;
+  microphoneId(deviceId: string): NativeSourceHandle;
+}
+
+export interface NativeAuthorizationOptions {
+  osPermission?: string;
+  applicationPolicy?: string;
+  sessionGrant?: string;
+  permissionEpoch?: string;
+}
+
+export interface NativeCaptureAuthorizationSnapshot {
+  capability: string;
+  osPermission: string;
+  applicationPolicy: string;
+  sessionGrant: string;
+  captureScope: string;
+  scopeStableId?: string | null;
+  identityStrength: string;
+  permissionEpoch: string;
+  observedAtNs: string;
+  openOutcome: string;
+}
+
+export interface NativeDiscoveredSourceHandle {
+  readonly platform: string;
+  readonly kind: string;
+  readonly stableKey: string;
+  readonly sourceId: string;
+  readonly name: string;
+  readonly processId?: number | null;
+  readonly applicationId?: string | null;
+  readonly deviceUid?: string | null;
+  readonly state: string;
+  readonly sampleRateHz: number;
+  readonly channelCount: number;
+  readonly identityStrength: string;
+  readonly selectorPersistenceScope?: string | null;
+  readonly processTreeScope?: string | null;
+  authorizationBeforeOpen(
+    options?: NativeAuthorizationOptions,
+  ): NativeCaptureAuthorizationSnapshot;
+}
+
+export interface NativeCapturePermissionTransition {
+  kind: string;
+  previous: string;
+  current: string;
+  permissionEpoch: string;
+}
+
+export interface NativeCapturePermissionLifecycleHandle {
+  readonly current: string;
+  readonly permissionEpoch: string;
+  observe(current: string): NativeCapturePermissionTransition | null | undefined;
+}
+
+interface NativeCapturePermissionLifecycleConstructor {
+  new (current: string): NativeCapturePermissionLifecycleHandle;
 }
 
 export interface NativeEndpointHandle {
@@ -48,6 +115,43 @@ export interface NativeAudioRead {
   sessionState: string;
 }
 
+export interface NativeSessionEvent {
+  eventType: string;
+  sessionId: string;
+  sessionState?: string | null;
+  sourceEventKind?: string | null;
+  stemId?: string | null;
+  sourcePlatform?: string | null;
+  sourceKind?: string | null;
+  sourceStableKey?: string | null;
+  sourceId?: string | null;
+  sourceGeneration?: number | null;
+  sourceRecoveryRequirement?: string | null;
+  sourceFailureOperation?: string | null;
+  sourceFailureClass?: string | null;
+  sourcePlatformStatusCode?: number | null;
+  sourceBackendClass?: string | null;
+  routeId?: string | null;
+  endpointId?: string | null;
+  failureStage?: string | null;
+  failureMessage?: string | null;
+  failureCode?: string | null;
+  failureRetryability?: string | null;
+  componentKind?: string | null;
+  componentId?: string | null;
+  failureOperation?: string | null;
+  failureErrorClass?: string | null;
+  sourceFailuresTotal?: string | null;
+  endpointFailuresTotal?: string | null;
+  rollbackFailuresTotal?: string | null;
+  finalizationFailuresTotal?: string | null;
+}
+
+export interface NativeEventRead {
+  event?: NativeSessionEvent | null;
+  sessionState: string;
+}
+
 export interface NativeStopResult {
   success: boolean;
   alreadyStopped: boolean;
@@ -61,11 +165,13 @@ export interface NativeStopResult {
   lineageFailuresTotal: string;
   sourceSendRejectionsTotal: string;
   runtimeEventsTotal: string;
+  remainingEvents: NativeSessionEvent[];
 }
 
 export interface NativeRunningSessionHandle {
   readonly sessionId: string;
   readAudio(timeoutMs: number): Promise<NativeAudioRead>;
+  readEvent(timeoutMs: number): Promise<NativeEventRead>;
   stop(): Promise<NativeStopResult>;
   cancel(): Promise<NativeStopResult>;
 }
@@ -88,6 +194,13 @@ interface NativeSessionConstructor {
 export interface NativeAddon {
   NativeSource: NativeSourceConstructor;
   NativeSession: NativeSessionConstructor;
+  NativeCapturePermissionLifecycle: NativeCapturePermissionLifecycleConstructor;
+  discoverSources(
+    queryKind?: string,
+    value?: string,
+  ): Promise<NativeDiscoveredSourceHandle[]>;
+  applicationCaptureAvailable(): boolean;
+  microphonePermissionObservation(): Promise<string>;
 }
 
 const require = createRequire(import.meta.url);

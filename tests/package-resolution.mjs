@@ -4,6 +4,10 @@ const node = await import('pocketstation/node');
 assert.equal(typeof node.Session, 'function');
 assert.equal(typeof node.Source, 'function');
 assert.equal(typeof node.RunningSession, 'function');
+assert.equal(typeof node.discoverSources, 'function');
+assert.equal(typeof node.microphonePermissionObservation, 'function');
+assert.equal(typeof node.CapturePermissionLifecycle, 'function');
+assert.equal(typeof node.EventStream, 'function');
 
 const browser = await import('pocketstation/browser');
 assert.equal(typeof browser.RelaySession, 'function');
