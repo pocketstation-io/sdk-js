@@ -1,18 +1,17 @@
 # JavaScript SDK progress
 
-## Active work
+## Completed work
 
-`W21-JAVASCRIPT-GRAPH-DECLARATIONS` is active under the recorded
+`W21-JAVASCRIPT-APPLICATION-AUDIO-INGRESS` is complete under the recorded
 `phase-exception-approved` decision.
 
 The repository now contains a browser Relay client and the first working Node
 binding for native capture. It must not yet be described as feature-equivalent
 to the Rust or Python packages.
 
-This step projects Core signals, media requirements, named ports, route
-settings, Operators, Endpoints, recording, generated-audio reentry, and compiler
-diagnostics into strict TypeScript. Core remains the only compiler, recorder,
-and generated-audio owner.
+This step added application-owned PCM through `Float32Array` and explicit
+float32-LE `Buffer` writes. Core remains the owner of capacity, source and
+stream identity, sequence, media time, discontinuities, routing, and shutdown.
 
 The current Node slice is:
 
@@ -50,6 +49,10 @@ callback and does not implement another media engine.
 - Recording: `PARTIAL`; a real local macOS system-audio Session captured five
   non-silent frames and finalized a 917,572-byte WAV with no recorded gaps or
   Session failures. Per-Stem outcome projection remains later observation work.
+- Application-owned PCM: `REAL` for the current component scope;
+  `Float32Array` and float32-LE `Buffer` inputs copy into Core-owned storage,
+  fixed capacity and typed failures are visible, `write()` has a finite timeout
+  and `AbortSignal`, and accepted frames preserve native identity and timing.
 - npm package: not published.
 
 The browser entry now uses `RelaySession`, shares `PocketStationError` with the
@@ -77,31 +80,31 @@ npm audit
 
 The installed-package gate packs the package into a new directory, installs
 only the tarball, loads the native addon, performs native discovery and
-permission inspection, declares each built-in Source form, validates native
-signal and route values, and verifies precise capture and compiler failures
-without opening a microphone.
+permission inspection, declares each built-in Source form, and validates native
+signal and route values. It also writes application-owned PCM through a real
+Core Session and verifies copied samples, source and stream identity,
+discontinuity, and clean shutdown. It does not open a microphone.
 
-## Staff Bar Self-Check — JavaScript graph declarations
+## Staff Bar Self-Check — JavaScript application-owned PCM
 
-- Smallest correct design: yes — Core remains the source of signal validation,
-  media negotiation, compilation, recording, and generated-audio identity;
-  TypeScript provides immutable declarations and Session-scoped handles.
-- Tests added or updated: yes — signal validation, media negotiation, named
-  ports, route settings, cross-Session rejection, native compiler diagnostics,
-  recording, package exports, and a clean tarball consumer.
-- Hot-path safe: yes — Core remains authoritative and the addon copies frames
-  only after the native endpoint receives them.
-- Public API changed: yes — the unpublished Node entry gains signals, media
-  requirements, route settings, named Operator ports, native Endpoint
-  declarations, recording, generated-audio reentry, and compiler diagnostics.
-- New dependency: yes — the user-approved implementation uses released Core
-  `1.1.10`, napi-rs, and API Extractor for the public API report. No provider or
-  media-runtime dependency is added, and the installed package has no runtime
-  npm dependency.
+- Smallest correct design: yes — the addon borrows caller memory only during a
+  synchronous call and writes directly into Core-owned storage. JavaScript does
+  not own a media queue, clock, sequence, or Source identity.
+- Tests added or updated: yes — native and TypeScript tests cover sample copies,
+  both input representations, capacity, timeout, abort, invalid frames,
+  discontinuity, close, identity, timing, package exports, and a packed consumer.
+- Hot-path safe: yes — application writes happen outside capture callbacks and
+  no JavaScript function is called from a realtime partition.
+- Public API changed: yes — the unpublished Node entry gains `AudioInput`,
+  `SourceOutput`, typed write failures, observations, and Session composition.
+- New dependency: no — this work uses the existing released Core `1.1.10`,
+  napi-rs binding, API Extractor gate, and Node built-ins. The installed package
+  still has no runtime npm dependency.
 - Phase scope respected: yes — the execution task records
   `phase-exception-approved`.
 - Unsafe added: no.
-- Remaining risk: provider execution, typed signal consumption, per-Stem
+- Remaining risk: provider execution, selected-output cancellation, typed
+  signal consumption, per-Stem
   recording outcomes, target packages, and real Windows/Linux execution are
   later gates and must not be inferred from the local macOS run.
 
@@ -109,7 +112,7 @@ without opening a microphone.
 
 - provider packages or API keys;
 - Electron application code;
-- application-owned PCM, JavaScript Operator or Endpoint implementations,
-  Connectors, sidecars, extensions, Relay composition, or voice composition;
+- JavaScript Operator or Endpoint implementations, Connectors, sidecars,
+  extensions, Relay composition, or voice composition;
 - publication, tags, or version selection;
 - cross-platform or performance claims.

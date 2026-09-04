@@ -15,6 +15,10 @@ assert.equal(typeof node.RouteSettings, 'function');
 assert.equal(typeof node.Operator, 'function');
 assert.equal(typeof node.EndpointDefinition, 'function');
 assert.equal(typeof node.SessionStartError, 'function');
+assert.equal(typeof node.AudioInput, 'function');
+assert.equal(typeof node.AudioInputFullError, 'function');
+assert.equal(typeof node.AudioInputTimeoutError, 'function');
+assert.equal(typeof node.SourceOutput, 'function');
 
 const browser = await import('pocketstation/browser');
 assert.equal(typeof browser.RelaySession, 'function');

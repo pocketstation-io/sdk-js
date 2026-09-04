@@ -5,6 +5,23 @@
  */
 export { PocketStationError } from './errors.js';
 export {
+  AudioInput,
+  AudioInputAbortError,
+  AudioInputBufferError,
+  AudioInputCancelledError,
+  AudioInputClosedError,
+  AudioInputConfigurationError,
+  AudioInputError,
+  AudioInputFullError,
+  AudioInputTimeoutError,
+  type AudioInputConfig,
+  type AudioInputObservations,
+  type AudioInputOptions,
+  type AudioInputSamples,
+  type AudioInputTryWriteOptions,
+  type AudioInputWriteOptions,
+} from './application-audio.js';
+export {
   EventStream,
   type EndpointFailureEvent,
   type EventReadOptions,
@@ -54,6 +71,7 @@ export {
   RunningSession,
   Session,
   SessionStartError,
+  SourceOutput,
   Stem,
   type CompileDiagnostic,
   type SessionOptions,

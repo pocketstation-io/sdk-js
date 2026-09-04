@@ -7,6 +7,7 @@ use napi::bindgen_prelude::AsyncTask;
 use napi::{Env, Result, Task};
 use napi_derive::napi;
 
+use crate::application_audio::NativeAudioInput;
 use crate::errors::{error, state_unavailable};
 use crate::graph::{
     NativeEndpointDefinition, NativeOperator, NativeOperatorInput, NativeOperatorInstance,
@@ -277,6 +278,32 @@ impl NativeSession {
                     handle,
                 })
                 .map_err(|failure| error("session.invalid_source", failure.to_string()))
+        })
+    }
+
+    #[napi]
+    pub fn audio_input(
+        &self,
+        sample_rate_hz: u32,
+        channels: u8,
+        capacity_frames: u32,
+        frame_samples_per_channel: u32,
+    ) -> Result<NativeAudioInput> {
+        let configuration = pocketstation::AudioInputConfig::new(
+            pocketstation::SampleSpec::new(
+                sample_rate_hz,
+                channels,
+                pocketstation::SampleFormat::F32Interleaved,
+            ),
+            capacity_frames as usize,
+            frame_samples_per_channel as usize,
+        )
+        .map_err(|failure| error("audio_input.invalid_configuration", failure.to_string()))?;
+        self.with_session(|session| {
+            session
+                .audio_input(configuration)
+                .map(|input| NativeAudioInput::new(self.session_id, input))
+                .map_err(|failure| error("audio_input.invalid_configuration", failure.to_string()))
         })
     }
 

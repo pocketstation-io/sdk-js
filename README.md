@@ -12,7 +12,7 @@ so model calls and application work do not run on an audio callback.
 
 > The Node SDK is under active development and is not published to npm yet.
 > The current candidate has a real macOS selected-application capture proof.
-> Windows, Linux, recording, Connectors, Relay publication, and the remaining
+> Windows, Linux, Connectors, Relay publication, and the remaining
 > Rust/Python features still require implementation or target-specific proof.
 
 ## Capture an application
@@ -84,6 +84,31 @@ step; the current API does not pretend an unknown provider exists.
 
 Read [Route, process, and record media](docs/guides/compose-a-session.md) for
 named ports, generated audio, compiler diagnostics, and delivery settings.
+
+## Feed audio your application already has
+
+Use an `AudioInput` when a provider, network connection, decoder, or voice
+model already gives your application PCM:
+
+```ts
+const input = session.audioInput("agent audio");
+input.output.send(session.audio());
+await input.write(samples);
+input.close();
+```
+
+`samples` is normally a `Float32Array` containing one complete interleaved
+frame. A `Buffer` is also accepted when it contains little-endian IEEE 754
+float32 values. PocketStation copies an accepted frame before the write
+returns, so the producer can reuse its array immediately.
+
+The default input holds at most eight frames waiting for Core. `tryWrite()`
+reports `AudioInputFullError` immediately. `write()` waits up to one second and
+accepts an `AbortSignal`; timing out or aborting that wait does not close the
+input or stop the Session.
+
+Read [Feed application-owned PCM](docs/guides/application-audio.md) for format,
+capacity, discontinuity, cancellation, and shutdown behavior.
 
 ## Discover sources before capture
 

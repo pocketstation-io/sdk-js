@@ -45,6 +45,7 @@ describe('package structure', () => {
       .filter(Boolean);
 
     expect(nativeEntry).toEqual([
+      'mod application_audio;',
       'mod errors;',
       'mod graph;',
       'mod session;',

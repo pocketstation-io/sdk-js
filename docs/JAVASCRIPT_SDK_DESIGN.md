@@ -26,6 +26,22 @@ application.send(output);
 Several Sources can send to the same output. Frames retain the identity of the
 Source and Stem that produced them.
 
+## Application-owned PCM
+
+`session.audioInput(name)` declares a Source for PCM already produced by the
+application. Core creates its Source and stream identities, preallocates its
+frame storage, and assigns sequence numbers, media timestamps, and
+discontinuity epochs to accepted writes.
+
+`tryWrite()` borrows a `Float32Array` or float32-LE `Buffer` only for the native
+call and copies the samples into Core-owned storage before returning. It never
+retains mutable JavaScript memory. `write()` adds a finite wait for that same
+native capacity; it does not add another media queue.
+
+An input is closed independently from its Session. Closing it rejects new
+writes while previously accepted frames continue through normal shutdown. An
+`AbortSignal` stops only a pending `write()` call.
+
 ## Processing and destinations
 
 `SignalSpec`, `MediaCaps`, and `PortSpec` preserve the runtime identifiers used
@@ -129,7 +145,7 @@ claim follows from the macOS result.
 
 ## Later work
 
-The same ownership model extends to PCM input, Operator and Endpoint authoring,
-Connectors, typed signal consumption, metrics, traces, Relay, extensions,
+The same ownership model extends to Operator and Endpoint authoring, Connectors,
+typed signal consumption, metrics, traces, Relay, extensions,
 sidecars, and voice composition. Those modules are added only with working
 behavior and tests; empty parity files are not created.
