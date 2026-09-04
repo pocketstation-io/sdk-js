@@ -20,14 +20,14 @@ cases visible. Browser tests that replace the service with mocked fetch remain
 | 10 ms and 20 ms frame profiles | `REAL` | `REAL` | `PARTIAL`; both declare, physical 10 ms macOS proof passes with unreleased Core fix | `src/node/session.ts`, native Session construction |
 | Exclusive async stream readers | `REAL` | `REAL` | `REAL`; direct reads and iteration reject a concurrent reader | stream protocols wave |
 | Abort and deterministic stream close | `REAL` | `REAL` | `PARTIAL`; reader abort and final-frame delivery pass, target shutdown proof pending | stream protocols wave |
-| PCM application input and generated-audio reentry | `REAL` | `REAL` | absent | source lifecycle and graph waves |
+| PCM application input and generated-audio reentry | `REAL` | `REAL` | `PARTIAL`; generated-audio declarations lower through Core, application-owned PCM and real provider execution remain | provider-authoring wave |
 | Typed signals and `BusSubscription` | `REAL` | `REAL` | absent | graph and stream waves |
-| Operators with named typed ports | `REAL` | `REAL` | absent | graph wave |
-| Route settings, media requirements, and delivery policy | `REAL` | `REAL` | absent | graph wave |
-| Built-in and custom Endpoints | `REAL` | `REAL` | absent | graph and provider-authoring waves |
+| Operators with named typed ports | `REAL` | `REAL` | `PARTIAL`; declarations and native compiler diagnostics pass, JavaScript implementations remain | provider-authoring wave |
+| Route settings, media requirements, and delivery policy | `REAL` | `REAL` | `REAL` for declaration, native validation, compatibility, and negotiation | `src/node/graph.ts`, `native/src/graph.rs` |
+| Built-in and custom Endpoints | `REAL` | `REAL` | `PARTIAL`; Node audio, recording, and open native Endpoint declarations work; authoring remains | provider-authoring wave |
 | Class and function Connector authoring | `REAL` | `REAL` | absent | provider-authoring wave |
 | Source and Operator authoring | `REAL` | `REAL` | absent | provider-authoring wave |
-| Recording and per-stem outcomes | `REAL` | `REAL` | absent | graph and observation waves |
+| Recording and per-stem outcomes | `REAL` | `REAL` | `PARTIAL`; real local system-audio recording passes, typed per-Stem outcome remains | observation wave |
 | Events, metrics, traces, and terminal outcomes | `REAL` | `REAL` | `PARTIAL`; lifecycle, source, Endpoint, rollback, finalization, and terminal events work; metrics and traces remain | `src/node/events.ts`, observation wave |
 | Native extension libraries | `REAL` | `REAL` | absent | extensions and sidecars wave |
 | Managed sidecars | `REAL` | `REAL` | absent | extensions and sidecars wave |

@@ -46,6 +46,7 @@ describe('package structure', () => {
 
     expect(nativeEntry).toEqual([
       'mod errors;',
+      'mod graph;',
       'mod session;',
       'mod sources;',
       'mod streams;',

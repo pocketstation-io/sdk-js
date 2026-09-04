@@ -14,6 +14,13 @@ export type ApplicationPolicyObservation = 'allowed' | 'denied' | 'not-observabl
 export type ApplicationSelection = string | number | StableSourceId | ProcessInstanceSelector;
 
 // @public
+export interface AudioCaps {
+    readonly channelLayout?: ChannelLayout;
+    readonly frameSamples?: number;
+    readonly sampleRateHz?: number;
+}
+
+// @public
 export interface AudioFrame {
     readonly channelCount: number;
     readonly clockId: number;
@@ -62,6 +69,9 @@ export interface AuthorizationOptions {
 }
 
 // @public
+export type BinaryFormat = 'raw' | 'protobuf' | 'flatbuffers' | 'cbor';
+
+// @public
 export interface CaptureAuthorizationSnapshot {
     readonly applicationPolicy: ApplicationPolicyObservation;
     readonly capability: CaptureCapabilityState;
@@ -104,6 +114,84 @@ export type CaptureScope = 'exact-application' | 'exact-input-device' | 'exact-o
 export type CaptureSessionGrant = 'granted-by-explicit-selection' | 'denied' | 'not-evaluated';
 
 // @public
+export type ChannelLayout = 'mono' | 'stereo' | 'any';
+
+// @public
+export type ClockDomain = 'capture' | 'playback' | 'network' | 'inherited' | 'wallclock';
+
+// @public
+export const Codec: {
+    readonly Opus: "opus";
+    readonly Aac: "aac";
+    readonly Mp3: "mp3";
+    readonly G711Ulaw: "g711-ulaw";
+    readonly G711Alaw: "g711-alaw";
+    readonly WebmOpus: "webm-opus";
+};
+
+// @public
+export type Codec = (typeof Codec)[keyof typeof Codec];
+
+// @public
+export interface CompileDiagnostic {
+    readonly actual?: string;
+    readonly code: string;
+    readonly direction?: string;
+    readonly edgeIndex?: number;
+    readonly expected?: string;
+    readonly nodeIndex?: number;
+    readonly nodeTypeId?: string;
+    readonly operatorId?: string;
+    readonly operatorInstanceId?: bigint;
+    readonly portName?: string;
+    readonly sourceTypeId?: string;
+}
+
+// @public
+export type Configuration = Readonly<Record<string, ConfigurationValue>>;
+
+// @public
+export type ConfigurationValue = string | SecretValue;
+
+// @public
+export class DeliveryPolicy {
+    static buffered(): DeliveryPolicy;
+    get clock(): ClockDomain;
+    get delivery(): DeliverySemantics;
+    get frameOwnership(): FrameOwnership;
+    get jitterBudgetMs(): number | undefined;
+    get latencyBudgetMs(): number | undefined;
+    get loss(): LossPolicy;
+    get maxPayloadBytes(): number | undefined;
+    get observability(): RouteObservability;
+    get queuePressure(): QueuePressure;
+    static realtimeAudio(): DeliveryPolicy;
+    withFrameOwnership(value: FrameOwnership): DeliveryPolicy;
+    withJitterBudgetMs(value?: number): DeliveryPolicy;
+    withMaxPayloadBytes(value: number): DeliveryPolicy;
+    withQueuePressure(value: QueuePressure): DeliveryPolicy;
+}
+
+// @public
+export type DeliverySemantics = 'best-effort-realtime' | 'ordered' | 'exactly-once-not-realtime';
+
+// @public
+export class DerivedStream {
+    connect(input: OperatorInput): bigint;
+    get operatorId(): bigint;
+    output(name: string): DerivedStream;
+    get outputName(): string | undefined;
+    reenterAudio(): Stem;
+    send(endpoint: Endpoint, options?: {
+        input?: string;
+    }): bigint;
+    through(operator: Operator, options?: {
+        input?: string;
+        output?: string;
+    }): DerivedStream;
+}
+
+// @public
 export class DiscoveredSource {
     readonly applicationId: string | undefined;
     authorizationBeforeOpen(options?: AuthorizationOptions): CaptureAuthorizationSnapshot;
@@ -128,6 +216,16 @@ export class Endpoint {
 }
 
 // @public
+export class EndpointDefinition {
+    constructor(nodeType: string, operatorId: string, options?: {
+        configuration?: Configuration;
+        route?: RouteSettings;
+    });
+    readonly nodeType: string;
+    readonly operatorId: string;
+}
+
+// @public
 export interface EndpointFailureEvent {
     readonly code?: string;
     readonly endpointId: bigint;
@@ -138,6 +236,9 @@ export interface EndpointFailureEvent {
     readonly stage: string;
     readonly type: 'endpoint-failure';
 }
+
+// @public
+export type EventFormat = 'json' | 'protobuf' | 'flatbuffers' | 'cbor';
 
 // @public
 export interface EventReadOptions {
@@ -154,6 +255,9 @@ export class EventStream implements AsyncIterable<SessionEvent> {
 }
 
 // @public
+export type FrameOwnership = 'move' | 'share' | 'copy';
+
+// @public
 export interface LifecycleEvent {
     readonly sessionId: bigint;
     readonly state: SessionState;
@@ -161,7 +265,55 @@ export interface LifecycleEvent {
 }
 
 // @public
+export type LossPolicy = 'conceal-audio' | 'deliver-or-fail' | 'drop-allowed';
+
+// @public
+export class MediaCaps {
+    static any(): MediaCaps;
+    static audio(caps?: AudioCaps): MediaCaps;
+    static binary(format?: BinaryFormat): MediaCaps;
+    get channelLayout(): ChannelLayout | undefined;
+    static control(): MediaCaps;
+    static encodedAudio(codec: Codec): MediaCaps;
+    static event(): MediaCaps;
+    get format(): string | undefined;
+    static forSignal(signal: SignalSpec): MediaCaps;
+    get frameSamples(): number | undefined;
+    isCompatibleWith(other: MediaCaps): boolean;
+    get kind(): MediaKind;
+    static metrics(): MediaCaps;
+    negotiate(other: MediaCaps): MediaCaps | undefined;
+    get sampleRateHz(): number | undefined;
+    supportsSignal(signal: SignalSpec): boolean;
+    static text(): MediaCaps;
+}
+
+// @public
+export type MediaKind = 'audio-pcm' | 'audio-encoded' | 'text' | 'event' | 'metrics' | 'control' | 'binary' | 'any';
+
+// @public
 export function microphonePermissionObservation(): Promise<PermissionObservation>;
+
+// @public
+export type Multiplicity = 'one' | 'many';
+
+// @public
+export class Operator {
+    constructor(id: string, configuration?: Configuration);
+    readonly id: string;
+}
+
+// @public
+export class OperatorInput {
+    get name(): string;
+}
+
+// @public
+export class OperatorInstance {
+    get id(): bigint;
+    input(name: string): OperatorInput;
+    output(name: string): DerivedStream;
+}
 
 // @public
 export type PermissionObservation = 'allowed' | 'denied' | 'restricted' | 'not-determined' | 'revoked' | 'not-observable' | 'not-applicable';
@@ -179,6 +331,29 @@ export class PocketStationError extends Error {
 }
 
 // @public
+export type PortDirection = 'input' | 'output';
+
+// @public
+export class PortSpec {
+    get direction(): PortDirection;
+    static input(name: string, signal: SignalSpec, options?: {
+        media?: MediaCaps;
+        multiplicity?: Multiplicity;
+        required?: boolean;
+    }): PortSpec;
+    get media(): MediaCaps;
+    get multiplicity(): Multiplicity;
+    get name(): string;
+    static output(name: string, signal: SignalSpec, options?: {
+        media?: MediaCaps;
+        multiplicity?: Multiplicity;
+        required?: boolean;
+    }): PortSpec;
+    get required(): boolean;
+    get signal(): SignalSpec;
+}
+
+// @public
 export interface ProcessInstanceSelector {
     readonly processId: number;
     readonly stableId: StableSourceId;
@@ -186,6 +361,23 @@ export interface ProcessInstanceSelector {
 
 // @public
 export type ProcessTreeScope = 'selected-process-only' | 'selected-process-and-descendants' | 'application-identity' | 'not-applicable';
+
+// @public
+export type QueuePressure = 'drop-newest' | 'drop-oldest' | 'buffer' | 'fail';
+
+// @public
+export type RouteObservability = 'off' | 'counters' | 'full';
+
+// @public
+export class RouteSettings {
+    static buffered(): RouteSettings;
+    static create(media: MediaCaps, delivery: DeliveryPolicy): RouteSettings;
+    get delivery(): DeliveryPolicy;
+    get media(): MediaCaps;
+    static realtimeAudio(): RouteSettings;
+    withDelivery(delivery: DeliveryPolicy): RouteSettings;
+    withMedia(media: MediaCaps): RouteSettings;
+}
 
 // @public
 export class RunningSession implements AsyncDisposable {
@@ -198,14 +390,25 @@ export class RunningSession implements AsyncDisposable {
 }
 
 // @public
+export function secret(value: string): SecretValue;
+
+// @public
+export interface SecretValue {
+    readonly secret: true;
+    readonly value: string;
+}
+
+// @public
 export type SelectorPersistenceScope = 'process-lifetime' | 'application-identity' | 'device-identity' | 'session-default-device' | 'platform-identity';
 
 // @public
 export class Session {
     constructor(options?: SessionOptions);
-    audio(): Endpoint;
+    audio(route?: RouteSettings): Endpoint;
     capture(source: Source): Stem;
+    endpoint(definition: EndpointDefinition): Endpoint;
     get id(): bigint;
+    operator(operator: Operator): OperatorInstance;
     start(): Promise<RunningSession>;
 }
 
@@ -227,11 +430,49 @@ export type SessionEvent = LifecycleEvent | SourceFailureEvent | EndpointFailure
 export interface SessionOptions {
     channels?: 1 | 2;
     frameDurationMs?: 10 | 20;
+    recordingRoot?: string;
     sampleRateHz?: number;
 }
 
 // @public
+export class SessionStartError extends PocketStationError {
+    // Warning: (ae-forgotten-export) The symbol "NativeCompileDiagnostic" needs to be exported by the entry point index.d.ts
+    constructor(code: string, message: string, diagnostic?: NativeCompileDiagnostic | null);
+    readonly diagnostic: CompileDiagnostic | undefined;
+}
+
+// @public
 export type SessionState = 'starting' | 'running' | 'stopping' | 'stopped' | 'failed';
+
+// @public
+export type SignalKind = 'any' | 'pcm-audio' | 'encoded-audio' | 'text' | 'event' | 'metrics' | 'control' | 'binary' | 'custom';
+
+// @public
+export interface SignalOptions {
+    readonly role?: string;
+    readonly schema?: string;
+}
+
+// @public
+export class SignalSpec {
+    static any(options?: SignalOptions): SignalSpec;
+    static audio(options?: SignalOptions): SignalSpec;
+    static binary(format?: BinaryFormat, options?: SignalOptions): SignalSpec;
+    static control(options?: SignalOptions): SignalSpec;
+    static custom(id: string, options?: SignalOptions): SignalSpec;
+    get customId(): string | undefined;
+    static encodedAudio(codec: Codec, options?: SignalOptions): SignalSpec;
+    static event(format?: EventFormat, options?: SignalOptions): SignalSpec;
+    get format(): string | undefined;
+    get isAudio(): boolean;
+    isCompatibleWith(other: SignalSpec): boolean;
+    get kind(): SignalKind;
+    static metrics(options?: SignalOptions): SignalSpec;
+    get role(): string | undefined;
+    get schema(): string | undefined;
+    static text(format?: TextFormat, options?: SignalOptions): SignalSpec;
+    get wireId(): string;
+}
 
 // @public
 export class Source {
@@ -301,8 +542,16 @@ export interface StableSourceId {
 
 // @public
 export class Stem {
+    connect(input: OperatorInput): bigint;
     get id(): bigint;
-    send(endpoint: Endpoint): bigint;
+    record(name: string): Endpoint;
+    send(endpoint: Endpoint, options?: {
+        input?: string;
+    }): bigint;
+    through(operator: Operator, options?: {
+        input?: string;
+        output?: string;
+    }): DerivedStream;
 }
 
 // @public
@@ -331,5 +580,8 @@ export interface TerminalEvent {
     readonly state: 'stopped' | 'failed';
     readonly type: 'terminal';
 }
+
+// @public
+export type TextFormat = 'utf8' | 'json' | 'markdown';
 
 ```

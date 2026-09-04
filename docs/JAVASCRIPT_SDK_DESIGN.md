@@ -26,6 +26,24 @@ application.send(output);
 Several Sources can send to the same output. Frames retain the identity of the
 Source and Stem that produced them.
 
+## Processing and destinations
+
+`SignalSpec`, `MediaCaps`, and `PortSpec` preserve the runtime identifiers used
+by Core and the Python SDK. `RouteSettings` keeps accepted media separate from
+delivery behavior. JavaScript construction, compatibility, negotiation, and
+Session compilation call the native engine; TypeScript does not implement its
+own graph compiler.
+
+An `Operator` names an implementation registered outside the Session. Its
+`OperatorInstance` selects named inputs and outputs. An `EndpointDefinition`
+does the same for a destination. These identifiers remain open so adding a
+provider does not require a PocketStation release.
+
+Recording is a native Endpoint declared with `stem.record(name)`. Generated PCM
+returns through `reenterAudio()` as a normal Stem with Core-assigned identity
+and lineage. JavaScript does not open recording files or copy generated audio
+through a callback loop.
+
 ## Discovery and selection
 
 `discoverSources()` reads one native snapshot and may filter it by application,
@@ -92,9 +110,15 @@ call `stop()` or `cancel()` explicitly and await the result.
 ## Current platform evidence
 
 The clean tarball consumer loads the native addon and exercises Session,
-Source, Stem, route, and startup failure on macOS ARM64. A physical `afplay`
+Source, Stem, signals, media requirements, route settings, and native compiler
+diagnostics on macOS ARM64. A physical `afplay`
 source also delivered twenty consecutive 10 ms stereo frames with source and
 Stem identity and a clean stop.
+
+A local system-audio Session also captured non-silent media into a complete
+multistem recording with no runtime, lineage, delivery, or finalization
+failures. That is one-machine macOS evidence, not cross-platform recording or
+latency qualification.
 
 That physical test uses Core commit
 `a2bb0e12e3d38aca6bf72eee02773e6830d58ccb`, which fixes variable CoreAudio
@@ -105,7 +129,7 @@ claim follows from the macOS result.
 
 ## Later work
 
-The same ownership model extends to PCM input, typed signals, Operators,
-Connectors, recording, metrics, traces, Relay, extensions, sidecars, and voice
-composition. Those modules are added only with working behavior and tests;
-empty parity files are not created.
+The same ownership model extends to PCM input, Operator and Endpoint authoring,
+Connectors, typed signal consumption, metrics, traces, Relay, extensions,
+sidecars, and voice composition. Those modules are added only with working
+behavior and tests; empty parity files are not created.

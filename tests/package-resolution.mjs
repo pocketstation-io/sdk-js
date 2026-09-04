@@ -8,6 +8,13 @@ assert.equal(typeof node.discoverSources, 'function');
 assert.equal(typeof node.microphonePermissionObservation, 'function');
 assert.equal(typeof node.CapturePermissionLifecycle, 'function');
 assert.equal(typeof node.EventStream, 'function');
+assert.equal(typeof node.SignalSpec, 'function');
+assert.equal(typeof node.MediaCaps, 'function');
+assert.equal(typeof node.DeliveryPolicy, 'function');
+assert.equal(typeof node.RouteSettings, 'function');
+assert.equal(typeof node.Operator, 'function');
+assert.equal(typeof node.EndpointDefinition, 'function');
+assert.equal(typeof node.SessionStartError, 'function');
 
 const browser = await import('pocketstation/browser');
 assert.equal(typeof browser.RelaySession, 'function');

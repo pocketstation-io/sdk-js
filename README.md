@@ -60,6 +60,31 @@ To capture all desktop output instead of one application, choose it explicitly:
 const desktop = session.capture(Source.systemAudio());
 ```
 
+## Record or process the same Stem
+
+Capture does not need to be repeated for each destination. The same Stem can be
+read by Node and recorded as a separate WAV file:
+
+```ts
+const session = new Session({ recordingRoot: "./recordings" });
+const application = session.capture(Source.application("Spotify"));
+
+application.send(session.audio());
+application.record("application");
+```
+
+Operators and custom Endpoints use open identifiers and named ports. Core
+validates the complete Session before capture starts and reports the exact
+Operator, node, or port when compilation fails. The JavaScript package does not
+compile a second execution plan.
+
+The Operator and destination implementations must be installed and registered
+with Core. JavaScript authoring for those implementations is a later package
+step; the current API does not pretend an unknown provider exists.
+
+Read [Route, process, and record media](docs/guides/compose-a-session.md) for
+named ports, generated audio, compiler diagnostics, and delivery settings.
+
 ## Discover sources before capture
 
 Discovery lets an application present the real sources reported by the host
