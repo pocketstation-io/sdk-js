@@ -2,12 +2,18 @@
 
 ## Active work
 
-`W21-JAVASCRIPT-SDK-STRUCTURE` is active under the recorded
+`W21-JAVASCRIPT-SOURCE-LIFECYCLE` is active under the recorded
 `phase-exception-approved` decision.
 
 The repository now contains a browser Relay client and the first working Node
 binding for native capture. It must not yet be described as feature-equivalent
 to the Rust or Python packages.
+
+This step adds every built-in Core Source selection, native discovery,
+non-prompting permission observations, pre-open authorization evidence,
+permission-change tracking, and one typed Session event stream. The event
+stream includes source disappearance without consuming or hiding other Session
+events.
 
 This step adds the first real Node slice:
 
@@ -34,6 +40,9 @@ callback and does not implement another media engine.
   10 ms stereo frames with source and Stem identity.
 - Full Rust/Python API coverage: not complete. The current row-by-row status is
   recorded in `docs/JAVASCRIPT_CAPABILITY_MATRIX.md`.
+- Source lifecycle: `PARTIAL`; all built-in selectors and local macOS
+  discovery, permission inspection, lifecycle transitions, and Session events
+  pass. Windows and Linux target execution remain later gates.
 - npm package: not published.
 
 The browser entry now uses `RelaySession`, shares `PocketStationError` with the
@@ -59,22 +68,23 @@ npm run test:packed
 npm audit
 ```
 
-The installed-package gate will pack the package into a new directory, install
-only the tarball, load the native addon, declare selected-application capture,
-and close the Session cleanly. Physical capture evidence is recorded separately
-because a compile or synthetic test cannot prove a real desktop source.
+The installed-package gate packs the package into a new directory, installs
+only the tarball, loads the native addon, performs native discovery and
+permission inspection, declares each built-in Source form, and verifies a
+typed startup failure without opening a microphone.
 
-## Staff Bar Self-Check — JavaScript SDK structure
+## Staff Bar Self-Check — JavaScript Source lifecycle
 
-- Smallest correct design: yes — one real Session/source/stream slice before
-  graph, Relay, provider authoring, and voice composition.
-- Tests added or updated: yes — native build checks, TypeScript behavior,
-  exclusive-reader and abort races, package exports, a clean tarball consumer,
-  and a physical macOS source.
+- Smallest correct design: yes — Core remains the source of discovery,
+  permission, identity, and lifecycle truth; TypeScript provides safe values
+  and explicit selection.
+- Tests added or updated: yes — every selector, discovery filters, permission
+  transitions, authorization evidence, Session event projection, reader
+  exclusivity, abort, package exports, and a clean tarball consumer.
 - Hot-path safe: yes — Core remains authoritative and the addon copies frames
   only after the native endpoint receives them.
-- Public API changed: yes — the unpublished package gains explicit `node` and
-  `browser` entry points.
+- Public API changed: yes — the unpublished Node entry gains Source discovery,
+  permissions, exact selectors, and Session events.
 - New dependency: yes — the user-approved implementation uses released Core
   `1.1.10`, napi-rs, and API Extractor for the public API report. No provider or
   media-runtime dependency is added, and the installed package has no runtime
@@ -82,14 +92,14 @@ because a compile or synthetic test cannot prove a real desktop source.
 - Phase scope respected: yes — the execution task records
   `phase-exception-approved`.
 - Unsafe added: no.
-- Remaining risk: target-specific native packaging and real Windows/Linux/macOS
-  execution are later gates and must not be inferred from a local build.
+- Remaining risk: target-specific native packaging and real Windows/Linux
+  execution are later gates and must not be inferred from the local macOS run.
 
 ## Intentionally not included in this step
 
 - provider packages or API keys;
 - Electron application code;
-- graph Operators, custom Sources, Connectors, sidecars, extensions, Relay, or
-  voice composition;
+- application-owned PCM, custom Sources, graph Operators, Connectors, sidecars,
+  extensions, Relay composition, or voice composition;
 - publication, tags, or version selection;
 - cross-platform or performance claims.

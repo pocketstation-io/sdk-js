@@ -9,6 +9,7 @@ import {
 } from './native.js';
 import { Source, nativeSource } from './sources.js';
 import { AudioStream } from './streams.js';
+import { EventStream } from './events.js';
 
 /** Audio format and frame cadence used by a Session. */
 export interface SessionOptions {
@@ -138,11 +139,14 @@ export class RunningSession implements AsyncDisposable {
   readonly #native: NativeRunningSessionHandle;
   /** Source-aware audio routed to the Session's Node Endpoint. */
   readonly audio: AudioStream;
+  /** Lifecycle and failure events reported by the native Session. */
+  readonly events: EventStream;
   #finish: Promise<StopResult> | undefined;
 
   private constructor(native: NativeRunningSessionHandle) {
     this.#native = native;
     this.audio = AudioStream._create(native);
+    this.events = EventStream._create(native);
   }
 
   /** @internal */
@@ -174,6 +178,7 @@ export class RunningSession implements AsyncDisposable {
     if (this.#finish === undefined) {
       this.#finish = nativeCall(() => this.#native[disposition]()).then((result) => {
         this.audio._close();
+        this.events._finish(result.remainingEvents);
         return stopResultFromNative(result);
       });
     }

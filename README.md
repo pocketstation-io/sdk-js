@@ -60,6 +60,55 @@ To capture all desktop output instead of one application, choose it explicitly:
 const desktop = session.capture(Source.systemAudio());
 ```
 
+## Discover sources before capture
+
+Discovery lets an application present the real sources reported by the host
+instead of asking a user to type a name:
+
+```ts
+import { Source, discoverSources } from "pocketstation/node";
+
+const applications = await discoverSources({
+  type: "kind",
+  kind: "application",
+});
+
+const selected = Source.fromDiscovered(applications[0]);
+```
+
+Each result includes its display name, native application or device identity,
+current state, audio format, and how long its selector may be reused. A
+discovered output device is informational; application, input-device, and
+system-mix results can be turned into Session Sources.
+
+Read microphone permission without prompting:
+
+```ts
+import { microphonePermissionObservation } from "pocketstation/node";
+
+const permission = await microphonePermissionObservation();
+```
+
+`not-observable` is kept distinct from `allowed` and `denied`. PocketStation
+does not infer permission from a generic capture failure. The host application
+remains responsible for explaining and requesting operating-system permission.
+
+## Observe source failure
+
+The Session reports lifecycle and failure events separately from audio:
+
+```ts
+for await (const event of running.events) {
+  if (event.type === "source-failure") {
+    console.error(event.failure.stableId, event.failure.operation);
+  }
+}
+```
+
+When an application or device disappears, the event keeps its Source and Stem
+identity and states whether rediscovery and a new Session are required. It does
+not silently switch to another application or microphone.
+
 ## Stop or cancel
 
 `stop()` finishes accepted work and returns the Session outcome. `cancel()` asks

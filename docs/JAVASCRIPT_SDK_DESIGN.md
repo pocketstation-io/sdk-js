@@ -26,6 +26,22 @@ application.send(output);
 Several Sources can send to the same output. Frames retain the identity of the
 Source and Stem that produced them.
 
+## Discovery and selection
+
+`discoverSources()` reads one native snapshot and may filter it by application,
+kind, stable key, or active playback. JavaScript does not rebuild or hash source
+identity. Core supplies the stable key and immutable 64-bit Source identity.
+
+`Source.application()` accepts an exact name or application ID, a process ID,
+a discovered stable identity, or a process-instance selection. Name and
+application-ID matching rejects missing and ambiguous results before capture
+starts; it never selects the first partial match. `Source.fromDiscovered()`
+chooses the strongest supported selector for a discovery result.
+
+Permission inspection is non-prompting. `not-observable` means the operating
+system did not provide an authoritative answer. It is never converted to
+`allowed`, even if a later open succeeds.
+
 ## Native ownership
 
 One Rust worker owns each running Core Session. JavaScript sends finite read,
@@ -62,6 +78,13 @@ Starting twice fails. A Source or Endpoint from another Session cannot be used.
 An invalid selector fails before native resources start. A stopped Session ends
 the iterator and makes later reads fail clearly.
 
+`running.events` is the sole JavaScript reader for Core Session events. It
+includes lifecycle changes, source disappearance, Endpoint failures, rollback,
+finalization, and the terminal result. Source failures retain the platform,
+stable key, Source identity, Stem identity, generation, native operation, and
+recovery requirement. This avoids a separate source-only reader consuming and
+hiding events needed by the rest of the application.
+
 Dropping a running JavaScript object requests native shutdown without blocking
 garbage collection. Applications that need recording or delivery outcomes must
 call `stop()` or `cancel()` explicitly and await the result.
@@ -82,7 +105,7 @@ claim follows from the macOS result.
 
 ## Later work
 
-The same ownership model extends to discovery, PCM input, typed signals,
-Operators, Connectors, recording, observations, Relay, extensions, sidecars,
-and voice composition. Those modules are added only with working behavior and
-tests; empty parity files are not created.
+The same ownership model extends to PCM input, typed signals, Operators,
+Connectors, recording, metrics, traces, Relay, extensions, sidecars, and voice
+composition. Those modules are added only with working behavior and tests;
+empty parity files are not created.

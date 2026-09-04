@@ -5,6 +5,15 @@
 ```ts
 
 // @public
+export function applicationCaptureAvailable(): boolean;
+
+// @public
+export type ApplicationPolicyObservation = 'allowed' | 'denied' | 'not-observable' | 'not-applicable';
+
+// @public
+export type ApplicationSelection = string | number | StableSourceId | ProcessInstanceSelector;
+
+// @public
 export interface AudioFrame {
     readonly channelCount: number;
     readonly clockId: number;
@@ -45,9 +54,120 @@ export class AudioStream implements AsyncIterable<AudioFrame> {
 }
 
 // @public
+export interface AuthorizationOptions {
+    readonly applicationPolicy?: ApplicationPolicyObservation;
+    readonly osPermission?: PermissionObservation;
+    readonly permissionEpoch?: bigint;
+    readonly sessionGrant?: CaptureSessionGrant;
+}
+
+// @public
+export interface CaptureAuthorizationSnapshot {
+    readonly applicationPolicy: ApplicationPolicyObservation;
+    readonly capability: CaptureCapabilityState;
+    readonly captureScope: CaptureScope;
+    readonly identityStrength: SourceIdentityStrength;
+    readonly observedAtNs: bigint;
+    readonly openOutcome: CaptureOpenOutcome;
+    readonly osPermission: PermissionObservation;
+    readonly permissionEpoch: bigint;
+    readonly scopeStableId?: string;
+    readonly sessionGrant: CaptureSessionGrant;
+}
+
+// @public
+export type CaptureCapabilityState = 'available' | 'unavailable' | 'unsupported';
+
+// @public
+export type CaptureOpenOutcome = 'not-attempted' | 'succeeded' | 'permission-denied' | 'source-unavailable' | 'backend-failed';
+
+// @public
+export class CapturePermissionLifecycle {
+    constructor(current: PermissionObservation);
+    get current(): PermissionObservation;
+    observe(current: PermissionObservation): CapturePermissionTransition | undefined;
+    get permissionEpoch(): bigint;
+}
+
+// @public
+export interface CapturePermissionTransition {
+    readonly current: PermissionObservation;
+    readonly kind: 'permission-changed' | 'permission-revoked';
+    readonly permissionEpoch: bigint;
+    readonly previous: PermissionObservation;
+}
+
+// @public
+export type CaptureScope = 'exact-application' | 'exact-input-device' | 'exact-output-device' | 'system-mix';
+
+// @public
+export type CaptureSessionGrant = 'granted-by-explicit-selection' | 'denied' | 'not-evaluated';
+
+// @public
+export class DiscoveredSource {
+    readonly applicationId: string | undefined;
+    authorizationBeforeOpen(options?: AuthorizationOptions): CaptureAuthorizationSnapshot;
+    readonly channelCount: number;
+    readonly deviceUid: string | undefined;
+    readonly identityStrength: SourceIdentityStrength;
+    readonly name: string;
+    readonly processId: number | undefined;
+    readonly processTreeScope: ProcessTreeScope | undefined;
+    readonly sampleRateHz: number;
+    readonly selectorPersistenceScope: SelectorPersistenceScope | undefined;
+    readonly stableId: StableSourceId;
+    readonly state: SourceState;
+}
+
+// @public
+export function discoverSources(query?: SourceQuery): Promise<readonly DiscoveredSource[]>;
+
+// @public
 export class Endpoint {
     get id(): bigint;
 }
+
+// @public
+export interface EndpointFailureEvent {
+    readonly code?: string;
+    readonly endpointId: bigint;
+    readonly message: string;
+    readonly retryability?: 'never' | 'retryable' | 'reconfiguration-required';
+    readonly routeId: bigint;
+    readonly sessionId: bigint;
+    readonly stage: string;
+    readonly type: 'endpoint-failure';
+}
+
+// @public
+export interface EventReadOptions {
+    readonly signal?: AbortSignal;
+    readonly timeoutMs?: number;
+}
+
+// @public
+export class EventStream implements AsyncIterable<SessionEvent> {
+    [Symbol.asyncIterator](): AsyncGenerator<SessionEvent>;
+    get closed(): boolean;
+    events(options?: EventReadOptions): AsyncGenerator<SessionEvent>;
+    read(options?: EventReadOptions): Promise<SessionEvent | undefined>;
+}
+
+// @public
+export interface LifecycleEvent {
+    readonly sessionId: bigint;
+    readonly state: SessionState;
+    readonly type: 'lifecycle';
+}
+
+// @public
+export function microphonePermissionObservation(): Promise<PermissionObservation>;
+
+// @public
+export type PermissionObservation = 'allowed' | 'denied' | 'restricted' | 'not-determined' | 'revoked' | 'not-observable' | 'not-applicable';
+
+// @public
+export type Platform = 'macos' | 'windows' | 'linux' | 'ios' | 'android' | 'web' | 'unknown';
 
 // @public
 export class PocketStationError extends Error {
@@ -59,13 +179,26 @@ export class PocketStationError extends Error {
 }
 
 // @public
+export interface ProcessInstanceSelector {
+    readonly processId: number;
+    readonly stableId: StableSourceId;
+}
+
+// @public
+export type ProcessTreeScope = 'selected-process-only' | 'selected-process-and-descendants' | 'application-identity' | 'not-applicable';
+
+// @public
 export class RunningSession implements AsyncDisposable {
     [Symbol.asyncDispose](): Promise<void>;
     readonly audio: AudioStream;
     cancel(): Promise<StopResult>;
+    readonly events: EventStream;
     get sessionId(): bigint;
     stop(): Promise<StopResult>;
 }
+
+// @public
+export type SelectorPersistenceScope = 'process-lifetime' | 'application-identity' | 'device-identity' | 'session-default-device' | 'platform-identity';
 
 // @public
 export class Session {
@@ -77,6 +210,20 @@ export class Session {
 }
 
 // @public
+export interface SessionControlFailureEvent {
+    readonly componentId: string;
+    readonly componentKind: 'source' | 'endpoint' | 'operator' | 'sidecar' | 'runtime';
+    readonly errorClass: string;
+    readonly operation: string;
+    readonly sessionId: bigint;
+    readonly stage: string;
+    readonly type: 'rollback-failure' | 'finalization-failure';
+}
+
+// @public
+export type SessionEvent = LifecycleEvent | SourceFailureEvent | EndpointFailureEvent | SessionControlFailureEvent | TerminalEvent;
+
+// @public
 export interface SessionOptions {
     channels?: 1 | 2;
     frameDurationMs?: 10 | 20;
@@ -84,10 +231,72 @@ export interface SessionOptions {
 }
 
 // @public
+export type SessionState = 'starting' | 'running' | 'stopping' | 'stopped' | 'failed';
+
+// @public
 export class Source {
-    static application(nameOrApplicationId: string): Source;
+    static application(selection: ApplicationSelection): Source;
+    static applicationId(applicationId: string): Source;
+    static applicationName(name: string): Source;
+    static applicationProcessId(processId: number): Source;
+    static applicationStableId(stableId: StableSourceId): Source;
     static defaultMicrophone(): Source;
+    static fromDiscovered(source: DiscoveredSource): Source;
+    static microphone(deviceId: string): Source;
     static systemAudio(): Source;
+}
+
+// @public
+export interface SourceFailure {
+    readonly backendClass?: string;
+    readonly failureClass: 'source-instance-exited' | 'platform-status' | 'backend-class';
+    readonly generation: number;
+    readonly kind: 'source-unavailable' | 'backend-failure';
+    readonly operation: string;
+    readonly platformStatusCode?: number;
+    readonly recoveryRequirement?: 'explicit-rediscovery-and-new-session';
+    readonly stableId: StableSourceId;
+    readonly stemId: bigint;
+}
+
+// @public
+export interface SourceFailureEvent {
+    readonly failure: SourceFailure;
+    readonly sessionId: bigint;
+    readonly type: 'source-failure';
+}
+
+// @public
+export type SourceIdentityStrength = 'application-id-and-process-id' | 'stable-application-id' | 'process-id' | 'stable-device-uid' | 'platform-stable-id';
+
+// @public
+export type SourceKind = 'application' | 'output-device' | 'input-device' | 'system-mix';
+
+// @public
+export type SourceQuery = {
+    readonly type: 'all';
+} | {
+    readonly type: 'application';
+    readonly name: string;
+} | {
+    readonly type: 'kind';
+    readonly kind: SourceKind;
+} | {
+    readonly type: 'stable-key';
+    readonly stableKey: string;
+} | {
+    readonly type: 'playing';
+};
+
+// @public
+export type SourceState = 'available' | 'playing' | 'silent' | 'unavailable' | 'permission-blocked';
+
+// @public
+export interface StableSourceId {
+    readonly kind: SourceKind;
+    readonly platform: Platform;
+    readonly sourceId?: bigint;
+    readonly stableKey: string;
 }
 
 // @public
@@ -110,6 +319,17 @@ export interface StopResult {
     readonly sessionState: 'stopped' | 'failed';
     readonly sourceSendRejectionsTotal: bigint;
     readonly success: boolean;
+}
+
+// @public
+export interface TerminalEvent {
+    readonly endpointFailuresTotal: bigint;
+    readonly finalizationFailuresTotal: bigint;
+    readonly rollbackFailuresTotal: bigint;
+    readonly sessionId: bigint;
+    readonly sourceFailuresTotal: bigint;
+    readonly state: 'stopped' | 'failed';
+    readonly type: 'terminal';
 }
 
 ```
