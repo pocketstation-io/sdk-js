@@ -80,6 +80,43 @@ export interface NativeEndpointHandle {
   readonly sessionId: string;
 }
 
+export interface NativeSourceOutputHandle {
+  readonly sessionId: string;
+  readonly sourceInstanceId: string;
+  readonly sourceId: string;
+  readonly streamId: string;
+  readonly outputPort: string;
+  connect(input: NativeOperatorInputHandle): string;
+  send(endpoint: NativeEndpointHandle, inputPort?: string): string;
+  through(
+    operator: NativeOperatorHandle,
+    inputPort?: string,
+    outputPort?: string,
+  ): NativeDerivedStreamHandle;
+  record(name: string): NativeEndpointHandle;
+}
+
+export interface NativeAudioInputObservations {
+  capacityFrames: string;
+  bufferSlots: string;
+  availableBuffers: string;
+  acceptedTotal: string;
+  fullTotal: string;
+  invalidTotal: string;
+  cancelled: boolean;
+  closed: boolean;
+}
+
+export interface NativeAudioInputHandle {
+  readonly sourceId: string;
+  readonly streamId: string;
+  readonly output: NativeSourceOutputHandle;
+  tryWriteF32(samples: Float32Array, discontinuity: boolean): void;
+  tryWriteF32Le(samples: Buffer, discontinuity: boolean): void;
+  close(): void;
+  observations(): NativeAudioInputObservations;
+}
+
 export interface NativeStemHandle {
   readonly id: string;
   send(endpoint: NativeEndpointHandle, inputPort?: string): string;
@@ -363,6 +400,12 @@ export interface NativeStartResultHandle {
 export interface NativeSessionHandle {
   readonly id: string;
   capture(source: NativeSourceHandle): NativeStemHandle;
+  audioInput(
+    sampleRateHz: number,
+    channels: number,
+    capacityFrames: number,
+    frameSamplesPerChannel: number,
+  ): NativeAudioInputHandle;
   audio(): NativeEndpointHandle;
   audioWithRoute(route: NativeRouteSettingsHandle): NativeEndpointHandle;
   operator(operator: NativeOperatorHandle): NativeOperatorInstanceHandle;

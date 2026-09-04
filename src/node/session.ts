@@ -1,5 +1,6 @@
 import { nativeCall, nativeCallSync } from './errors.js';
 import {
+  type NativeAudioInputHandle,
   nativeAddon,
   type NativeDerivedStreamHandle,
   type NativeCompileDiagnostic,
@@ -9,8 +10,15 @@ import {
   type NativeRunningSessionHandle,
   type NativeSessionHandle,
   type NativeStemHandle,
+  type NativeSourceOutputHandle,
   type NativeStopResult,
 } from './native.js';
+import {
+  AudioInput,
+  AudioInputConfigurationError,
+  _audioInputFailure,
+  type AudioInputOptions,
+} from './application-audio.js';
 import { PocketStationError } from '../errors.js';
 import {
   EndpointDefinition,
@@ -87,6 +95,29 @@ export interface CompileDiagnostic {
   readonly actual?: string;
 }
 
+function compileDiagnosticFromNative(
+  diagnostic?: NativeCompileDiagnostic | null,
+): CompileDiagnostic | undefined {
+  return diagnostic == null
+    ? undefined
+    : Object.freeze({
+        code: diagnostic.code,
+        nodeIndex: diagnostic.nodeIndex ?? undefined,
+        edgeIndex: diagnostic.edgeIndex ?? undefined,
+        operatorId: diagnostic.operatorId ?? undefined,
+        operatorInstanceId:
+          diagnostic.operatorInstanceId == null
+            ? undefined
+            : BigInt(diagnostic.operatorInstanceId),
+        nodeTypeId: diagnostic.nodeTypeId ?? undefined,
+        sourceTypeId: diagnostic.sourceTypeId ?? undefined,
+        portName: diagnostic.portName ?? undefined,
+        direction: diagnostic.direction ?? undefined,
+        expected: diagnostic.expected ?? undefined,
+        actual: diagnostic.actual ?? undefined,
+      });
+}
+
 /** Startup failure reported by the native Session owner. */
 export class SessionStartError extends PocketStationError {
   /** Precise Core location data when startup failed during compilation. */
@@ -96,29 +127,11 @@ export class SessionStartError extends PocketStationError {
   public constructor(
     code: string,
     message: string,
-    diagnostic?: NativeCompileDiagnostic | null,
+    diagnostic?: CompileDiagnostic,
   ) {
     super(code, message);
     this.name = 'SessionStartError';
-    this.diagnostic =
-      diagnostic == null
-        ? undefined
-        : Object.freeze({
-            code: diagnostic.code,
-            nodeIndex: diagnostic.nodeIndex ?? undefined,
-            edgeIndex: diagnostic.edgeIndex ?? undefined,
-            operatorId: diagnostic.operatorId ?? undefined,
-            operatorInstanceId:
-              diagnostic.operatorInstanceId == null
-                ? undefined
-                : BigInt(diagnostic.operatorInstanceId),
-            nodeTypeId: diagnostic.nodeTypeId ?? undefined,
-            sourceTypeId: diagnostic.sourceTypeId ?? undefined,
-            portName: diagnostic.portName ?? undefined,
-            direction: diagnostic.direction ?? undefined,
-            expected: diagnostic.expected ?? undefined,
-            actual: diagnostic.actual ?? undefined,
-          });
+    this.diagnostic = diagnostic;
   }
 }
 
@@ -208,6 +221,92 @@ export class Stem {
   }
 
   /** Record this Stem under a stable name in the Session recording directory. */
+  public record(name: string): Endpoint {
+    return Endpoint._create(
+      this.#session,
+      nativeCallSync(() => this.#native.record(name)),
+    );
+  }
+}
+
+/** One source-aware output from an application-owned or registered Source. */
+export class SourceOutput {
+  readonly #session: Session;
+  readonly #native: NativeSourceOutputHandle;
+
+  private constructor(session: Session, native: NativeSourceOutputHandle) {
+    this.#session = session;
+    this.#native = native;
+  }
+
+  /** @internal */
+  public static _create(
+    session: Session,
+    native: NativeSourceOutputHandle,
+  ): SourceOutput {
+    return new SourceOutput(session, native);
+  }
+
+  /** Native Session that owns this output. */
+  public get sessionId(): bigint {
+    return BigInt(this.#native.sessionId);
+  }
+
+  /** Session-local identity of the registered Source instance. */
+  public get sourceInstanceId(): bigint {
+    return BigInt(this.#native.sourceInstanceId);
+  }
+
+  /** Stable Source identity assigned by Core. */
+  public get sourceId(): bigint {
+    return BigInt(this.#native.sourceId);
+  }
+
+  /** Stable stream identity assigned by Core. */
+  public get streamId(): bigint {
+    return BigInt(this.#native.streamId);
+  }
+
+  /** Named output port declared by this Source. */
+  public get outputName(): string {
+    return this.#native.outputPort;
+  }
+
+  /** Route this output to an Endpoint. */
+  public send(endpoint: Endpoint, options: { input?: string } = {}): bigint {
+    if (!endpoint._belongsTo(this.#session)) {
+      throw new TypeError('SourceOutput and Endpoint belong to different Sessions');
+    }
+    return BigInt(
+      nativeCallSync(() =>
+        this.#native.send(endpoint._nativeHandle(), options.input),
+      ),
+    );
+  }
+
+  /** Connect this output to one named Operator input. */
+  public connect(input: OperatorInput): bigint {
+    return BigInt(nativeCallSync(() => this.#native.connect(input._nativeHandle())));
+  }
+
+  /** Apply an Operator and select its output. */
+  public through(
+    operator: Operator,
+    options: { input?: string; output?: string } = {},
+  ): DerivedStream {
+    return DerivedStream._create(
+      this.#session,
+      nativeCallSync(() =>
+        this.#native.through(
+          operator._nativeHandle(),
+          options.input,
+          options.output,
+        ),
+      ),
+    );
+  }
+
+  /** Record this output under a stable name in the Session recording directory. */
   public record(name: string): Endpoint {
     return Endpoint._create(
       this.#session,
@@ -436,9 +535,13 @@ export class RunningSession implements AsyncDisposable {
 /** Declares Sources, routes, and destinations before native capture starts. */
 export class Session {
   readonly #native: NativeSessionHandle;
+  readonly #sampleRateHz: number;
+  readonly #channels: 1 | 2;
 
   /** Create a Session declaration. No capture resource is opened yet. */
   public constructor(options: SessionOptions = {}) {
+    this.#sampleRateHz = options.sampleRateHz ?? 48_000;
+    this.#channels = options.channels ?? 1;
     this.#native = nativeCallSync(
       () => new (nativeAddon().NativeSession)(options),
     );
@@ -455,6 +558,34 @@ export class Session {
       this,
       nativeCallSync(() => this.#native.capture(nativeSource(source))),
     );
+  }
+
+  /** Add a named input for float32 PCM already owned by this application. */
+  public audioInput(name: string, options: AudioInputOptions = {}): AudioInput {
+    if (name.trim().length === 0) {
+      throw new AudioInputConfigurationError('audio input name cannot be empty');
+    }
+    const config = {
+      name,
+      sampleRateHz: options.sampleRateHz ?? this.#sampleRateHz,
+      channels: options.channels ?? this.#channels,
+      capacityFrames: options.capacityFrames ?? 8,
+      frameSamplesPerChannel: options.frameSamplesPerChannel ?? 480,
+    } as const;
+    let native: NativeAudioInputHandle;
+    try {
+      native = nativeCallSync(() =>
+        this.#native.audioInput(
+          config.sampleRateHz,
+          config.channels,
+          config.capacityFrames,
+          config.frameSamplesPerChannel,
+        ),
+      );
+    } catch (failure) {
+      throw _audioInputFailure(failure);
+    }
+    return AudioInput._create(this, native, config);
   }
 
   /** Add an Endpoint that exposes audio to the Node process. */
@@ -492,7 +623,7 @@ export class Session {
       throw new SessionStartError(
         result.failure.code,
         result.failure.message,
-        result.failure.diagnostic,
+        compileDiagnosticFromNative(result.failure.diagnostic),
       );
     }
     const running = result.takeRunning();

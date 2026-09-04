@@ -9,6 +9,7 @@ without loading native code in a browser build.
 - [Capture an application](../README.md#capture-an-application)
 - [Add a microphone only when the user asks for it](../README.md#add-a-microphone)
 - [Discover applications and devices](../README.md#discover-sources-before-capture)
+- [Feed PCM from a provider, decoder, or network connection](guides/application-audio.md)
 
 ## Build a Session
 

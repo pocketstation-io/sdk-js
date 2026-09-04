@@ -4,6 +4,8 @@
 
 ```ts
 
+import { Buffer as Buffer_2 } from 'node:buffer';
+
 // @public
 export function applicationCaptureAvailable(): boolean;
 
@@ -44,6 +46,120 @@ export interface AudioFrame {
     readonly stemId: bigint;
     readonly streamId: bigint;
     readonly timestampStartNs: bigint;
+}
+
+// @public
+export class AudioInput implements Disposable {
+    [Symbol.dispose](): void;
+    close(): void;
+    get config(): AudioInputConfig;
+    observations(): AudioInputObservations;
+    get output(): SourceOutput;
+    get sourceId(): bigint;
+    get streamId(): bigint;
+    tryWrite(samples: AudioInputSamples, options?: AudioInputTryWriteOptions): void;
+    write(samples: AudioInputSamples, options?: AudioInputWriteOptions): Promise<void>;
+}
+
+// @public
+export class AudioInputAbortError extends AudioInputError {
+    constructor(reason?: unknown, options?: {
+        cause?: unknown;
+    });
+    readonly reason: unknown;
+}
+
+// @public
+export class AudioInputBufferError extends AudioInputError {
+    constructor(message: string, options?: {
+        cause?: unknown;
+    });
+}
+
+// @public
+export class AudioInputCancelledError extends AudioInputError {
+    constructor(message?: string, options?: {
+        cause?: unknown;
+    });
+}
+
+// @public
+export class AudioInputClosedError extends AudioInputError {
+    constructor(message?: string, options?: {
+        cause?: unknown;
+    });
+}
+
+// @public
+export interface AudioInputConfig {
+    readonly capacityFrames: number;
+    readonly channels: 1 | 2;
+    readonly frameSamplesPerChannel: number;
+    readonly name: string;
+    readonly sampleRateHz: number;
+}
+
+// @public
+export class AudioInputConfigurationError extends AudioInputError {
+    constructor(message: string, options?: {
+        cause?: unknown;
+    });
+}
+
+// @public
+export class AudioInputError extends PocketStationError {
+    constructor(code: string, message: string, options?: {
+        cause?: unknown;
+    });
+}
+
+// @public
+export class AudioInputFullError extends AudioInputError {
+    constructor(message?: string, options?: {
+        cause?: unknown;
+    });
+}
+
+// @public
+export interface AudioInputObservations {
+    readonly acceptedTotal: bigint;
+    readonly availableBuffers: bigint;
+    readonly bufferSlots: bigint;
+    readonly cancelled: boolean;
+    readonly capacityFrames: bigint;
+    readonly closed: boolean;
+    readonly fullTotal: bigint;
+    readonly invalidTotal: bigint;
+}
+
+// @public
+export interface AudioInputOptions {
+    capacityFrames?: number;
+    channels?: 1 | 2;
+    frameSamplesPerChannel?: number;
+    sampleRateHz?: number;
+}
+
+// @public
+export type AudioInputSamples = Float32Array | Buffer_2;
+
+// @public
+export class AudioInputTimeoutError extends AudioInputError {
+    constructor(timeoutMs: number, options?: {
+        cause?: unknown;
+    });
+    readonly timeoutMs: number;
+}
+
+// @public
+export interface AudioInputTryWriteOptions {
+    discontinuity?: boolean;
+}
+
+// @public
+export interface AudioInputWriteOptions extends AudioInputTryWriteOptions {
+    signal?: AbortSignal;
+    timeoutMs?: number;
 }
 
 // @public
@@ -405,6 +521,7 @@ export type SelectorPersistenceScope = 'process-lifetime' | 'application-identit
 export class Session {
     constructor(options?: SessionOptions);
     audio(route?: RouteSettings): Endpoint;
+    audioInput(name: string, options?: AudioInputOptions): AudioInput;
     capture(source: Source): Stem;
     endpoint(definition: EndpointDefinition): Endpoint;
     get id(): bigint;
@@ -436,8 +553,7 @@ export interface SessionOptions {
 
 // @public
 export class SessionStartError extends PocketStationError {
-    // Warning: (ae-forgotten-export) The symbol "NativeCompileDiagnostic" needs to be exported by the entry point index.d.ts
-    constructor(code: string, message: string, diagnostic?: NativeCompileDiagnostic | null);
+    constructor(code: string, message: string, diagnostic?: CompileDiagnostic);
     readonly diagnostic: CompileDiagnostic | undefined;
 }
 
@@ -512,6 +628,24 @@ export type SourceIdentityStrength = 'application-id-and-process-id' | 'stable-a
 
 // @public
 export type SourceKind = 'application' | 'output-device' | 'input-device' | 'system-mix';
+
+// @public
+export class SourceOutput {
+    connect(input: OperatorInput): bigint;
+    get outputName(): string;
+    record(name: string): Endpoint;
+    send(endpoint: Endpoint, options?: {
+        input?: string;
+    }): bigint;
+    get sessionId(): bigint;
+    get sourceId(): bigint;
+    get sourceInstanceId(): bigint;
+    get streamId(): bigint;
+    through(operator: Operator, options?: {
+        input?: string;
+        output?: string;
+    }): DerivedStream;
+}
 
 // @public
 export type SourceQuery = {
