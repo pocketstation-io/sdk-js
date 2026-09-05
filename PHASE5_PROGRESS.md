@@ -5,6 +5,9 @@
 `W21-JAVASCRIPT-APPLICATION-AUDIO-INGRESS` is complete under the recorded
 `phase-exception-approved` decision.
 
+`W21-JAVASCRIPT-STREAM-PROTOCOLS` is complete in the current source candidate.
+Its acceptance artifact and commit are recorded before the task is closed.
+
 The repository now contains a browser Relay client and the first working Node
 binding for native capture. It must not yet be described as feature-equivalent
 to the Rust or Python packages.
@@ -44,8 +47,13 @@ callback and does not implement another media engine.
   pass. Windows and Linux target execution remain later gates.
 - Graph declarations: `PARTIAL`; native validation, negotiation, route settings,
   named-port composition, recording declarations, generated-audio lowering, and
-  compiler diagnostics pass. JavaScript provider implementations and typed
-  signal consumption remain later work.
+  compiler diagnostics pass. JavaScript provider implementations remain later
+  work.
+- Stream consumption: `REAL` for the current component scope. Audio and typed
+  signal reads have one reader, finite waits, `AbortSignal`, separate timeout
+  and end results, early iterator release, independent subscription close, and
+  retained final audio. Typed PCM, text, and bytes retain timing, lineage, and
+  Operator derivation. Queue depth and delivery totals come from Core.
 - Recording: `PARTIAL`; a real local macOS system-audio Session captured five
   non-silent frames and finalized a 917,572-byte WAV with no recorded gaps or
   Session failures. Per-Stem outcome projection remains later observation work.
@@ -83,7 +91,13 @@ only the tarball, loads the native addon, performs native discovery and
 permission inspection, declares each built-in Source form, and validates native
 signal and route values. It also writes application-owned PCM through a real
 Core Session and verifies copied samples, source and stream identity,
-discontinuity, and clean shutdown. It does not open a microphone.
+discontinuity, explicit end-of-stream, and clean shutdown. It does not open a
+microphone.
+
+Typed signal delivery is tested against a deterministic Core Session compiled
+only for tests. Real Core Operators emit PCM, text, and bytes through the same
+subscription Endpoint used by production builds. The fixture is absent from
+the normal native addon and is not physical-device or provider evidence.
 
 ## Staff Bar Self-Check — JavaScript application-owned PCM
 
@@ -104,9 +118,29 @@ discontinuity, and clean shutdown. It does not open a microphone.
   `phase-exception-approved`.
 - Unsafe added: no.
 - Remaining risk: provider execution, selected-output cancellation, typed
-  signal consumption, per-Stem
-  recording outcomes, target packages, and real Windows/Linux execution are
+  provider authoring, per-Stem recording outcomes, target packages, and real
+  Windows/Linux execution are
   later gates and must not be inferred from the local macOS run.
+
+## Staff Bar Self-Check — JavaScript stream consumption
+
+- Smallest correct design: yes — Core owns every audio and signal queue. Node
+  performs finite reads and copies values only after they leave realtime work.
+- Tests added or updated: yes — native receipt state plus JavaScript audio,
+  PCM/text/bytes signals, lineage, derivation, timeout, end-of-stream, abort,
+  one-reader ownership, independent close, slow-consumer metrics, exports, and
+  packed consumption.
+- Hot-path safe: yes — signal receipt polling and JavaScript conversion run on
+  worker tasks, never on capture callbacks or realtime partitions.
+- Public API changed: yes — `BusSubscription`, `SignalStream`, typed payloads,
+  `END_OF_STREAM`, `StreamAbortError`, and `Session.subscribe()` are added to
+  the unpublished Node entry.
+- New dependency: no — production still depends only on released Core 1.1.10.
+  The existing Core conformance feature is enabled only by the test build.
+- Phase scope respected: yes — only audio and typed-signal consumption changed.
+- Unsafe added: no.
+- Remaining risk: this is component evidence. It does not prove a physical
+  Source, provider, Relay, browser, Windows/Linux package, or performance claim.
 
 ## Intentionally not included in this step
 

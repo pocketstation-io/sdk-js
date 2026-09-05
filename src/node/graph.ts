@@ -51,6 +51,13 @@ export interface SignalOptions {
   readonly schema?: string;
 }
 
+/** @internal Native description used when reading one signal envelope. */
+export interface SignalDescription extends SignalOptions {
+  readonly kind: SignalKind;
+  readonly format?: string;
+  readonly customId?: string;
+}
+
 /** Describes the meaning and wire identity of values carried by a graph port. */
 export class SignalSpec {
   readonly #native: NativeSignalSpecHandle;
@@ -62,6 +69,34 @@ export class SignalSpec {
     this.#native = nativeCallSync(
       () => new (nativeAddon().NativeSignalSpec)(kind, options),
     );
+  }
+
+  /** @internal */
+  public static _fromDescription(description: SignalDescription): SignalSpec {
+    const options = {
+      role: description.role,
+      schema: description.schema,
+    };
+    switch (description.kind) {
+      case 'any':
+        return SignalSpec.any(options);
+      case 'pcm-audio':
+        return SignalSpec.audio(options);
+      case 'encoded-audio':
+        return SignalSpec.encodedAudio(description.format as Codec, options);
+      case 'text':
+        return SignalSpec.text(description.format as TextFormat, options);
+      case 'event':
+        return SignalSpec.event(description.format as EventFormat, options);
+      case 'metrics':
+        return SignalSpec.metrics(options);
+      case 'control':
+        return SignalSpec.control(options);
+      case 'binary':
+        return SignalSpec.binary(description.format as BinaryFormat, options);
+      case 'custom':
+        return SignalSpec.custom(description.customId ?? '', options);
+    }
   }
 
   /** Describe an unconstrained signal. */

@@ -10,6 +10,10 @@ repository = "https://github.com/pocketstation-io/sdk-js"
 [lib]
 crate-type = ["cdylib"]
 
+[features]
+default = []
+conformance-fixtures = ["pocketstation/conformance-fixtures"]
+
 [dependencies]
 napi = { version = "3.12.2", features = ["napi8"] }
 napi-derive = "3.6.3"

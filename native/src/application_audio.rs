@@ -41,8 +41,8 @@ impl From<AudioInputObservations> for NativeAudioInputObservations {
 
 #[napi(js_name = "NativeSourceOutput")]
 pub struct NativeSourceOutput {
-    session_id: u64,
-    handle: SourceOutputHandle,
+    pub(crate) session_id: u64,
+    pub(crate) handle: SourceOutputHandle,
 }
 
 #[napi]

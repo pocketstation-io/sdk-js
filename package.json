@@ -28,15 +28,16 @@
   "scripts": {
     "build": "npm run build:native && npm run build:typescript",
     "build:native": "node tools/clean-native-output.mjs && napi build --platform --release --manifest-path native/Cargo.toml --output-dir native-dist",
+    "build:test-native": "node tools/clean-native-output.mjs && napi build --platform --release --features conformance-fixtures --manifest-path native/Cargo.toml --output-dir native-dist",
     "build:typescript": "node tools/clean-typescript-output.mjs && tsc",
     "example:capture": "npm run build && node examples/capture-application.mjs",
     "api:check": "npm run build:typescript && api-extractor run && api-extractor run --config api-extractor.browser.json && api-extractor run --config api-extractor.root.json",
     "api:update": "npm run build:typescript && api-extractor run --local && api-extractor run --local --config api-extractor.browser.json && api-extractor run --local --config api-extractor.root.json",
-    "native:check": "cargo fmt --manifest-path native/Cargo.toml --all -- --check && cargo clippy --manifest-path native/Cargo.toml --all-targets -- -D warnings && cargo test --manifest-path native/Cargo.toml",
+    "native:check": "cargo fmt --manifest-path native/Cargo.toml --all -- --check && cargo clippy --manifest-path native/Cargo.toml --all-targets --all-features -- -D warnings && cargo test --manifest-path native/Cargo.toml --all-features",
     "test:exports": "npm run build && node tests/package-resolution.mjs",
     "test:packed": "npm run build && node tools/test-packed-consumer.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "npm run build && node --experimental-vm-modules node_modules/.bin/jest"
+    "test": "npm run build && npm run build:test-native && node --experimental-vm-modules node_modules/.bin/jest"
   },
   "engines": {
     "node": ">=20.17"

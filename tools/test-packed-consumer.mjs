@@ -41,6 +41,7 @@ try {
     import {
       CapturePermissionLifecycle,
       DeliveryPolicy,
+      END_OF_STREAM,
       MediaCaps,
       Operator,
       RouteSettings,
@@ -82,6 +83,9 @@ try {
     if (inputFrame.streamId !== input.streamId) throw new Error('packed PCM lost stream identity');
     if (inputFrame.discontinuityEpoch !== 1n) throw new Error('packed PCM lost discontinuity');
     await runningInput.stop();
+    if (await runningInput.audio.read({ timeoutMs: 0 }) !== END_OF_STREAM) {
+      throw new Error('packed audio stream did not report end-of-stream');
+    }
     const session = new Session({ frameDurationMs: 10 });
     const application = session.capture(Source.application('__pks_missing_application__'));
     const delivery = DeliveryPolicy.realtimeAudio().withQueuePressure('drop-newest');

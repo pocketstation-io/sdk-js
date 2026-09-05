@@ -1,4 +1,9 @@
-import { AudioStream, PocketStationError } from '../node/index.js';
+import {
+  AudioStream,
+  END_OF_STREAM,
+  PocketStationError,
+  StreamAbortError,
+} from '../node/index.js';
 import type {
   NativeAudioRead,
   NativeRunningSessionHandle,
@@ -84,8 +89,30 @@ describe('Node audio stream', () => {
 
     await expect(
       AudioStream._create(native).read({ signal: controller.signal }),
-    ).rejects.toThrow('cancelled');
+    ).rejects.toMatchObject({
+      name: 'AbortError',
+      code: 'stream.aborted',
+      reason: expect.any(Error),
+    });
     expect(reads).toBe(0);
+  });
+
+  it('Given a running stream with no frame When read expires Then it returns undefined', async () => {
+    const stream = AudioStream._create(
+      nativeReader([{ frames: [], sessionState: 'running' }]),
+    );
+
+    await expect(stream.read({ timeoutMs: 0 })).resolves.toBeUndefined();
+    expect(stream.closed).toBe(false);
+  });
+
+  it('Given a closed stream When read Then it returns the end marker', async () => {
+    const stream = AudioStream._create(
+      nativeReader([{ frames: [], sessionState: 'stopped' }]),
+    );
+
+    await expect(stream.read()).resolves.toBe(END_OF_STREAM);
+    await expect(stream.read()).resolves.toBe(END_OF_STREAM);
   });
 
   it('Given a direct read in progress When iteration starts Then it fails clearly', async () => {
@@ -127,8 +154,70 @@ describe('Node audio stream', () => {
     controller.abort(new Error('cancelled'));
     release?.();
 
-    await expect(read).rejects.toThrow('cancelled');
+    await expect(read).rejects.toBeInstanceOf(StreamAbortError);
     await expect(stream.read()).resolves.toMatchObject({ sequenceNumber: 7n });
+  });
+
+  it('Given a waiting read When aborted Then it stops within one wait slice', async () => {
+    const native = nativeReader([]);
+    native.readAudio = async (timeoutMs) => {
+      await new Promise((resolve) => setTimeout(resolve, timeoutMs));
+      return { frames: [], sessionState: 'running' };
+    };
+    const controller = new AbortController();
+    const startedAt = performance.now();
+    const read = AudioStream._create(native).read({
+      timeoutMs: 1_000,
+      signal: controller.signal,
+    });
+    setTimeout(() => controller.abort('test complete'), 5);
+
+    await expect(read).rejects.toMatchObject({
+      name: 'AbortError',
+      reason: 'test complete',
+    });
+    expect(performance.now() - startedAt).toBeLessThan(100);
+  });
+
+  it('Given zero wait When iteration starts Then it rejects instead of spinning', async () => {
+    const stream = AudioStream._create(nativeReader([]));
+
+    await expect(stream.frames({ timeoutMs: 0 }).next()).rejects.toThrow(
+      'frames() requires timeoutMs to be greater than zero',
+    );
+  });
+
+  it('Given an iterator ends early When another reader starts Then ownership is released', async () => {
+    const stream = AudioStream._create(
+      nativeReader([
+        { frames: [nativeFrame('1')], sessionState: 'running' },
+        { frames: [nativeFrame('2')], sessionState: 'running' },
+      ]),
+    );
+    const iterator = stream.frames();
+
+    await expect(iterator.next()).resolves.toMatchObject({
+      value: { sequenceNumber: 1n },
+    });
+    await iterator.return(undefined);
+
+    await expect(stream.read()).resolves.toMatchObject({ sequenceNumber: 2n });
+  });
+
+  it('Given copied frames When the Session closes Then pending frames remain readable', async () => {
+    const stream = AudioStream._create(
+      nativeReader([
+        {
+          frames: [nativeFrame('1'), nativeFrame('2')],
+          sessionState: 'running',
+        },
+      ]),
+    );
+
+    await expect(stream.read()).resolves.toMatchObject({ sequenceNumber: 1n });
+    stream._close();
+    await expect(stream.read()).resolves.toMatchObject({ sequenceNumber: 2n });
+    await expect(stream.read()).resolves.toBe(END_OF_STREAM);
   });
 
   it('Given terminal frames When iterated Then all final frames are delivered', async () => {

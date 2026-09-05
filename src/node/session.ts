@@ -24,10 +24,12 @@ import {
   EndpointDefinition,
   Operator,
   RouteSettings,
+  SignalSpec,
 } from './graph.js';
 import { Source, nativeSource } from './sources.js';
 import { AudioStream } from './streams.js';
 import { EventStream } from './events.js';
+import { BusSubscription, SignalStream } from './signals.js';
 
 /** Audio format and frame cadence used by a Session. */
 export interface SessionOptions {
@@ -313,6 +315,16 @@ export class SourceOutput {
       nativeCallSync(() => this.#native.record(name)),
     );
   }
+
+  /** @internal */
+  public _belongsTo(session: Session): boolean {
+    return this.#session === session;
+  }
+
+  /** @internal */
+  public _nativeHandle(): NativeSourceOutputHandle {
+    return this.#native;
+  }
 }
 
 /** One named input on a Session-owned Operator instance. */
@@ -455,6 +467,16 @@ export class DerivedStream {
       nativeCallSync(() => this.#native.reenterAudio()),
     );
   }
+
+  /** @internal */
+  public _belongsTo(session: Session): boolean {
+    return this.#session === session;
+  }
+
+  /** @internal */
+  public _nativeHandle(): NativeDerivedStreamHandle {
+    return this.#native;
+  }
 }
 
 function stopResultFromNative(result: NativeStopResult): StopResult {
@@ -488,6 +510,7 @@ export class RunningSession implements AsyncDisposable {
   /** Lifecycle and failure events reported by the native Session. */
   readonly events: EventStream;
   #finish: Promise<StopResult> | undefined;
+  readonly #signalStreams = new Map<bigint, SignalStream>();
 
   private constructor(native: NativeRunningSessionHandle) {
     this.#native = native;
@@ -503,6 +526,19 @@ export class RunningSession implements AsyncDisposable {
   /** Native Session identity. */
   public get sessionId(): bigint {
     return BigInt(this.#native.sessionId);
+  }
+
+  /** Open the async stream declared by `Session.subscribe()`. */
+  public signals(subscription: BusSubscription): SignalStream {
+    if (subscription.sessionId !== this.sessionId) {
+      throw new TypeError('BusSubscription belongs to a different Session');
+    }
+    let stream = this.#signalStreams.get(subscription.id);
+    if (stream === undefined) {
+      stream = SignalStream._create(this.#native, subscription);
+      this.#signalStreams.set(subscription.id, stream);
+    }
+    return stream;
   }
 
   /** Finish accepted work and close every native resource. */
@@ -525,6 +561,9 @@ export class RunningSession implements AsyncDisposable {
       this.#finish = nativeCall(() => this.#native[disposition]()).then((result) => {
         this.audio._close();
         this.events._finish(result.remainingEvents);
+        for (const stream of this.#signalStreams.values()) {
+          stream._finish();
+        }
         return stopResultFromNative(result);
       });
     }
@@ -534,7 +573,7 @@ export class RunningSession implements AsyncDisposable {
 
 /** Declares Sources, routes, and destinations before native capture starts. */
 export class Session {
-  readonly #native: NativeSessionHandle;
+  #native: NativeSessionHandle;
   readonly #sampleRateHz: number;
   readonly #channels: 1 | 2;
 
@@ -545,6 +584,20 @@ export class Session {
     this.#native = nativeCallSync(
       () => new (nativeAddon().NativeSession)(options),
     );
+  }
+
+  /** @internal Create the deterministic native Session used by SDK tests. */
+  public static _conformance(saturation = false): Session {
+    const nativeSession = nativeAddon().NativeSession;
+    if (nativeSession.conformance === undefined) {
+      throw new PocketStationError(
+        'session.conformance_unavailable',
+        'This native build does not include conformance fixtures',
+      );
+    }
+    const session = new Session();
+    session.#native = nativeSession.conformance(saturation);
+    return session;
   }
 
   /** Native Session identity. */
@@ -614,6 +667,37 @@ export class Session {
       this,
       nativeCallSync(() => this.#native.endpoint(definition._nativeHandle())),
     );
+  }
+
+  /**
+   * Declare a typed output for consumption after this Session starts.
+   *
+   * The subscription does not read or start native work until `start()`.
+   */
+  public subscribe(
+    stream: SourceOutput | DerivedStream,
+    options: { signal: SignalSpec; route?: RouteSettings },
+  ): BusSubscription {
+    if (!stream._belongsTo(this)) {
+      throw new TypeError('Signal output belongs to a different Session');
+    }
+    const route = options.route ?? RouteSettings.buffered();
+    const native = stream instanceof SourceOutput
+      ? nativeCallSync(() =>
+          this.#native.subscribeSourceOutput(
+            stream._nativeHandle(),
+            options.signal._nativeHandle(),
+            route._nativeHandle(),
+          ),
+        )
+      : nativeCallSync(() =>
+          this.#native.subscribeDerived(
+            stream._nativeHandle(),
+            options.signal._nativeHandle(),
+            route._nativeHandle(),
+          ),
+        );
+    return BusSubscription._create(this, native, options.signal, route);
   }
 
   /** Validate the declaration, open native resources, and start capture. */

@@ -280,6 +280,85 @@ export interface NativeDerivedStreamHandle {
   reenterAudio(): NativeStemHandle;
 }
 
+export interface NativeBusSubscriptionHandle {
+  readonly id: string;
+  readonly sessionId: string;
+  readonly routeId: string;
+  readonly signal: NativeSignalSpecHandle;
+  readonly routeSettings: NativeRouteSettingsHandle;
+}
+
+export interface NativeSignalTiming {
+  sourceTimestampNs?: string | null;
+  observedTimestampNs: string;
+  sessionTimestampNs?: string | null;
+  durationNs?: string | null;
+}
+
+export interface NativeSignalLineage {
+  sessionId: string;
+  streamId: string;
+  sourceId: string;
+  clockId: number;
+  sequenceNumber: string;
+  sourceGeneration: number;
+  discontinuityEpoch: string;
+  policyEpoch: string;
+}
+
+export interface NativeSignalDerivation {
+  upstreamLineage: NativeSignalLineage;
+  upstreamTiming: NativeSignalTiming;
+  operatorId: string;
+  operatorRevision: number;
+  operatorGeneration: number;
+  connectorId?: string | null;
+}
+
+export interface NativeSignalAudio {
+  samplesF32Le: Buffer;
+  sampleCount: number;
+  sampleRateHz: number;
+  channelCount: number;
+  streamId: string;
+  sourceId: string;
+  sequenceNumber: string;
+  timestampNs: string;
+}
+
+export interface NativeSignalEnvelope {
+  signalKind: string;
+  signalFormat?: string | null;
+  signalCustomId?: string | null;
+  signalRole?: string | null;
+  signalSchema?: string | null;
+  signalWireId: string;
+  timing: NativeSignalTiming;
+  lineage?: NativeSignalLineage | null;
+  derivation?: NativeSignalDerivation | null;
+  payloadKind: string;
+  text?: string | null;
+  bytes?: Buffer | null;
+  audio?: NativeSignalAudio | null;
+}
+
+export interface NativeSignalRead {
+  status: string;
+  envelope?: NativeSignalEnvelope | null;
+  error?: string | null;
+}
+
+export interface NativeSignalMetrics {
+  capacitySignals: string;
+  maxPayloadBytes: string;
+  maximumBufferedPayloadBytes: string;
+  depthSignals: string;
+  peakDepthSignals: string;
+  enqueuedTotal: string;
+  receivedTotal: string;
+  droppedTotal: string;
+}
+
 export interface NativeAudioFrame {
   samplesF32Le: Buffer;
   sampleCount: number;
@@ -368,6 +447,14 @@ export interface NativeRunningSessionHandle {
   readonly sessionId: string;
   readAudio(timeoutMs: number): Promise<NativeAudioRead>;
   readEvent(timeoutMs: number): Promise<NativeEventRead>;
+  readSignal(
+    subscription: NativeBusSubscriptionHandle,
+    timeoutMs: number,
+  ): Promise<NativeSignalRead>;
+  closeSignal(subscription: NativeBusSubscriptionHandle): void;
+  signalMetrics(
+    subscription: NativeBusSubscriptionHandle,
+  ): Promise<NativeSignalMetrics>;
   stop(): Promise<NativeStopResult>;
   cancel(): Promise<NativeStopResult>;
 }
@@ -410,6 +497,16 @@ export interface NativeSessionHandle {
   audioWithRoute(route: NativeRouteSettingsHandle): NativeEndpointHandle;
   operator(operator: NativeOperatorHandle): NativeOperatorInstanceHandle;
   endpoint(definition: NativeEndpointDefinitionHandle): NativeEndpointHandle;
+  subscribeDerived(
+    stream: NativeDerivedStreamHandle,
+    signal: NativeSignalSpecHandle,
+    route: NativeRouteSettingsHandle,
+  ): NativeBusSubscriptionHandle;
+  subscribeSourceOutput(
+    stream: NativeSourceOutputHandle,
+    signal: NativeSignalSpecHandle,
+    route: NativeRouteSettingsHandle,
+  ): NativeBusSubscriptionHandle;
   start(): Promise<NativeStartResultHandle>;
 }
 
@@ -420,6 +517,7 @@ interface NativeSessionConstructor {
     frameDurationMs?: number;
     recordingRoot?: string;
   }): NativeSessionHandle;
+  conformance?: (saturation?: boolean) => NativeSessionHandle;
 }
 
 export interface NativeAddon {
