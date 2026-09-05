@@ -55,6 +55,12 @@ An `Operator` names an implementation registered outside the Session. Its
 does the same for a destination. These identifiers remain open so adding a
 provider does not require a PocketStation release.
 
+`session.subscribe()` declares an Operator or Source output for JavaScript.
+Core owns the signal queue and preserves the signal description, timing,
+source identity, and Operator derivation. JavaScript receives a copied audio,
+text, or byte payload only when the application reads it. Closing one
+`SignalStream` does not stop capture or another subscription.
+
 Recording is a native Endpoint declared with `stem.record(name)`. Generated PCM
 returns through `reenterAudio()` as a normal Stem with Core-assigned identity
 and lineage. JavaScript does not open recording files or copy generated audio
@@ -93,10 +99,14 @@ iteration. A second reader fails immediately because silently dividing frames
 between consumers would make delivery and shutdown ambiguous.
 
 The normal API is an async iterator. Breaking the loop releases the reader; it
-does not stop the Session. `AbortSignal` is checked before and after each native
-wait, which is limited to 100 ms by default. If a frame arrives while the signal
-is being aborted, the SDK retains that frame for the next reader instead of
-discarding it. The caller decides whether to stop or cancel the Session.
+does not stop the Session. `AbortSignal` is checked between native waits of no
+more than 20 ms. If an audio frame arrives while the signal is being aborted,
+the SDK retains that frame for the next reader instead of discarding it. The
+caller decides whether to stop or cancel the Session.
+
+A direct read returns `undefined` when its wait expires and `END_OF_STREAM`
+when the Session or subscription has ended. Async iteration requires a positive
+wait so an empty stream cannot spin on the JavaScript event loop.
 
 ## Exact values
 
@@ -146,6 +156,6 @@ claim follows from the macOS result.
 ## Later work
 
 The same ownership model extends to Operator and Endpoint authoring, Connectors,
-typed signal consumption, metrics, traces, Relay, extensions,
-sidecars, and voice composition. Those modules are added only with working
+Session-wide metrics, traces, Relay, extensions, sidecars, and voice
+composition. Those modules are added only with working
 behavior and tests; empty parity files are not created.

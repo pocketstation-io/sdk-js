@@ -19,6 +19,11 @@ assert.equal(typeof node.AudioInput, 'function');
 assert.equal(typeof node.AudioInputFullError, 'function');
 assert.equal(typeof node.AudioInputTimeoutError, 'function');
 assert.equal(typeof node.SourceOutput, 'function');
+assert.equal(typeof node.BusSubscription, 'function');
+assert.equal(typeof node.SignalStream, 'function');
+assert.equal(typeof node.EndOfStream, 'function');
+assert.equal(node.END_OF_STREAM.kind, 'end-of-stream');
+assert.equal(typeof node.StreamAbortError, 'function');
 
 const browser = await import('pocketstation/browser');
 assert.equal(typeof browser.RelaySession, 'function');

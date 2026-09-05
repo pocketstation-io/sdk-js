@@ -85,6 +85,43 @@ step; the current API does not pretend an unknown provider exists.
 Read [Route, process, and record media](docs/guides/compose-a-session.md) for
 named ports, generated audio, compiler diagnostics, and delivery settings.
 
+## Read an Operator result
+
+Subscribe to a named output before starting the Session, then read it from the
+running Session. In this example, an installed provider package has registered
+the `io.example.transcriber.v1` Operator:
+
+```ts
+import { Operator, Session, SignalSpec, Source } from "pocketstation/node";
+
+const session = new Session();
+const application = session.capture(Source.application("Zoom"));
+const transcriber = session.operator(
+  new Operator("io.example.transcriber.v1"),
+);
+application.connect(transcriber.input("audio"));
+
+const transcript = transcriber.output("transcript");
+const subscription = session.subscribe(transcript, {
+  signal: SignalSpec.text("json"),
+});
+
+await using running = await session.start();
+for await (const value of running.signals(subscription)) {
+  if (value.payload.kind === "text") {
+    console.log(value.payload.text);
+  }
+}
+```
+
+Each value includes its source and stream identity when the producer supplies
+lineage. Derived values also identify the Operator that produced them. A
+subscription has one reader, can be closed without stopping the Session, and
+reports its current queue depth and delivery totals through `metrics()`.
+
+Read [Consume Operator output](docs/guides/signal-streams.md) for timeout,
+end-of-stream, cancellation, queue, and payload behavior.
+
 ## Feed audio your application already has
 
 Use an `AudioInput` when a provider, network connection, decoder, or voice
@@ -179,6 +216,20 @@ Pass an `AbortSignal` when the reader needs its own cancellation:
 ```ts
 for await (const frame of running.audio.frames({ signal })) {
   consume(frame);
+}
+```
+
+Direct reads distinguish a wait that expired from a stream that ended:
+
+```ts
+import { END_OF_STREAM } from "pocketstation/node";
+
+const value = await running.audio.read({ timeoutMs: 100 });
+
+if (value === undefined) {
+  // No frame arrived within 100 ms.
+} else if (value === END_OF_STREAM) {
+  // The Session ended and no received frames remain.
 }
 ```
 

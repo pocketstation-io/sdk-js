@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
@@ -12,6 +13,11 @@ use crate::errors::{error, state_unavailable};
 use crate::graph::{
     NativeEndpointDefinition, NativeOperator, NativeOperatorInput, NativeOperatorInstance,
     NativeRouteSettings,
+};
+use crate::signals::{
+    close_signal, copy_signal_metrics, new_signal_receipts, read_signal_task, subscribe_derived,
+    subscribe_source_output, validate_subscription, NativeBusSubscription, NativeSignalMetrics,
+    ReadSignalTask, SignalReceipts,
 };
 use crate::sources::{platform_name, source_kind_name, NativeSource};
 use crate::streams::{copy_audio, NativeAudioRead};
@@ -209,6 +215,8 @@ impl NativeStem {
 pub struct NativeSession {
     session: Arc<Mutex<Option<pocketstation::Session>>>,
     session_id: u64,
+    signal_receipts: SignalReceipts,
+    next_signal_subscription_id: AtomicU64,
 }
 
 #[napi]
@@ -260,6 +268,8 @@ impl NativeSession {
         Ok(Self {
             session: Arc::new(Mutex::new(Some(session))),
             session_id,
+            signal_receipts: new_signal_receipts(),
+            next_signal_subscription_id: AtomicU64::new(0),
         })
     }
 
@@ -360,6 +370,46 @@ impl NativeSession {
     }
 
     #[napi]
+    pub fn subscribe_derived(
+        &self,
+        stream: &crate::graph::NativeDerivedStream,
+        signal: &crate::graph::NativeSignalSpec,
+        route_settings: &NativeRouteSettings,
+    ) -> Result<NativeBusSubscription> {
+        let subscription_id = self.allocate_signal_subscription_id()?;
+        self.with_session(|session| {
+            subscribe_derived(
+                session,
+                stream,
+                signal,
+                route_settings,
+                subscription_id,
+                &self.signal_receipts,
+            )
+        })
+    }
+
+    #[napi]
+    pub fn subscribe_source_output(
+        &self,
+        stream: &crate::application_audio::NativeSourceOutput,
+        signal: &crate::graph::NativeSignalSpec,
+        route_settings: &NativeRouteSettings,
+    ) -> Result<NativeBusSubscription> {
+        let subscription_id = self.allocate_signal_subscription_id()?;
+        self.with_session(|session| {
+            subscribe_source_output(
+                session,
+                stream,
+                signal,
+                route_settings,
+                subscription_id,
+                &self.signal_receipts,
+            )
+        })
+    }
+
+    #[napi]
     pub fn start(&self) -> Result<AsyncTask<StartTask>> {
         {
             let guard = self
@@ -373,11 +423,48 @@ impl NativeSession {
         Ok(AsyncTask::new(StartTask {
             session: Arc::clone(&self.session),
             session_id: self.session_id,
+            signal_receipts: Arc::clone(&self.signal_receipts),
         }))
     }
 }
 
+#[cfg(feature = "conformance-fixtures")]
+#[napi]
 impl NativeSession {
+    #[napi(factory)]
+    pub fn conformance(saturation: Option<bool>) -> Result<Self> {
+        let session = if saturation.unwrap_or(false) {
+            pocketstation::conformance::session_for_saturation()
+        } else {
+            pocketstation::conformance::session()
+        }
+        .map_err(|failure| error("session.conformance_unavailable", failure.to_string()))?;
+        crate::graph::register_conformance_operators(&session)?;
+        let session_id = session.id().get();
+        Ok(Self {
+            session: Arc::new(Mutex::new(Some(session))),
+            session_id,
+            signal_receipts: new_signal_receipts(),
+            next_signal_subscription_id: AtomicU64::new(0),
+        })
+    }
+}
+
+impl NativeSession {
+    fn allocate_signal_subscription_id(&self) -> Result<u64> {
+        self.next_signal_subscription_id
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+                value.checked_add(1)
+            })
+            .map(|previous| previous + 1)
+            .map_err(|_| {
+                error(
+                    "session.capacity_exhausted",
+                    "signal subscription ID space is exhausted",
+                )
+            })
+    }
+
     fn with_session<T>(
         &self,
         operation: impl FnOnce(&pocketstation::Session) -> Result<T>,
@@ -396,6 +483,7 @@ impl NativeSession {
 pub struct StartTask {
     session: Arc<Mutex<Option<pocketstation::Session>>>,
     session_id: u64,
+    signal_receipts: SignalReceipts,
 }
 
 impl Task for StartTask {
@@ -410,11 +498,14 @@ impl Task for StartTask {
             .take()
             .ok_or_else(|| error("session.draft_frozen", "Session has already started"))?;
         match session.start() {
-            Ok(running) => NativeRunningSession::spawn(running, self.session_id).map(|running| {
-                NativeStartResult {
-                    running: Some(running),
-                    failure: None,
-                }
+            Ok(running) => NativeRunningSession::spawn(
+                running,
+                self.session_id,
+                Arc::clone(&self.signal_receipts),
+            )
+            .map(|running| NativeStartResult {
+                running: Some(running),
+                failure: None,
             }),
             Err(failure) => Ok(NativeStartResult {
                 running: None,
@@ -461,6 +552,10 @@ enum SessionCommand {
         timeout: Duration,
         response: SyncSender<Result<NativeEventRead>>,
     },
+    SignalMetrics {
+        route_id: u64,
+        response: SyncSender<std::result::Result<NativeSignalMetrics, String>>,
+    },
     Stop {
         response: SyncSender<NativeStopResult>,
     },
@@ -479,6 +574,7 @@ struct SessionWorker {
 pub struct NativeRunningSession {
     worker: Mutex<Option<SessionWorker>>,
     session_id: u64,
+    signal_receipts: SignalReceipts,
 }
 
 #[napi]
@@ -518,6 +614,37 @@ impl NativeRunningSession {
     }
 
     #[napi]
+    pub fn read_signal(
+        &self,
+        subscription: &NativeBusSubscription,
+        timeout_ms: u32,
+    ) -> Result<AsyncTask<ReadSignalTask>> {
+        read_signal_task(
+            &self.signal_receipts,
+            self.session_id,
+            subscription,
+            timeout_ms,
+        )
+    }
+
+    #[napi]
+    pub fn close_signal(&self, subscription: &NativeBusSubscription) -> Result<()> {
+        close_signal(&self.signal_receipts, self.session_id, subscription)
+    }
+
+    #[napi]
+    pub fn signal_metrics(
+        &self,
+        subscription: &NativeBusSubscription,
+    ) -> Result<AsyncTask<SignalMetricsTask>> {
+        validate_subscription(&self.signal_receipts, self.session_id, subscription)?;
+        Ok(AsyncTask::new(SignalMetricsTask {
+            commands: self.commands()?,
+            route_id: subscription.route_id,
+        }))
+    }
+
+    #[napi]
     pub fn stop(&self) -> Result<AsyncTask<FinishTask>> {
         Ok(AsyncTask::new(FinishTask {
             worker: Some(self.take_worker()?),
@@ -535,7 +662,11 @@ impl NativeRunningSession {
 }
 
 impl NativeRunningSession {
-    fn spawn(running: pocketstation::RunningSession, session_id: u64) -> Result<Self> {
+    fn spawn(
+        running: pocketstation::RunningSession,
+        session_id: u64,
+        signal_receipts: SignalReceipts,
+    ) -> Result<Self> {
         let (commands, receiver) = sync_channel(COMMAND_CAPACITY_COUNT);
         let join = thread::Builder::new()
             .name("pocketstation-js-session".to_owned())
@@ -552,6 +683,7 @@ impl NativeRunningSession {
                 join: Some(join),
             })),
             session_id,
+            signal_receipts,
         })
     }
 
@@ -619,6 +751,39 @@ impl Drop for NativeRunningSession {
 pub struct ReadAudioTask {
     commands: SyncSender<SessionCommand>,
     timeout: Duration,
+}
+
+pub struct SignalMetricsTask {
+    commands: SyncSender<SessionCommand>,
+    route_id: u64,
+}
+
+impl Task for SignalMetricsTask {
+    type Output = NativeSignalMetrics;
+    type JsValue = NativeSignalMetrics;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        let (response, receiver) = sync_channel(1);
+        self.commands
+            .send(SessionCommand::SignalMetrics {
+                route_id: self.route_id,
+                response,
+            })
+            .map_err(|_| error("session.stopped", "native Session worker has stopped"))?;
+        receiver
+            .recv()
+            .map_err(|_| {
+                error(
+                    "session.worker_stopped",
+                    "native Session worker did not return signal metrics",
+                )
+            })?
+            .map_err(|failure| error("stream.metrics_unavailable", failure))
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output)
+    }
 }
 
 impl Task for ReadAudioTask {
@@ -715,6 +880,9 @@ fn session_worker(mut running: pocketstation::RunningSession, receiver: Receiver
                     session_state: lifecycle_state_name(running.state()).to_owned(),
                 });
                 let _ = response.send(event);
+            }
+            SessionCommand::SignalMetrics { route_id, response } => {
+                let _ = response.send(copy_signal_metrics(&running, route_id));
             }
             SessionCommand::Stop { response } => {
                 let stop = running.stop();

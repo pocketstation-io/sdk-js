@@ -14,6 +14,7 @@ without loading native code in a browser build.
 ## Build a Session
 
 - [Route, process, and record media](guides/compose-a-session.md)
+- [Consume Operator output](guides/signal-streams.md)
 - [Choose media and delivery settings](concepts/route-settings.md)
 - [Understand native ownership and shutdown](JAVASCRIPT_SDK_DESIGN.md)
 

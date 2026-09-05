@@ -53,7 +53,7 @@ export interface AudioFrame {
 }
 
 /** Controls one direct read or one async-iterator reader. */
-export interface AudioReadOptions {
+export interface StreamReadOptions {
   /** Maximum native wait in milliseconds. Must be an integer from 0 through 1000. */
   timeoutMs?: number;
   /** Stops this reader without stopping the Session. */
@@ -61,6 +61,36 @@ export interface AudioReadOptions {
 }
 
 const DEFAULT_WAIT_MS = 100;
+const ABORT_CHECK_INTERVAL_MS = 20;
+
+/** Returned by a direct read after the native Session has ended. */
+export class EndOfStream {
+  /** Stable marker for exhaustive result handling. */
+  public readonly kind = 'end-of-stream';
+
+  private constructor() {}
+
+  /** @internal */
+  public static readonly value = new EndOfStream();
+}
+
+/** The shared result returned after a stream has ended. */
+export const END_OF_STREAM = EndOfStream.value;
+
+/** Result of one direct audio read. `undefined` means that the wait expired. */
+export type AudioReadResult = AudioFrame | EndOfStream | undefined;
+
+/** A read stopped because its AbortSignal was aborted. */
+export class StreamAbortError extends PocketStationError {
+  /** Value supplied when AbortController.abort() was called. */
+  public readonly reason: unknown;
+
+  public constructor(reason?: unknown) {
+    super('stream.aborted', 'Stream read was aborted', { cause: reason });
+    this.name = 'AbortError';
+    this.reason = reason;
+  }
+}
 
 function frameFromNative(frame: NativeAudioFrame): AudioFrame {
   const samples = new Float32Array(
@@ -103,6 +133,12 @@ function validateTimeout(timeoutMs: number): void {
   }
 }
 
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted === true) {
+    throw new StreamAbortError(signal.reason);
+  }
+}
+
 /** Reads source-aware audio from a running Session. */
 export class AudioStream implements AsyncIterable<AudioFrame> {
   readonly #running: NativeRunningSessionHandle;
@@ -125,8 +161,13 @@ export class AudioStream implements AsyncIterable<AudioFrame> {
     return this.#closed;
   }
 
-  /** Read the next available frame, or `undefined` when the wait expires. */
-  public async read(options: AudioReadOptions = {}): Promise<AudioFrame | undefined> {
+  /**
+   * Read the next available frame.
+   *
+   * Returns `undefined` when the wait expires and `END_OF_STREAM` after the
+   * Session ends and all received frames have been read.
+   */
+  public async read(options: StreamReadOptions = {}): Promise<AudioReadResult> {
     if (this.#activeReader || this.#readInProgress) {
       throw new PocketStationError(
         'stream.in_use',
@@ -142,7 +183,12 @@ export class AudioStream implements AsyncIterable<AudioFrame> {
   }
 
   /** Iterate over frames until the Session closes or the reader is aborted. */
-  public async *frames(options: AudioReadOptions = {}): AsyncGenerator<AudioFrame> {
+  public async *frames(options: StreamReadOptions = {}): AsyncGenerator<AudioFrame> {
+    const timeoutMs = options.timeoutMs ?? DEFAULT_WAIT_MS;
+    validateTimeout(timeoutMs);
+    if (timeoutMs === 0) {
+      throw new RangeError('frames() requires timeoutMs to be greater than zero');
+    }
     if (this.#activeReader || this.#readInProgress) {
       throw new PocketStationError(
         'stream.in_use',
@@ -151,13 +197,13 @@ export class AudioStream implements AsyncIterable<AudioFrame> {
     }
     this.#activeReader = true;
     try {
-      while (!this.#closed || this.#pending.length > 0) {
-        if (options.signal?.aborted === true) {
-          throw options.signal.reason;
+      while (true) {
+        const result = await this.#readOnce(options);
+        if (result instanceof EndOfStream) {
+          return;
         }
-        const frame = await this.#readOnce(options);
-        if (frame !== undefined) {
-          yield frame;
+        if (result !== undefined) {
+          yield result;
         }
       }
     } finally {
@@ -173,11 +219,10 @@ export class AudioStream implements AsyncIterable<AudioFrame> {
   /** @internal */
   public _close(): void {
     this.#closed = true;
-    this.#pending = [];
   }
 
-  async #readOnce(options: AudioReadOptions): Promise<AudioFrame | undefined> {
-    options.signal?.throwIfAborted();
+  async #readOnce(options: StreamReadOptions): Promise<AudioReadResult> {
+    throwIfAborted(options.signal);
     const timeoutMs = options.timeoutMs ?? DEFAULT_WAIT_MS;
     validateTimeout(timeoutMs);
     const pending = this.#pending.shift();
@@ -185,15 +230,34 @@ export class AudioStream implements AsyncIterable<AudioFrame> {
       return pending;
     }
     if (this.#closed) {
-      return undefined;
+      return END_OF_STREAM;
     }
-    const result = await nativeCall(() => this.#running.readAudio(timeoutMs));
-    const frames = result.frames.map(frameFromNative);
-    this.#pending.push(...frames);
-    if (result.sessionState === 'stopped' || result.sessionState === 'failed') {
-      this.#closed = true;
+
+    const deadline = performance.now() + timeoutMs;
+    let firstRead = true;
+    while (firstRead || performance.now() < deadline) {
+      firstRead = false;
+      throwIfAborted(options.signal);
+      const remainingMs = Math.max(0, Math.ceil(deadline - performance.now()));
+      const nativeWaitMs =
+        timeoutMs === 0
+          ? 0
+          : Math.min(ABORT_CHECK_INTERVAL_MS, remainingMs);
+      const result = await nativeCall(() => this.#running.readAudio(nativeWaitMs));
+      const frames = result.frames.map(frameFromNative);
+      this.#pending.push(...frames);
+      if (result.sessionState === 'stopped' || result.sessionState === 'failed') {
+        this.#closed = true;
+      }
+      throwIfAborted(options.signal);
+      const frame = this.#pending.shift();
+      if (frame !== undefined) {
+        return frame;
+      }
+      if (this.#closed) {
+        return END_OF_STREAM;
+      }
     }
-    options.signal?.throwIfAborted();
-    return this.#pending.shift();
+    return undefined;
   }
 }

@@ -163,17 +163,26 @@ export interface AudioInputWriteOptions extends AudioInputTryWriteOptions {
 }
 
 // @public
-export interface AudioReadOptions {
-    signal?: AbortSignal;
-    timeoutMs?: number;
+export type AudioReadResult = AudioFrame | EndOfStream | undefined;
+
+// @public
+export interface AudioSignalPayload {
+    readonly channelCount: number;
+    readonly kind: 'audio';
+    readonly sampleRateHz: number;
+    readonly samples: Float32Array;
+    readonly sequenceNumber: bigint;
+    readonly sourceId: bigint;
+    readonly streamId: bigint;
+    readonly timestampNs: bigint;
 }
 
 // @public
 export class AudioStream implements AsyncIterable<AudioFrame> {
     [Symbol.asyncIterator](): AsyncGenerator<AudioFrame>;
     get closed(): boolean;
-    frames(options?: AudioReadOptions): AsyncGenerator<AudioFrame>;
-    read(options?: AudioReadOptions): Promise<AudioFrame | undefined>;
+    frames(options?: StreamReadOptions): AsyncGenerator<AudioFrame>;
+    read(options?: StreamReadOptions): Promise<AudioReadResult>;
 }
 
 // @public
@@ -186,6 +195,21 @@ export interface AuthorizationOptions {
 
 // @public
 export type BinaryFormat = 'raw' | 'protobuf' | 'flatbuffers' | 'cbor';
+
+// @public
+export class BusSubscription {
+    get id(): bigint;
+    readonly route: RouteSettings;
+    get routeId(): bigint;
+    get sessionId(): bigint;
+    readonly signal: SignalSpec;
+}
+
+// @public
+export interface BytesSignalPayload {
+    readonly data: Uint8Array;
+    readonly kind: 'bytes';
+}
 
 // @public
 export interface CaptureAuthorizationSnapshot {
@@ -325,6 +349,14 @@ export class DiscoveredSource {
 
 // @public
 export function discoverSources(query?: SourceQuery): Promise<readonly DiscoveredSource[]>;
+
+// @public
+export const END_OF_STREAM: EndOfStream;
+
+// @public
+export class EndOfStream {
+    readonly kind = "end-of-stream";
+}
 
 // @public
 export class Endpoint {
@@ -502,6 +534,7 @@ export class RunningSession implements AsyncDisposable {
     cancel(): Promise<StopResult>;
     readonly events: EventStream;
     get sessionId(): bigint;
+    signals(subscription: BusSubscription): SignalStream;
     stop(): Promise<StopResult>;
 }
 
@@ -527,6 +560,10 @@ export class Session {
     get id(): bigint;
     operator(operator: Operator): OperatorInstance;
     start(): Promise<RunningSession>;
+    subscribe(stream: SourceOutput | DerivedStream, options: {
+        signal: SignalSpec;
+        route?: RouteSettings;
+    }): BusSubscription;
 }
 
 // @public
@@ -561,13 +598,50 @@ export class SessionStartError extends PocketStationError {
 export type SessionState = 'starting' | 'running' | 'stopping' | 'stopped' | 'failed';
 
 // @public
+export interface SignalDerivation {
+    readonly connectorId?: bigint;
+    readonly operatorGeneration: number;
+    readonly operatorId: string;
+    readonly operatorRevision: number;
+    readonly upstreamLineage: SignalLineage;
+    readonly upstreamTiming: SignalTiming;
+}
+
+// @public
+export interface SignalEnvelope {
+    readonly derivation?: SignalDerivation;
+    readonly lineage?: SignalLineage;
+    readonly payload: SignalPayload;
+    readonly signal: SignalSpec;
+    readonly timing: SignalTiming;
+}
+
+// @public
 export type SignalKind = 'any' | 'pcm-audio' | 'encoded-audio' | 'text' | 'event' | 'metrics' | 'control' | 'binary' | 'custom';
+
+// @public
+export interface SignalLineage {
+    readonly clockId: number;
+    readonly discontinuityEpoch: bigint;
+    readonly policyEpoch: bigint;
+    readonly sequenceNumber: bigint;
+    readonly sessionId: bigint;
+    readonly sourceGeneration: number;
+    readonly sourceId: bigint;
+    readonly streamId: bigint;
+}
 
 // @public
 export interface SignalOptions {
     readonly role?: string;
     readonly schema?: string;
 }
+
+// @public
+export type SignalPayload = AudioSignalPayload | TextSignalPayload | BytesSignalPayload;
+
+// @public
+export type SignalReadResult = SignalEnvelope | EndOfStream | undefined;
 
 // @public
 export class SignalSpec {
@@ -588,6 +662,37 @@ export class SignalSpec {
     get schema(): string | undefined;
     static text(format?: TextFormat, options?: SignalOptions): SignalSpec;
     get wireId(): string;
+}
+
+// @public
+export class SignalStream implements AsyncIterable<SignalEnvelope>, Disposable {
+    [Symbol.asyncIterator](): AsyncGenerator<SignalEnvelope>;
+    [Symbol.dispose](): void;
+    close(): void;
+    get closed(): boolean;
+    metrics(): Promise<SignalSubscriptionMetrics>;
+    read(options?: StreamReadOptions): Promise<SignalReadResult>;
+    values(options?: StreamReadOptions): AsyncGenerator<SignalEnvelope>;
+}
+
+// @public
+export interface SignalSubscriptionMetrics {
+    readonly capacitySignals: bigint;
+    readonly depthSignals: bigint;
+    readonly droppedTotal: bigint;
+    readonly enqueuedTotal: bigint;
+    readonly maximumBufferedPayloadBytes: bigint;
+    readonly maxPayloadBytes: bigint;
+    readonly peakDepthSignals: bigint;
+    readonly receivedTotal: bigint;
+}
+
+// @public
+export interface SignalTiming {
+    readonly durationNs?: bigint;
+    readonly observedTimestampNs: bigint;
+    readonly sessionTimestampNs?: bigint;
+    readonly sourceTimestampNs?: bigint;
 }
 
 // @public
@@ -705,6 +810,18 @@ export interface StopResult {
 }
 
 // @public
+export class StreamAbortError extends PocketStationError {
+    constructor(reason?: unknown);
+    readonly reason: unknown;
+}
+
+// @public
+export interface StreamReadOptions {
+    signal?: AbortSignal;
+    timeoutMs?: number;
+}
+
+// @public
 export interface TerminalEvent {
     readonly endpointFailuresTotal: bigint;
     readonly finalizationFailuresTotal: bigint;
@@ -717,5 +834,11 @@ export interface TerminalEvent {
 
 // @public
 export type TextFormat = 'utf8' | 'json' | 'markdown';
+
+// @public
+export interface TextSignalPayload {
+    readonly kind: 'text';
+    readonly text: string;
+}
 
 ```

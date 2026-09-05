@@ -887,6 +887,245 @@ fn require_same_session(left: u64, right: u64) -> Result<()> {
     }
 }
 
+#[cfg(feature = "conformance-fixtures")]
+pub(crate) const CONFORMANCE_AUDIO_OPERATOR_ID: &str =
+    "org.pocketstation.javascript.conformance.audio-pass-through.v1";
+#[cfg(feature = "conformance-fixtures")]
+const CONFORMANCE_AUDIO_NODE_ID: &str =
+    "org.pocketstation.javascript.conformance.audio-pass-through-node.v1";
+#[cfg(feature = "conformance-fixtures")]
+pub(crate) const CONFORMANCE_TEXT_OPERATOR_ID: &str =
+    "org.pocketstation.javascript.conformance.audio-to-text.v1";
+#[cfg(feature = "conformance-fixtures")]
+const CONFORMANCE_TEXT_NODE_ID: &str =
+    "org.pocketstation.javascript.conformance.audio-to-text-node.v1";
+#[cfg(feature = "conformance-fixtures")]
+pub(crate) const CONFORMANCE_BYTES_OPERATOR_ID: &str =
+    "org.pocketstation.javascript.conformance.audio-to-bytes.v1";
+#[cfg(feature = "conformance-fixtures")]
+const CONFORMANCE_BYTES_NODE_ID: &str =
+    "org.pocketstation.javascript.conformance.audio-to-bytes-node.v1";
+
+#[cfg(feature = "conformance-fixtures")]
+#[derive(Clone, Copy)]
+enum ConformanceProjection {
+    Audio,
+    Text,
+    Bytes,
+}
+
+#[cfg(feature = "conformance-fixtures")]
+struct ConformanceOperatorFactory {
+    manifest: pocketstation::AsyncOperatorManifest,
+    projection: ConformanceProjection,
+}
+
+#[cfg(feature = "conformance-fixtures")]
+struct ConformanceOperator {
+    operator_id: OperatorId,
+    projection: ConformanceProjection,
+}
+
+#[cfg(feature = "conformance-fixtures")]
+impl pocketstation::AsyncNode for ConformanceOperator {
+    fn prepare<'a>(
+        &'a mut self,
+        _context: &'a pocketstation::AsyncOperatorPrepareContext,
+    ) -> pocketstation::AsyncNodeFuture<'a, std::result::Result<(), pocketstation::NodeError>> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn process<'a>(
+        &'a mut self,
+        input: pocketstation::SignalEnvelope,
+    ) -> pocketstation::AsyncNodeFuture<
+        'a,
+        std::result::Result<Vec<pocketstation::SignalEnvelope>, pocketstation::NodeError>,
+    > {
+        Box::pin(async move {
+            let lineage = input.lineage().ok_or_else(|| {
+                pocketstation::NodeError::Process(
+                    "JavaScript graph conformance input omitted Session lineage".to_owned(),
+                )
+            })?;
+            let derivation = pocketstation::SignalDerivation::new(
+                lineage,
+                input.timing(),
+                self.operator_id.clone(),
+                1,
+                1,
+                None,
+            )
+            .map_err(|failure| pocketstation::NodeError::Process(failure.to_string()))?;
+            let output = match self.projection {
+                ConformanceProjection::Audio => input,
+                ConformanceProjection::Text => input.map_payload(
+                    pocketstation::SignalPayload::Text(format!(
+                        "source={} sequence={}",
+                        lineage.source_id().get(),
+                        lineage.sequence_number()
+                    )),
+                    SignalSpec::text(TextFormat::Utf8),
+                ),
+                ConformanceProjection::Bytes => input.map_payload(
+                    pocketstation::SignalPayload::Bytes(
+                        lineage.sequence_number().to_le_bytes().to_vec(),
+                    ),
+                    SignalSpec::binary(BinaryFormat::Raw),
+                ),
+            };
+            Ok(vec![output.with_derivation(derivation)])
+        })
+    }
+}
+
+#[cfg(feature = "conformance-fixtures")]
+impl pocketstation::AsyncOperatorFactory for ConformanceOperatorFactory {
+    fn manifest(&self) -> &pocketstation::AsyncOperatorManifest {
+        &self.manifest
+    }
+
+    fn validate_config(
+        &self,
+        _configuration: &pocketstation::OperatorConfiguration,
+    ) -> std::result::Result<(), pocketstation::ConfigError> {
+        Ok(())
+    }
+
+    fn create(
+        &self,
+        _configuration: &pocketstation::OperatorConfiguration,
+    ) -> std::result::Result<Box<dyn pocketstation::AsyncNode>, pocketstation::NodeError> {
+        Ok(Box::new(ConformanceOperator {
+            operator_id: self.manifest.operator_id().clone(),
+            projection: self.projection,
+        }))
+    }
+}
+
+#[cfg(feature = "conformance-fixtures")]
+pub(crate) fn register_conformance_operators(session: &pocketstation::Session) -> Result<()> {
+    use std::sync::Arc;
+
+    for (manifest, projection) in [
+        (
+            conformance_manifest(
+                CONFORMANCE_AUDIO_OPERATOR_ID,
+                CONFORMANCE_AUDIO_NODE_ID,
+                "JavaScript conformance audio pass-through",
+                "audio-out",
+                SignalSpec::audio(),
+                MediaCaps::Audio(AudioCaps {
+                    sample_rate_hz: Some(48_000),
+                    frame_samples: Some(960),
+                    channel_layout: ChannelLayout::Mono,
+                    format: SampleFormat::F32Interleaved,
+                }),
+            )?,
+            ConformanceProjection::Audio,
+        ),
+        (
+            conformance_manifest(
+                CONFORMANCE_TEXT_OPERATOR_ID,
+                CONFORMANCE_TEXT_NODE_ID,
+                "JavaScript conformance audio to text",
+                "text-out",
+                SignalSpec::text(TextFormat::Utf8),
+                MediaCaps::Text,
+            )?,
+            ConformanceProjection::Text,
+        ),
+        (
+            conformance_manifest(
+                CONFORMANCE_BYTES_OPERATOR_ID,
+                CONFORMANCE_BYTES_NODE_ID,
+                "JavaScript conformance audio to bytes",
+                "bytes-out",
+                SignalSpec::binary(BinaryFormat::Raw),
+                MediaCaps::Binary(BinaryFormat::Raw),
+            )?,
+            ConformanceProjection::Bytes,
+        ),
+    ] {
+        session
+            .register_operator(Arc::new(ConformanceOperatorFactory {
+                manifest,
+                projection,
+            }))
+            .map_err(|failure| invalid(failure.to_string()))?;
+    }
+    Ok(())
+}
+
+#[cfg(feature = "conformance-fixtures")]
+fn conformance_manifest(
+    operator_id: &'static str,
+    node_id: &'static str,
+    display_name: &'static str,
+    output_port: &'static str,
+    output_signal: SignalSpec,
+    output_media: MediaCaps,
+) -> Result<pocketstation::AsyncOperatorManifest> {
+    let input_media = MediaCaps::Audio(AudioCaps {
+        sample_rate_hz: Some(48_000),
+        frame_samples: Some(960),
+        channel_layout: ChannelLayout::Mono,
+        format: SampleFormat::F32Interleaved,
+    });
+    let input = PortSpec::new(
+        "audio-in",
+        PortDirection::Input,
+        SignalSpec::audio(),
+        input_media,
+        Multiplicity::Many,
+        true,
+    )
+    .map_err(|failure| invalid(failure.to_string()))?;
+    let output = PortSpec::new(
+        output_port,
+        PortDirection::Output,
+        output_signal,
+        output_media,
+        Multiplicity::Many,
+        true,
+    )
+    .map_err(|failure| invalid(failure.to_string()))?;
+    pocketstation::AsyncOperatorManifest::new(
+        OperatorId::new(operator_id),
+        1,
+        1,
+        pocketstation::NodeDescriptor::new(
+            pocketstation::NodeTypeId::from(node_id),
+            display_name,
+            vec![input],
+            vec![output],
+            pocketstation::ExecutionPartition::AsyncWorker,
+            pocketstation::ExecutionSafety::AllocationAllowed,
+            false,
+        )
+        .map_err(|failure| invalid(failure.to_string()))?,
+        RouteSettings::bounded_async()
+            .with_media(input_media)
+            .with_backpressure(BackpressurePolicy::DropNewest)
+            .with_copy_policy(CopyPolicy::CopyToBranchPool),
+        RouteSettings::bounded_async()
+            .with_media(output_media)
+            .with_copy_policy(CopyPolicy::CopyToBranchPool),
+        16,
+        pocketstation::OperatorPermissionPolicy {
+            network_allowed: false,
+            filesystem_allowed: false,
+        },
+        pocketstation::OperatorDeadlinePolicy {
+            process_timeout_ms: 500,
+        },
+        pocketstation::OperatorCancellationPolicy::DiscardQueued,
+        pocketstation::OperatorFailurePolicy::StopWorker,
+        pocketstation::OperatorOutputRolePolicy::default(),
+    )
+    .map_err(|failure| invalid(failure.to_string()))
+}
+
 impl NativeStem {
     pub(crate) fn connect_input(&self, input: &NativeOperatorInput) -> Result<String> {
         require_same_session(self.session_id, input.session_id)?;

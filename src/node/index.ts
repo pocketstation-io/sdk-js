@@ -78,6 +78,20 @@ export {
   type StopResult,
 } from './session.js';
 export {
+  BusSubscription,
+  SignalStream,
+  type AudioSignalPayload,
+  type BytesSignalPayload,
+  type SignalDerivation,
+  type SignalEnvelope,
+  type SignalLineage,
+  type SignalPayload,
+  type SignalReadResult,
+  type SignalSubscriptionMetrics,
+  type SignalTiming,
+  type TextSignalPayload,
+} from './signals.js';
+export {
   CapturePermissionLifecycle,
   DiscoveredSource,
   Source,
@@ -105,7 +119,11 @@ export {
   type StableSourceId,
 } from './sources.js';
 export {
+  END_OF_STREAM,
   AudioStream,
+  EndOfStream,
+  StreamAbortError,
   type AudioFrame,
-  type AudioReadOptions,
+  type AudioReadResult,
+  type StreamReadOptions,
 } from './streams.js';

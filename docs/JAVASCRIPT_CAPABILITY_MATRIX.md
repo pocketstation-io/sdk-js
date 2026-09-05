@@ -19,10 +19,10 @@ cases visible. Browser tests that replace the service with mocked fetch remain
 | Source-aware audio frames and full lineage | `REAL` | `REAL` | `PARTIAL`; macOS application frames preserve all current Core fields | `src/node/streams.ts`, `native/src/streams.rs` |
 | 10 ms and 20 ms frame profiles | `REAL` | `REAL` | `PARTIAL`; both declare, physical 10 ms macOS proof passes with unreleased Core fix | `src/node/session.ts`, native Session construction |
 | Exclusive async stream readers | `REAL` | `REAL` | `REAL`; direct reads and iteration reject a concurrent reader | stream protocols wave |
-| Abort and deterministic stream close | `REAL` | `REAL` | `PARTIAL`; reader abort and final-frame delivery pass, target shutdown proof pending | stream protocols wave |
+| Abort and deterministic stream close | `REAL` | `REAL` | `REAL`; reads check cancellation at most every 20 ms, final received audio is retained, and a signal subscription closes independently | `src/node/streams.ts`, `src/node/signals.ts` |
 | PCM application input | `REAL` | `REAL` | `REAL`; Float32Array and explicit float32-LE Buffer writes, fixed capacity, discontinuity, timeout, AbortSignal, close, observations, identity, and timing pass through Core | `src/node/application-audio.ts`, `native/src/application_audio.rs` |
 | Generated-audio reentry | `REAL` | `REAL` | `PARTIAL`; declarations lower through Core, real provider execution and selected-output cancellation remain | provider-authoring and voice waves |
-| Typed signals and `BusSubscription` | `REAL` | `REAL` | absent | graph and stream waves |
+| Typed signals and `BusSubscription` | `REAL` | `REAL` | `REAL`; Core-backed audio, text, and bytes, lineage, derivation, one-reader ownership, explicit timeout/EOF, close, and queue metrics pass | `src/node/signals.ts`, `native/src/signals.rs` |
 | Operators with named typed ports | `REAL` | `REAL` | `PARTIAL`; declarations and native compiler diagnostics pass, JavaScript implementations remain | provider-authoring wave |
 | Route settings, media requirements, and delivery policy | `REAL` | `REAL` | `REAL` for declaration, native validation, compatibility, and negotiation | `src/node/graph.ts`, `native/src/graph.rs` |
 | Built-in and custom Endpoints | `REAL` | `REAL` | `PARTIAL`; Node audio, recording, and open native Endpoint declarations work; authoring remains | provider-authoring wave |
