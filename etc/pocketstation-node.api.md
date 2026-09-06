@@ -403,6 +403,81 @@ export class EventStream implements AsyncIterable<SessionEvent> {
 }
 
 // @public
+export class ExtensionAbiVersion {
+    constructor(structSizeBytes: number, major: number, minor: number);
+    static current(): ExtensionAbiVersion;
+    readonly major: number;
+    readonly minor: number;
+    requireCompatible(): void;
+    readonly structSizeBytes: number;
+}
+
+// @public
+export class ExtensionDescriptor {
+    constructor(options: ExtensionDescriptorOptions);
+    // (undocumented)
+    readonly abi: ExtensionAbiVersion;
+    // (undocumented)
+    readonly generation: number;
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly kind: ExtensionKind;
+    // (undocumented)
+    readonly ports: readonly ExtensionPort[];
+    // (undocumented)
+    readonly revision: number;
+}
+
+// @public
+export interface ExtensionDescriptorOptions {
+    readonly abi?: ExtensionAbiVersion;
+    readonly generation?: number;
+    readonly id: string;
+    readonly kind: ExtensionKind;
+    readonly ports: readonly ExtensionPort[];
+    readonly revision?: number;
+}
+
+// @public
+export class ExtensionError extends PocketStationError {
+    constructor(code: string, message: string, cause?: unknown);
+}
+
+// @public
+export type ExtensionKind = 'source' | 'operator' | 'endpoint';
+
+// @public
+export class ExtensionPort {
+    constructor(options: ExtensionPortOptions);
+    // (undocumented)
+    readonly direction: ExtensionPortDirection;
+    // (undocumented)
+    readonly name: string;
+    // (undocumented)
+    readonly required: boolean;
+    // (undocumented)
+    readonly role: string;
+    // (undocumented)
+    readonly schema: string;
+    // (undocumented)
+    readonly signalId: string;
+}
+
+// @public
+export type ExtensionPortDirection = 'input' | 'output';
+
+// @public
+export interface ExtensionPortOptions {
+    readonly direction: ExtensionPortDirection;
+    readonly name: string;
+    readonly required?: boolean;
+    readonly role?: string;
+    readonly schema?: string;
+    readonly signalId: string;
+}
+
+// @public
 export type FrameOwnership = 'move' | 'share' | 'copy';
 
 // @public
@@ -444,6 +519,24 @@ export function microphonePermissionObservation(): Promise<PermissionObservation
 
 // @public
 export type Multiplicity = 'one' | 'many';
+
+// @public
+export interface NativeExtensionLibrary {
+    readonly canonicalPath: string;
+    readonly registrations: readonly NativeExtensionRegistration[];
+}
+
+// @public
+export interface NativeExtensionRegistration {
+    // (undocumented)
+    readonly generation: number;
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly kind: ExtensionKind;
+    // (undocumented)
+    readonly revision: number;
+}
 
 // @public
 export class Operator {
@@ -534,6 +627,7 @@ export class RunningSession implements AsyncDisposable {
     cancel(): Promise<StopResult>;
     readonly events: EventStream;
     get sessionId(): bigint;
+    sidecar(handle: SidecarHandle): SidecarConnection;
     signals(subscription: BusSubscription): SignalStream;
     stop(): Promise<StopResult>;
 }
@@ -558,7 +652,10 @@ export class Session {
     capture(source: Source): Stem;
     endpoint(definition: EndpointDefinition): Endpoint;
     get id(): bigint;
+    loadNativeExtensionLibrary(path: string): Promise<NativeExtensionLibrary>;
     operator(operator: Operator): OperatorInstance;
+    registerSidecar(process: SidecarProcess): SidecarHandle;
+    source(sourceTypeId: string, configuration?: SourceConfiguration): SourceInstance;
     start(): Promise<RunningSession>;
     subscribe(stream: SourceOutput | DerivedStream, options: {
         signal: SignalSpec;
@@ -596,6 +693,164 @@ export class SessionStartError extends PocketStationError {
 
 // @public
 export type SessionState = 'starting' | 'running' | 'stopping' | 'stopped' | 'failed';
+
+// @public
+export class SidecarBackpressureError extends SidecarError {
+    constructor(code: string, message: string, cause?: unknown);
+}
+
+// @public
+export class SidecarConnection {
+    // (undocumented)
+    readonly handle: SidecarHandle;
+    // (undocumented)
+    readonly messages: SidecarStream;
+    send(message: SidecarMessage): Promise<void>;
+    snapshot(): Promise<SidecarSnapshot>;
+}
+
+// @public
+export interface SidecarDeadlines {
+    // (undocumented)
+    readonly processingMs?: number;
+    // (undocumented)
+    readonly readyMs?: number;
+    // (undocumented)
+    readonly shutdownMs?: number;
+}
+
+// @public
+export class SidecarError extends PocketStationError {
+    constructor(code: string, message: string, cause?: unknown);
+}
+
+// @public
+export class SidecarHandle {
+    readonly id: bigint;
+    readonly sessionId: bigint;
+}
+
+// @public
+export class SidecarMessage {
+    // (undocumented)
+    readonly kind: SidecarMessageKind;
+    // (undocumented)
+    readonly payload: Buffer;
+    // (undocumented)
+    readonly role: string | undefined;
+    // (undocumented)
+    readonly schema: string | undefined;
+    // (undocumented)
+    readonly sequenceNumber: bigint;
+    static signal(payload: Uint8Array, options: SidecarSignalOptions): SidecarMessage;
+    // (undocumented)
+    readonly signalId: string;
+    // (undocumented)
+    readonly streamId: bigint;
+    // (undocumented)
+    readonly terminal: boolean;
+    // (undocumented)
+    readonly timestampNs: bigint;
+}
+
+// @public
+export type SidecarMessageKind = 'signal' | 'ready' | 'error' | 'cancel' | 'close' | 'hello' | 'manifest' | 'configure' | 'observation' | 'closed';
+
+// @public
+export class SidecarProcess {
+    constructor(options: SidecarProcessOptions);
+    get id(): bigint;
+}
+
+// @public
+export interface SidecarProcessOptions {
+    readonly arguments?: readonly string[];
+    readonly configuration?: Uint8Array;
+    readonly dataCapacityMessages?: number;
+    readonly deadlines?: SidecarDeadlines;
+    readonly id: bigint;
+    readonly program: string;
+    readonly protocolLimits?: SidecarProtocolLimits;
+}
+
+// @public
+export class SidecarProtocolError extends SidecarError {
+    constructor(code: string, message: string, cause?: unknown);
+}
+
+// @public
+export interface SidecarProtocolLimits {
+    // (undocumented)
+    readonly maxPayloadBytes?: number;
+    // (undocumented)
+    readonly maxRoleBytes?: number;
+    // (undocumented)
+    readonly maxSchemaBytes?: number;
+    // (undocumented)
+    readonly maxSignalIdBytes?: number;
+}
+
+// @public
+export type SidecarReadResult = SidecarMessage | EndOfStream | undefined;
+
+// @public
+export interface SidecarSignalOptions {
+    // (undocumented)
+    readonly role?: string;
+    // (undocumented)
+    readonly schema?: string;
+    // (undocumented)
+    readonly sequenceNumber: bigint;
+    // (undocumented)
+    readonly signalId: string;
+    // (undocumented)
+    readonly streamId: bigint;
+    // (undocumented)
+    readonly terminal?: boolean;
+    // (undocumented)
+    readonly timestampNs: bigint;
+}
+
+// @public
+export class SidecarSnapshot {
+    // (undocumented)
+    readonly dataDroppedTotal: bigint;
+    // (undocumented)
+    readonly dataEnqueuedTotal: bigint;
+    // (undocumented)
+    readonly dataReceivedTotal: bigint;
+    // (undocumented)
+    readonly forcedKillsTotal: bigint;
+    // (undocumented)
+    readonly protocolFailuresTotal: bigint;
+    // (undocumented)
+    readonly reapsTotal: bigint;
+    // (undocumented)
+    readonly sidecarId: bigint;
+    // (undocumented)
+    readonly state: SidecarState;
+    // (undocumented)
+    readonly stateTransitions: bigint;
+    // (undocumented)
+    readonly timeoutsTotal: bigint;
+    visited(state: SidecarState): boolean;
+}
+
+// @public
+export type SidecarState = 'spawned' | 'hello' | 'manifest' | 'configure' | 'ready' | 'running' | 'cancelling' | 'closing' | 'closed' | 'reaped' | 'failed';
+
+// @public
+export class SidecarStream implements AsyncIterable<SidecarMessage> {
+    // (undocumented)
+    [Symbol.asyncIterator](): AsyncGenerator<SidecarMessage>;
+    messages(options?: StreamReadOptions): AsyncGenerator<SidecarMessage>;
+    read(options?: StreamReadOptions): Promise<SidecarReadResult>;
+}
+
+// @public
+export class SidecarTimeoutError extends SidecarError {
+    constructor(code: string, message: string, cause?: unknown);
+}
 
 // @public
 export interface SignalDerivation {
@@ -709,6 +964,9 @@ export class Source {
 }
 
 // @public
+export type SourceConfiguration = Readonly<Record<string, string>>;
+
+// @public
 export interface SourceFailure {
     readonly backendClass?: string;
     readonly failureClass: 'source-instance-exited' | 'platform-status' | 'backend-class';
@@ -730,6 +988,14 @@ export interface SourceFailureEvent {
 
 // @public
 export type SourceIdentityStrength = 'application-id-and-process-id' | 'stable-application-id' | 'process-id' | 'stable-device-uid' | 'platform-stable-id';
+
+// @public
+export class SourceInstance {
+    get id(): bigint;
+    output(name: string): SourceOutput;
+    get sessionId(): bigint;
+    get sourceId(): bigint;
+}
 
 // @public
 export type SourceKind = 'application' | 'output-device' | 'input-device' | 'system-mix';
@@ -805,6 +1071,7 @@ export interface StopResult {
     readonly runtimeFailuresTotal: bigint;
     readonly runtimeWorkerPanicked: boolean;
     readonly sessionState: 'stopped' | 'failed';
+    readonly sidecarOutcomes: readonly SidecarSnapshot[];
     readonly sourceSendRejectionsTotal: bigint;
     readonly success: boolean;
 }

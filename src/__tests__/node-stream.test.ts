@@ -23,6 +23,7 @@ const STOP_RESULT: NativeStopResult = {
   lineageFailuresTotal: '0',
   sourceSendRejectionsTotal: '0',
   runtimeEventsTotal: '0',
+  sidecarOutcomes: [],
   remainingEvents: [],
 };
 

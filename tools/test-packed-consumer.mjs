@@ -37,21 +37,43 @@ try {
     { cwd: consumer, stdio: 'inherit' },
   );
 
+  const sidecarChild = join(consumer, 'pkss-child.mjs');
+  writeFileSync(
+    sidecarChild,
+    readFileSync(join(process.cwd(), 'tests/fixtures/pkss-child.mjs')),
+  );
+
   const source = `
     import {
       CapturePermissionLifecycle,
       DeliveryPolicy,
       END_OF_STREAM,
+      ExtensionAbiVersion,
+      ExtensionDescriptor,
+      ExtensionPort,
       MediaCaps,
       Operator,
       RouteSettings,
       Session,
       SessionStartError,
+      SidecarMessage,
+      SidecarProcess,
       SignalSpec,
       Source,
       discoverSources,
       microphonePermissionObservation,
     } from 'pocketstation/node';
+    const abi = ExtensionAbiVersion.current();
+    abi.requireCompatible();
+    new ExtensionDescriptor({
+      id: 'dev.pocketstation.source.packed-consumer.v1',
+      kind: 'source',
+      ports: [new ExtensionPort({
+        name: 'out',
+        direction: 'output',
+        signalId: 'dev.pocketstation.packed-consumer.signal.v1',
+      })],
+    });
     const sources = await discoverSources();
     if (sources.length === 0) throw new Error('native discovery returned no sources');
     const permission = await microphonePermissionObservation();
@@ -85,6 +107,33 @@ try {
     await runningInput.stop();
     if (await runningInput.audio.read({ timeoutMs: 0 }) !== END_OF_STREAM) {
       throw new Error('packed audio stream did not report end-of-stream');
+    }
+    const sidecarSession = new Session({ frameDurationMs: 10 });
+    const sidecarInput = sidecarSession.audioInput('sidecar proof');
+    sidecarInput.output.send(sidecarSession.audio());
+    sidecarInput.tryWrite(new Float32Array(480));
+    sidecarInput.close();
+    const sidecarHandle = sidecarSession.registerSidecar(new SidecarProcess({
+      id: 7n,
+      program: process.execPath,
+      arguments: [${JSON.stringify(sidecarChild)}, 'healthy'],
+      deadlines: { readyMs: 1000, processingMs: 1000, shutdownMs: 200 },
+    }));
+    const runningSidecar = await sidecarSession.start();
+    const sidecar = runningSidecar.sidecar(sidecarHandle);
+    await sidecar.send(SidecarMessage.signal(Buffer.from('packed'), {
+      signalId: 'dev.pocketstation.packed-consumer.signal.v1',
+      streamId: 9n,
+      sequenceNumber: 1n,
+      timestampNs: 1000n,
+    }));
+    const sidecarReply = await sidecar.messages.read({ timeoutMs: 1000 });
+    if (sidecarReply?.payload?.toString() !== 'packed') {
+      throw new Error('packed sidecar did not return copied bytes');
+    }
+    const sidecarStop = await runningSidecar.stop();
+    if (sidecarStop.sidecarOutcomes[0]?.reapsTotal !== 1n) {
+      throw new Error('packed sidecar was not reaped');
     }
     const session = new Session({ frameDurationMs: 10 });
     const application = session.capture(Source.application('__pks_missing_application__'));

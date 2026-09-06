@@ -3,7 +3,25 @@
  *
  * @packageDocumentation
  */
-export { PocketStationError } from './errors.js';
+export {
+  ExtensionError,
+  PocketStationError,
+  SidecarBackpressureError,
+  SidecarError,
+  SidecarProtocolError,
+  SidecarTimeoutError,
+} from './errors.js';
+export {
+  ExtensionAbiVersion,
+  ExtensionDescriptor,
+  ExtensionPort,
+  type ExtensionDescriptorOptions,
+  type ExtensionKind,
+  type ExtensionPortDirection,
+  type ExtensionPortOptions,
+  type NativeExtensionLibrary,
+  type NativeExtensionRegistration,
+} from './extensions.js';
 export {
   AudioInput,
   AudioInputAbortError,
@@ -72,11 +90,28 @@ export {
   Session,
   SessionStartError,
   SourceOutput,
+  SourceInstance,
   Stem,
   type CompileDiagnostic,
   type SessionOptions,
+  type SourceConfiguration,
   type StopResult,
 } from './session.js';
+export {
+  SidecarConnection,
+  SidecarHandle,
+  SidecarMessage,
+  SidecarProcess,
+  SidecarSnapshot,
+  SidecarStream,
+  type SidecarDeadlines,
+  type SidecarMessageKind,
+  type SidecarProcessOptions,
+  type SidecarProtocolLimits,
+  type SidecarReadResult,
+  type SidecarSignalOptions,
+  type SidecarState,
+} from './sidecar.js';
 export {
   BusSubscription,
   SignalStream,

@@ -92,6 +92,25 @@ Core owns the media queues. The SDK does not add a second audio queue. A native
 audio batch is copied into JavaScript-owned memory when it is read, after it has
 left the realtime part of the engine.
 
+## Extensions and managed processes
+
+`loadNativeExtensionLibrary()` delegates absolute-name resolution, ABI
+validation, transactional registration, executable lifetime, and callback
+cleanup to Core. JavaScript receives an immutable receipt and can declare a
+registered Source with `session.source()`. It never calls an extension function
+pointer directly.
+
+`registerSidecar()` delegates process creation, pipe ownership, PKSS framing,
+the four-message control queue, configured data queues, readiness, shutdown,
+kill, wait, and reap to Core. The Node addon copies each `Buffer` before the
+request returns to JavaScript. `send()` attempts one enqueue and reports a full
+data queue immediately.
+
+All sidecar operations use the existing Session worker. A message read waits no
+more than 1,000 ms per native call, and `AbortSignal` is checked between waits
+of no more than 20 ms. `stop()` and `cancel()` return final process state and
+queue counters as `sidecarOutcomes`.
+
 ## Stream ownership
 
 `running.audio` permits one active reader across direct `read()` calls and async
@@ -137,7 +156,10 @@ call `stop()` or `cancel()` explicitly and await the result.
 
 The clean tarball consumer loads the native addon and exercises Session,
 Source, Stem, signals, media requirements, route settings, and native compiler
-diagnostics on macOS ARM64. A physical `afplay`
+diagnostics on macOS ARM64. It also validates the linked Extension ABI and
+starts, exchanges a message with, closes, and reaps a real PKSS child process.
+Repository tests compile and execute a real Rust dynamic-library Source. These
+are component results, not provider or device results. A physical `afplay`
 source also delivered twenty consecutive 10 ms stereo frames with source and
 Stem identity and a clean stop.
 
@@ -156,6 +178,5 @@ claim follows from the macOS result.
 ## Later work
 
 The same ownership model extends to Operator and Endpoint authoring, Connectors,
-Session-wide metrics, traces, Relay, extensions, sidecars, and voice
-composition. Those modules are added only with working
+Session-wide metrics, traces, Relay, and voice composition. Those modules are added only with working
 behavior and tests; empty parity files are not created.
