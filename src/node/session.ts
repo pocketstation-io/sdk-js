@@ -11,6 +11,7 @@ import {
   type NativeSessionHandle,
   type NativeStemHandle,
   type NativeSourceOutputHandle,
+  type NativeSourceInstanceHandle,
   type NativeStopResult,
 } from './native.js';
 import {
@@ -30,6 +31,16 @@ import { Source, nativeSource } from './sources.js';
 import { AudioStream } from './streams.js';
 import { EventStream } from './events.js';
 import { BusSubscription, SignalStream } from './signals.js';
+import {
+  extensionLibraryFromNative,
+  type NativeExtensionLibrary,
+} from './extensions.js';
+import {
+  SidecarConnection,
+  SidecarHandle,
+  SidecarProcess,
+  SidecarSnapshot,
+} from './sidecar.js';
 
 /** Audio format and frame cadence used by a Session. */
 export interface SessionOptions {
@@ -69,7 +80,12 @@ export interface StopResult {
   readonly sourceSendRejectionsTotal: bigint;
   /** Number of runtime events retained by the Session. */
   readonly runtimeEventsTotal: bigint;
+  /** Final process state and queue counters for every registered sidecar. */
+  readonly sidecarOutcomes: readonly SidecarSnapshot[];
 }
+
+/** String settings passed to an externally registered Source. */
+export type SourceConfiguration = Readonly<Record<string, string>>;
 
 /** Stable location details returned when Core rejects a Session declaration. */
 export interface CompileDiagnostic {
@@ -327,6 +343,48 @@ export class SourceOutput {
   }
 }
 
+/** One configured instance of an externally registered Source. */
+export class SourceInstance {
+  readonly #session: Session;
+  readonly #native: NativeSourceInstanceHandle;
+
+  private constructor(session: Session, native: NativeSourceInstanceHandle) {
+    this.#session = session;
+    this.#native = native;
+  }
+
+  /** @internal */
+  public static _create(
+    session: Session,
+    native: NativeSourceInstanceHandle,
+  ): SourceInstance {
+    return new SourceInstance(session, native);
+  }
+
+  /** Native Session that owns this Source. */
+  public get sessionId(): bigint {
+    return BigInt(this.#native.sessionId);
+  }
+
+  /** Session-local Source instance identity. */
+  public get id(): bigint {
+    return BigInt(this.#native.instanceId);
+  }
+
+  /** Stable Source identity assigned by Core. */
+  public get sourceId(): bigint {
+    return BigInt(this.#native.sourceId);
+  }
+
+  /** Select one named output declared by the Source. */
+  public output(name: string): SourceOutput {
+    return SourceOutput._create(
+      this.#session,
+      nativeCallSync(() => this.#native.output(name)),
+    );
+  }
+}
+
 /** One named input on a Session-owned Operator instance. */
 export class OperatorInput {
   readonly #native: NativeOperatorInputHandle;
@@ -499,6 +557,9 @@ function stopResultFromNative(result: NativeStopResult): StopResult {
     lineageFailuresTotal: BigInt(result.lineageFailuresTotal),
     sourceSendRejectionsTotal: BigInt(result.sourceSendRejectionsTotal),
     runtimeEventsTotal: BigInt(result.runtimeEventsTotal),
+    sidecarOutcomes: Object.freeze(
+      result.sidecarOutcomes.map((snapshot) => new SidecarSnapshot(snapshot)),
+    ),
   };
 }
 
@@ -511,6 +572,7 @@ export class RunningSession implements AsyncDisposable {
   readonly events: EventStream;
   #finish: Promise<StopResult> | undefined;
   readonly #signalStreams = new Map<bigint, SignalStream>();
+  readonly #sidecars = new Map<bigint, SidecarConnection>();
 
   private constructor(native: NativeRunningSessionHandle) {
     this.#native = native;
@@ -541,6 +603,19 @@ export class RunningSession implements AsyncDisposable {
     return stream;
   }
 
+  /** Access one child process registered by the same Session. */
+  public sidecar(handle: SidecarHandle): SidecarConnection {
+    if (handle.sessionId !== this.sessionId) {
+      throw new TypeError('SidecarHandle belongs to a different Session');
+    }
+    let connection = this.#sidecars.get(handle.id);
+    if (connection === undefined) {
+      connection = new SidecarConnection(this.#native, handle);
+      this.#sidecars.set(handle.id, connection);
+    }
+    return connection;
+  }
+
   /** Finish accepted work and close every native resource. */
   public stop(): Promise<StopResult> {
     return this.#finishSession('stop');
@@ -563,6 +638,9 @@ export class RunningSession implements AsyncDisposable {
         this.events._finish(result.remainingEvents);
         for (const stream of this.#signalStreams.values()) {
           stream._finish();
+        }
+        for (const sidecar of this.#sidecars.values()) {
+          sidecar._close();
         }
         return stopResultFromNative(result);
       });
@@ -610,6 +688,42 @@ export class Session {
     return Stem._create(
       this,
       nativeCallSync(() => this.#native.capture(nativeSource(source))),
+    );
+  }
+
+  /** Declare one instance of an externally registered Source. */
+  public source(
+    sourceTypeId: string,
+    configuration: SourceConfiguration = {},
+  ): SourceInstance {
+    const entries = Object.entries(configuration)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, value]) => ({ key, value, sensitive: false }));
+    return SourceInstance._create(
+      this,
+      nativeCallSync(() => this.#native.source(sourceTypeId, entries)),
+    );
+  }
+
+  /** Register one managed process to be started with this Session. */
+  public registerSidecar(process: SidecarProcess): SidecarHandle {
+    const id = BigInt(
+      nativeCallSync(() => this.#native.registerSidecar(process._nativeSpec())),
+    );
+    return new SidecarHandle(id, this.id);
+  }
+
+  /**
+   * Import every validated registration from one trusted native library.
+   *
+   * The path must be absolute. This executes native code in the current
+   * process; use only libraries you trust.
+   */
+  public async loadNativeExtensionLibrary(
+    path: string,
+  ): Promise<NativeExtensionLibrary> {
+    return extensionLibraryFromNative(
+      await nativeCall(() => this.#native.loadNativeExtensionLibrary(path)),
     );
   }
 

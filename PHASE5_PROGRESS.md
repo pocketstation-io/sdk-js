@@ -8,6 +8,10 @@
 `W21-JAVASCRIPT-STREAM-PROTOCOLS` is complete in the current source candidate.
 Its acceptance artifact and commit are recorded before the task is closed.
 
+`W21-JAVASCRIPT-EXTENSIONS-SIDECARS` is implemented in the current source
+candidate. The final execution record is written after the complete acceptance
+commands pass on the exact commit.
+
 The repository now contains a browser Relay client and the first working Node
 binding for native capture. It must not yet be described as feature-equivalent
 to the Rust or Python packages.
@@ -61,6 +65,16 @@ callback and does not implement another media engine.
   `Float32Array` and float32-LE `Buffer` inputs copy into Core-owned storage,
   fixed capacity and typed failures are visible, `write()` has a finite timeout
   and `AbortSignal`, and accepted frames preserve native identity and timing.
+- Native extensions: `REAL` for the current component scope. The linked ABI
+  version and descriptors are validated by Core; trusted libraries load only
+  from absolute names; registration is transactional; a real Rust dynamic
+  library registers and executes a Source; Core retains executable code for the
+  Session lifetime.
+- Managed processes: `REAL` for the current component scope. A real PKSS child
+  completes startup, exchanges copied `Buffer` messages, reports saturation at
+  the configured queue capacity, exposes process and queue counters, and is
+  closed or cancelled and reaped. A child that ignores shutdown is killed after
+  the configured deadline and still reaped.
 - npm package: not published.
 
 The browser entry now uses `RelaySession`, shares `PocketStationError` with the
@@ -92,7 +106,9 @@ permission inspection, declares each built-in Source form, and validates native
 signal and route values. It also writes application-owned PCM through a real
 Core Session and verifies copied samples, source and stream identity,
 discontinuity, explicit end-of-stream, and clean shutdown. It does not open a
-microphone.
+microphone. It also validates the linked Extension ABI and runs a real managed
+child through the installed package, including one signal round trip and final
+reap evidence.
 
 Typed signal delivery is tested against a deterministic Core Session compiled
 only for tests. Real Core Operators emit PCM, text, and bytes through the same
@@ -142,11 +158,41 @@ the normal native addon and is not physical-device or provider evidence.
 - Remaining risk: this is component evidence. It does not prove a physical
   Source, provider, Relay, browser, Windows/Linux package, or performance claim.
 
+## Staff Bar Self-Check — JavaScript extensions and managed processes
+
+- Smallest correct design: yes — Core remains responsible for native library
+  validation and lifetime, process spawn, PKSS framing, queue capacity,
+  lifecycle deadlines, kill, wait, and reap. TypeScript supplies declarations,
+  copied bytes, async reads, `AbortSignal`, and typed failures.
+- Tests added or updated: yes — linked ABI and descriptor validation, absolute
+  library names, transactional duplicate rejection, real dynamic-library Source
+  execution, healthy and malformed PKSS startup, exact message round trip,
+  queue saturation, cross-Session handles, aborted reads, graceful close,
+  forced kill, reap counters, exports, API report, and packed consumption.
+- Hot-path safe: yes — no JavaScript callback runs from capture or realtime
+  work. Extension ABI v1 admits only the execution roles Core already validates;
+  sidecar calls run through the existing native Session worker.
+- Public API changed: yes — the unpublished Node entry gains Extension ABI
+  types, trusted library loading, generic registered Sources, `SidecarProcess`,
+  `SidecarConnection`, finite message reads, process snapshots, and final
+  sidecar outcomes.
+- New dependency: no — production still depends on released Core `1.1.10`,
+  napi-rs, and Node built-ins. Test fixtures compile with the existing Rust
+  toolchain and run with the current Node executable.
+- Phase scope respected: yes — provider implementations, voice behavior,
+  Relay publication, release work, and target-package claims are unchanged.
+- Unsafe added: yes — three C ABI calls mirror Core's frozen exported records.
+  Borrowed records live for each synchronous call and no pointer is retained.
+  Executing a loaded library remains an explicit caller trust decision.
+- Remaining risk: the current fixtures prove SDK mechanics on macOS. They do
+  not prove a provider, physical device, remote service, Windows/Linux package,
+  or production deployment.
+
 ## Intentionally not included in this step
 
 - provider packages or API keys;
 - Electron application code;
-- JavaScript Operator or Endpoint implementations, Connectors, sidecars,
-  extensions, Relay composition, or voice composition;
+- JavaScript Operator or Endpoint implementations, Connectors, Relay
+  composition, or voice composition;
 - publication, tags, or version selection;
 - cross-platform or performance claims.

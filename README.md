@@ -12,8 +12,9 @@ so model calls and application work do not run on an audio callback.
 
 > The Node SDK is under active development and is not published to npm yet.
 > The current candidate has a real macOS selected-application capture proof.
-> Windows, Linux, Connectors, Relay publication, and the remaining
-> Rust/Python features still require implementation or target-specific proof.
+> Windows, Linux, in-process provider authoring, Relay publication, and the
+> remaining Rust/Python features still require implementation or target-specific
+> proof.
 
 ## Capture an application
 
@@ -146,6 +147,28 @@ input or stop the Session.
 
 Read [Feed application-owned PCM](docs/guides/application-audio.md) for format,
 capacity, discontinuity, cancellation, and shutdown behavior.
+
+## Add compiled or process-isolated implementations
+
+Load a trusted native extension when a Source, Operator, or Endpoint is shipped
+as a PocketStation ABI library:
+
+```ts
+const session = new Session();
+await session.loadNativeExtensionLibrary("/opt/acme/libacme_audio.dylib");
+
+const source = session.source("com.acme.source.audio.v1");
+source.output("audio").send(session.audio());
+```
+
+Use a `SidecarProcess` when an implementation runs in another language or
+needs process isolation. Core starts it without a shell, completes the PKSS
+handshake, applies explicit message sizes and deadlines, and reaps it during
+Session shutdown.
+
+Read [Run compiled extensions and managed processes](docs/guides/extensions-and-sidecars.md)
+for security, configuration, queue saturation, finite reads, process state,
+and cleanup.
 
 ## Discover sources before capture
 

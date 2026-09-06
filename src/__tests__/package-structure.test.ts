@@ -47,8 +47,10 @@ describe('package structure', () => {
     expect(nativeEntry).toEqual([
       'mod application_audio;',
       'mod errors;',
+      'mod extensions;',
       'mod graph;',
       'mod session;',
+      'mod sidecar;',
       'mod signals;',
       'mod sources;',
       'mod streams;',

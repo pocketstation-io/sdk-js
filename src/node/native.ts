@@ -96,6 +96,85 @@ export interface NativeSourceOutputHandle {
   record(name: string): NativeEndpointHandle;
 }
 
+export interface NativeSourceInstanceHandle {
+  readonly sessionId: string;
+  readonly instanceId: string;
+  readonly sourceId: string;
+  output(name: string): NativeSourceOutputHandle;
+}
+
+export interface NativeExtensionAbiVersion {
+  structSizeBytes: number;
+  abiMajor: number;
+  abiMinor: number;
+}
+
+export interface NativeExtensionPort {
+  name: string;
+  direction: string;
+  required: boolean;
+  signalId: string;
+  semanticRole: string;
+  schema: string;
+}
+
+export interface NativeExtensionRegistration {
+  id: string;
+  kind: string;
+  revision: number;
+  generation: number;
+}
+
+export interface NativeExtensionLibrary {
+  canonicalPath: string;
+  registrations: NativeExtensionRegistration[];
+}
+
+export interface NativeSidecarProcessSpec {
+  id: string;
+  program: string;
+  arguments: string[];
+  configuration: Buffer;
+  dataCapacityMessages: number;
+  maxSignalIdBytes: number;
+  maxRoleBytes: number;
+  maxSchemaBytes: number;
+  maxPayloadBytes: number;
+  readyTimeoutMs: number;
+  processingTimeoutMs: number;
+  shutdownTimeoutMs: number;
+}
+
+export interface NativeSidecarMessage {
+  kind: string;
+  streamId: string;
+  sequenceNumber: string;
+  timestampNs: string;
+  signalId: string;
+  payload: Buffer;
+  terminal: boolean;
+  role?: string;
+  schema?: string;
+}
+
+export interface NativeSidecarSnapshot {
+  sidecarId: string;
+  state: string;
+  stateTransitions: string;
+  dataEnqueuedTotal: string;
+  dataReceivedTotal: string;
+  dataDroppedTotal: string;
+  protocolFailuresTotal: string;
+  timeoutsTotal: string;
+  forcedKillsTotal: string;
+  reapsTotal: string;
+}
+
+export interface NativeSidecarRead {
+  status: string;
+  message?: NativeSidecarMessage | null;
+}
+
 export interface NativeAudioInputObservations {
   capacityFrames: string;
   bufferSlots: string;
@@ -440,6 +519,7 @@ export interface NativeStopResult {
   lineageFailuresTotal: string;
   sourceSendRejectionsTotal: string;
   runtimeEventsTotal: string;
+  sidecarOutcomes: NativeSidecarSnapshot[];
   remainingEvents: NativeSessionEvent[];
 }
 
@@ -455,6 +535,12 @@ export interface NativeRunningSessionHandle {
   signalMetrics(
     subscription: NativeBusSubscriptionHandle,
   ): Promise<NativeSignalMetrics>;
+  sendSidecar(
+    sidecarId: string,
+    message: NativeSidecarMessage,
+  ): Promise<void>;
+  readSidecar(sidecarId: string, timeoutMs: number): Promise<NativeSidecarRead>;
+  sidecarSnapshot(sidecarId: string): Promise<NativeSidecarSnapshot>;
   stop(): Promise<NativeStopResult>;
   cancel(): Promise<NativeStopResult>;
 }
@@ -497,6 +583,12 @@ export interface NativeSessionHandle {
   audioWithRoute(route: NativeRouteSettingsHandle): NativeEndpointHandle;
   operator(operator: NativeOperatorHandle): NativeOperatorInstanceHandle;
   endpoint(definition: NativeEndpointDefinitionHandle): NativeEndpointHandle;
+  source(
+    sourceTypeId: string,
+    configuration: NativeConfigurationEntry[],
+  ): NativeSourceInstanceHandle;
+  registerSidecar(spec: NativeSidecarProcessSpec): string;
+  loadNativeExtensionLibrary(path: string): Promise<NativeExtensionLibrary>;
   subscribeDerived(
     stream: NativeDerivedStreamHandle,
     signal: NativeSignalSpecHandle,
@@ -531,6 +623,30 @@ export interface NativeAddon {
   NativeRouteSettings: NativeRouteSettingsConstructor;
   NativeOperator: NativeOperatorConstructor;
   NativeEndpointDefinition: NativeEndpointDefinitionConstructor;
+  extensionAbiVersion(): NativeExtensionAbiVersion;
+  extensionAbiIsCompatible(
+    abiMajor: number,
+    abiMinor: number,
+    structSizeBytes: number,
+  ): void;
+  validateExtensionDescriptor(
+    extensionId: string,
+    kind: string,
+    revision: number,
+    generation: number,
+    abiMajor: number,
+    abiMinor: number,
+    ports: NativeExtensionPort[],
+  ): void;
+  validateExtensionDescriptor(
+    extensionId: string,
+    kind: string,
+    revision: number,
+    generation: number,
+    abiMajor: number,
+    abiMinor: number,
+    ports: NativeExtensionPort[],
+  ): void;
   discoverSources(
     queryKind?: string,
     value?: string,

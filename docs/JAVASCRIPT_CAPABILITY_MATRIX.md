@@ -30,12 +30,12 @@ cases visible. Browser tests that replace the service with mocked fetch remain
 | Source and Operator authoring | `REAL` | `REAL` | absent | provider-authoring wave |
 | Recording and per-stem outcomes | `REAL` | `REAL` | `PARTIAL`; real local system-audio recording passes, typed per-Stem outcome remains | observation wave |
 | Events, metrics, traces, and terminal outcomes | `REAL` | `REAL` | `PARTIAL`; lifecycle, source, Endpoint, rollback, finalization, and terminal events work; metrics and traces remain | `src/node/events.ts`, observation wave |
-| Native extension libraries | `REAL` | `REAL` | absent | extensions and sidecars wave |
-| Managed sidecars | `REAL` | `REAL` | absent | extensions and sidecars wave |
+| Native extension libraries | `REAL` | `REAL` | `REAL` for the component scope; ABI validation, absolute trusted-library loading, transactional registration, generic Source execution, lifetime retention, and packed exports pass on macOS | `src/node/extensions.ts`, `native/src/extensions.rs` |
+| Managed sidecars | `REAL` | `REAL` | `REAL` for the component scope; copied `Buffer` messages, 64-message default capacity, immediate saturation errors, 1,000 ms maximum reads, Session ownership, PKSS failure, close/cancel, forced kill, reap counters, and packed execution pass on macOS | `src/node/sidecar.ts`, `native/src/sidecar.rs` |
 | Shared Relay publication | `REAL` | `REAL` | absent in Node | Relay workflow wave |
 | Browser Relay receiver | `REAL` in shared services | `REAL` through shared Relay | `PARTIAL` implementation, `MOCKED` tests | `src/browser` and Relay workflow wave |
 | Provider-neutral voice composition | not a Core concern | `PARTIAL`; real orchestration, no bundled provider and no continuous-duplex proof | absent | voice wave after base parity |
-| Installed target packages | crates.io | PyPI wheels and source package | `PARTIAL`; local macOS tarball consumer passes, npm and other targets pending | packaging and cross-platform waves |
+| Installed target packages | crates.io | PyPI wheels and source package | `PARTIAL`; local macOS tarball consumer passes PCM, Extension ABI, and a real managed child process; npm and other targets remain | packaging and cross-platform waves |
 
 ## First completion slice
 

@@ -10,9 +10,18 @@ use napi_derive::napi;
 
 use crate::application_audio::NativeAudioInput;
 use crate::errors::{error, state_unavailable};
+use crate::extensions::{
+    native_extension_error, require_absolute_library_path, source_configuration, source_type_id,
+    NativeExtensionLibrary, NativeSourceInstance,
+};
 use crate::graph::{
-    NativeEndpointDefinition, NativeOperator, NativeOperatorInput, NativeOperatorInstance,
-    NativeRouteSettings,
+    NativeConfigurationEntry, NativeEndpointDefinition, NativeOperator, NativeOperatorInput,
+    NativeOperatorInstance, NativeRouteSettings,
+};
+use crate::sidecar::{
+    error_reason as sidecar_error_reason, poll as poll_sidecar, runtime_error as sidecar_error,
+    snapshot as sidecar_snapshot, wait as wait_sidecar, NativeSidecarMessage,
+    NativeSidecarProcessSpec, NativeSidecarRead, NativeSidecarSnapshot, MAXIMUM_WAIT_MS,
 };
 use crate::signals::{
     close_signal, copy_signal_metrics, new_signal_receipts, read_signal_task, subscribe_derived,
@@ -86,6 +95,7 @@ pub struct NativeStopResult {
     pub lineage_failures_total: String,
     pub source_send_rejections_total: String,
     pub runtime_events_total: String,
+    pub sidecar_outcomes: Vec<NativeSidecarSnapshot>,
     pub remaining_events: Vec<NativeSessionEvent>,
 }
 
@@ -370,6 +380,58 @@ impl NativeSession {
     }
 
     #[napi]
+    pub fn source(
+        &self,
+        source_type: String,
+        configuration: Vec<NativeConfigurationEntry>,
+    ) -> Result<NativeSourceInstance> {
+        let source_type = source_type_id(source_type)?;
+        let configuration = source_configuration(configuration)?;
+        self.with_session(|session| {
+            session
+                .source(source_type, configuration)
+                .map(|handle| NativeSourceInstance {
+                    session_id: self.session_id,
+                    handle,
+                })
+                .map_err(|failure| error("session.invalid_source", failure.to_string()))
+        })
+    }
+
+    #[napi]
+    pub fn register_sidecar(&self, spec: NativeSidecarProcessSpec) -> Result<String> {
+        let spec = spec.to_core()?;
+        let id = spec.id;
+        self.with_session(|session| {
+            session.register_sidecar(spec).map_err(|failure| {
+                error("sidecar.registration_unavailable", failure.to_string())
+            })?;
+            Ok(id.to_string())
+        })
+    }
+
+    #[napi]
+    pub fn load_native_extension_library(
+        &self,
+        path: String,
+    ) -> Result<AsyncTask<LoadNativeExtensionTask>> {
+        let path = require_absolute_library_path(&path)?;
+        {
+            let guard = self
+                .session
+                .lock()
+                .map_err(|_| state_unavailable("Session"))?;
+            if guard.is_none() {
+                return Err(error("session.draft_frozen", "Session has already started"));
+            }
+        }
+        Ok(AsyncTask::new(LoadNativeExtensionTask {
+            session: Arc::clone(&self.session),
+            path,
+        }))
+    }
+
+    #[napi]
     pub fn subscribe_derived(
         &self,
         stream: &crate::graph::NativeDerivedStream,
@@ -425,6 +487,35 @@ impl NativeSession {
             session_id: self.session_id,
             signal_receipts: Arc::clone(&self.signal_receipts),
         }))
+    }
+}
+
+pub struct LoadNativeExtensionTask {
+    session: Arc<Mutex<Option<pocketstation::Session>>>,
+    path: std::path::PathBuf,
+}
+
+impl Task for LoadNativeExtensionTask {
+    type Output = NativeExtensionLibrary;
+    type JsValue = NativeExtensionLibrary;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        let guard = self
+            .session
+            .lock()
+            .map_err(|_| state_unavailable("Session"))?;
+        let session = guard
+            .as_ref()
+            .ok_or_else(|| error("session.draft_frozen", "Session has already started"))?;
+        // SAFETY: this API explicitly loads trusted native code from an exact
+        // absolute path. Core validates every mechanically checkable ABI rule.
+        unsafe { session.load_native_extension_library(&self.path) }
+            .map(Into::into)
+            .map_err(native_extension_error)
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output)
     }
 }
 
@@ -556,6 +647,20 @@ enum SessionCommand {
         route_id: u64,
         response: SyncSender<std::result::Result<NativeSignalMetrics, String>>,
     },
+    SendSidecar {
+        sidecar_id: u64,
+        message: pocketstation::SidecarMessage,
+        response: SyncSender<std::result::Result<(), String>>,
+    },
+    ReadSidecar {
+        sidecar_id: u64,
+        timeout: Option<Duration>,
+        response: SyncSender<std::result::Result<crate::sidecar::SidecarRead, String>>,
+    },
+    SidecarSnapshot {
+        sidecar_id: u64,
+        response: SyncSender<std::result::Result<pocketstation::SessionSidecarMetrics, String>>,
+    },
     Stop {
         response: SyncSender<NativeStopResult>,
     },
@@ -641,6 +746,46 @@ impl NativeRunningSession {
         Ok(AsyncTask::new(SignalMetricsTask {
             commands: self.commands()?,
             route_id: subscription.route_id,
+        }))
+    }
+
+    #[napi]
+    pub fn send_sidecar(
+        &self,
+        sidecar_id: String,
+        message: NativeSidecarMessage,
+    ) -> Result<AsyncTask<SendSidecarTask>> {
+        Ok(AsyncTask::new(SendSidecarTask {
+            commands: self.commands()?,
+            sidecar_id: parse_sidecar_id(&sidecar_id)?,
+            message: message.to_core()?,
+        }))
+    }
+
+    #[napi]
+    pub fn read_sidecar(
+        &self,
+        sidecar_id: String,
+        timeout_ms: u32,
+    ) -> Result<AsyncTask<ReadSidecarTask>> {
+        if timeout_ms > MAXIMUM_WAIT_MS {
+            return Err(error(
+                "sidecar.invalid_timeout",
+                "timeoutMs must be between 0 and 1000",
+            ));
+        }
+        Ok(AsyncTask::new(ReadSidecarTask {
+            commands: self.commands()?,
+            sidecar_id: parse_sidecar_id(&sidecar_id)?,
+            timeout: (timeout_ms > 0).then(|| Duration::from_millis(u64::from(timeout_ms))),
+        }))
+    }
+
+    #[napi]
+    pub fn sidecar_snapshot(&self, sidecar_id: String) -> Result<AsyncTask<SidecarSnapshotTask>> {
+        Ok(AsyncTask::new(SidecarSnapshotTask {
+            commands: self.commands()?,
+            sidecar_id: parse_sidecar_id(&sidecar_id)?,
         }))
     }
 
@@ -756,6 +901,111 @@ pub struct ReadAudioTask {
 pub struct SignalMetricsTask {
     commands: SyncSender<SessionCommand>,
     route_id: u64,
+}
+
+pub struct SendSidecarTask {
+    commands: SyncSender<SessionCommand>,
+    sidecar_id: u64,
+    message: pocketstation::SidecarMessage,
+}
+
+impl Task for SendSidecarTask {
+    type Output = ();
+    type JsValue = ();
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        let (response, receiver) = sync_channel(1);
+        self.commands
+            .send(SessionCommand::SendSidecar {
+                sidecar_id: self.sidecar_id,
+                message: self.message.clone(),
+                response,
+            })
+            .map_err(|_| error("session.stopped", "native Session worker has stopped"))?;
+        receiver
+            .recv()
+            .map_err(|_| {
+                error(
+                    "session.worker_stopped",
+                    "native Session worker did not send the sidecar message",
+                )
+            })?
+            .map_err(sidecar_error)
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output)
+    }
+}
+
+pub struct ReadSidecarTask {
+    commands: SyncSender<SessionCommand>,
+    sidecar_id: u64,
+    timeout: Option<Duration>,
+}
+
+impl Task for ReadSidecarTask {
+    type Output = NativeSidecarRead;
+    type JsValue = NativeSidecarRead;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        let (response, receiver) = sync_channel(1);
+        self.commands
+            .send(SessionCommand::ReadSidecar {
+                sidecar_id: self.sidecar_id,
+                timeout: self.timeout,
+                response,
+            })
+            .map_err(|_| error("session.stopped", "native Session worker has stopped"))?;
+        receiver
+            .recv()
+            .map_err(|_| {
+                error(
+                    "session.worker_stopped",
+                    "native Session worker did not return a sidecar message",
+                )
+            })?
+            .map(NativeSidecarRead::from)
+            .map_err(sidecar_error)
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output)
+    }
+}
+
+pub struct SidecarSnapshotTask {
+    commands: SyncSender<SessionCommand>,
+    sidecar_id: u64,
+}
+
+impl Task for SidecarSnapshotTask {
+    type Output = NativeSidecarSnapshot;
+    type JsValue = NativeSidecarSnapshot;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        let (response, receiver) = sync_channel(1);
+        self.commands
+            .send(SessionCommand::SidecarSnapshot {
+                sidecar_id: self.sidecar_id,
+                response,
+            })
+            .map_err(|_| error("session.stopped", "native Session worker has stopped"))?;
+        receiver
+            .recv()
+            .map_err(|_| {
+                error(
+                    "session.worker_stopped",
+                    "native Session worker did not return sidecar observations",
+                )
+            })?
+            .map(NativeSidecarSnapshot::from)
+            .map_err(sidecar_error)
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output)
+    }
 }
 
 impl Task for SignalMetricsTask {
@@ -883,6 +1133,34 @@ fn session_worker(mut running: pocketstation::RunningSession, receiver: Receiver
             }
             SessionCommand::SignalMetrics { route_id, response } => {
                 let _ = response.send(copy_signal_metrics(&running, route_id));
+            }
+            SessionCommand::SendSidecar {
+                sidecar_id,
+                message,
+                response,
+            } => {
+                let _ = response.send(
+                    running
+                        .try_send_sidecar_signal(sidecar_id, message)
+                        .map_err(sidecar_error_reason),
+                );
+            }
+            SessionCommand::ReadSidecar {
+                sidecar_id,
+                timeout,
+                response,
+            } => {
+                let result = match timeout {
+                    Some(timeout) => wait_sidecar(&running, sidecar_id, timeout),
+                    None => poll_sidecar(&running, sidecar_id),
+                };
+                let _ = response.send(result);
+            }
+            SessionCommand::SidecarSnapshot {
+                sidecar_id,
+                response,
+            } => {
+                let _ = response.send(sidecar_snapshot(&running, sidecar_id));
             }
             SessionCommand::Stop { response } => {
                 let stop = running.stop();
@@ -1184,8 +1462,30 @@ fn stop_result(
         lineage_failures_total: outcome.lineage_failures_total().to_string(),
         source_send_rejections_total: outcome.source_send_rejections_total().to_string(),
         runtime_events_total: outcome.runtime_events_total().to_string(),
+        sidecar_outcomes: running
+            .sidecar_metrics()
+            .into_vec()
+            .into_iter()
+            .map(NativeSidecarSnapshot::from)
+            .collect(),
         remaining_events,
     }
+}
+
+fn parse_sidecar_id(value: &str) -> Result<u64> {
+    let id = value.parse::<u64>().map_err(|_| {
+        error(
+            "sidecar.invalid_configuration",
+            "sidecar ID must be an unsigned 64-bit integer",
+        )
+    })?;
+    if id == 0 {
+        return Err(error(
+            "sidecar.invalid_configuration",
+            "sidecar ID must be non-zero",
+        ));
+    }
+    Ok(id)
 }
 
 const fn lifecycle_state_name(state: pocketstation::SessionLifecycleState) -> &'static str {
