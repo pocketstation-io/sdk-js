@@ -526,6 +526,345 @@ export interface NativeAudioRead {
   sessionState: string;
 }
 
+export interface NativeEventQueueMetrics {
+  capacityCount: string;
+  maximumEventOwnedBytes: string;
+  maximumBufferedOwnedBytes: string;
+  depthCount: string;
+  depthOwnedBytes: string;
+  peakDepthCount: string;
+  peakDepthOwnedBytes: string;
+  enqueuedTotal: string;
+  droppedTotal: string;
+  droppedOversizedTotal: string;
+  receiverClosedTotal: string;
+}
+
+export interface NativePolledAudioMetrics {
+  registeredEndpoints: string;
+  queueCapacityFrames: string;
+  queueDepthFrames: string;
+  queuePeakFrames: string;
+  queueDepthInvariantFailuresTotal: string;
+  framesReceivedTotal: string;
+  framesDeliveredTotal: string;
+  queueFullDropsTotal: string;
+  invalidOwnershipDropsTotal: string;
+  discardedOutputFramesTotal: string;
+  leaseCapacityCount: string;
+  outstandingLeases: string;
+  leaseExhaustedTotal: string;
+  batchesPolledTotal: string;
+  framesPolledTotal: string;
+}
+
+export interface NativeLatencyHistogram {
+  samplesTotal: string;
+  invalidOrderTotal: string;
+  missingTotal: string;
+  futureTotal: string;
+  p50Ns: string;
+  p95Ns: string;
+  p99Ns: string;
+  maxNs: string;
+}
+
+export interface NativeRouteDeliveryMetrics {
+  queueCapacityFrames: string;
+  queueDepthFrames: string;
+  queuePeakFrames: string;
+  framesEnqueuedTotal: string;
+  framesDeliveredTotal: string;
+  framesDroppedTotal: string;
+  overrunsTotal: string;
+  receiverUnavailableDropsTotal: string;
+  queueFullDropsTotal: string;
+  sharedReferenceExhaustedDropsTotal: string;
+  branchPoolExhaustedDropsTotal: string;
+  invalidCopyPolicyDropsTotal: string;
+  freezeFailedDropsTotal: string;
+  discontinuitiesTotal: string;
+  sourceIdentityDiscontinuitiesTotal: string;
+  sequenceDiscontinuitiesTotal: string;
+  timestampDiscontinuitiesTotal: string;
+  lineageEpochDiscontinuitiesTotal: string;
+  manuallyReportedDiscontinuitiesTotal: string;
+  enqueueToReceive: NativeLatencyHistogram;
+  sourceTimestampToReceive: NativeLatencyHistogram;
+  workerFailuresTotal: string;
+  shutdownDiscardedTotal: string;
+  discardedOutputFramesTotal?: string | null;
+}
+
+export interface NativeEndpointMetrics {
+  observationStage: string;
+  framesReceivedTotal: string;
+  framesDeliveredTotal: string;
+  framesDroppedTotal: string;
+  discontinuitiesTotal: string;
+  failuresTotal: string;
+  finalizationFailuresTotal: string;
+}
+
+export interface NativeRouteMetrics {
+  routeId: string;
+  endpointId: string;
+  delivery: NativeRouteDeliveryMetrics;
+  endpoint: NativeEndpointMetrics;
+  framesAttemptedTotal: string;
+  observationInterval: string;
+  dropRatePct: number;
+  sourceLatencyMeasurement: string;
+  sourceLatencyUnit: string;
+}
+
+export interface NativeSourceMetrics {
+  stemId: string;
+  callbackBuffersTotal: string;
+  captureFramesEnqueuedTotal: string;
+  capturePoolExhaustedTotal: string;
+  captureDispatchQueueFullTotal: string;
+  captureInvalidBufferTotal: string;
+  captureOversizedBufferTotal: string;
+  captureStreamErrorsTotal: string;
+  captureTimestampEpochClampsTotal: string;
+  frameStreamDeliveredFramesTotal: string;
+  frameStreamDroppedNewestFramesTotal: string;
+  framesDiscardedBeforeStartTotal: string;
+  runtimeEventQueue: NativeEventQueueMetrics;
+  ingressQueueCapacityFrames: string;
+  ingressQueueDepthFrames: string;
+  ingressQueuePeakFrames: string;
+  ingressFramesEnqueuedTotal: string;
+  ingressFramesDeliveredTotal: string;
+  ingressFramesRejectedFullTotal: string;
+  ingressFramesRejectedCancelledTotal: string;
+  ingressFramesDiscardedTotal: string;
+}
+
+export interface NativeExternalSourceMetrics {
+  sourceInstanceId: string;
+  sourceId: string;
+  emittedTotal: string;
+  droppedTotal: string;
+  failureTotal: string;
+  cancellationTotal: string;
+  discontinuityTotal: string;
+  recoveryTotal: string;
+  policyChangeTotal: string;
+  ready: boolean;
+  joined: boolean;
+}
+
+export interface NativeSignalQueueMetrics {
+  capacitySignals: string;
+  maxPayloadBytes: string;
+  maximumBufferedPayloadBytes: string;
+  depthSignals: string;
+  peakDepthSignals: string;
+  enqueuedTotal: string;
+  receivedTotal: string;
+  droppedTotal: string;
+}
+
+export interface NativeOperatorWorkerMetrics {
+  inputAttemptedTotal: string;
+  inputDroppedTotal: string;
+  processedTotal: string;
+  outputEmittedTotal: string;
+  outputDroppedTotal: string;
+  outputNonterminalTotal: string;
+  outputTerminalTotal: string;
+  processFailureTotal: string;
+  timeoutTotal: string;
+  cancellationTotal: string;
+  gracefulFinishTotal: string;
+  idlePollTotal: string;
+  ready: boolean;
+  joined: boolean;
+}
+
+export interface NativeOperatorInputMetrics {
+  portName: string;
+  delivery: NativeRouteDeliveryMetrics;
+}
+
+export interface NativeOperatorMetrics {
+  operatorInstanceId: string;
+  inputDelivery: NativeRouteDeliveryMetrics;
+  inputPorts: NativeOperatorInputMetrics[];
+  worker: NativeOperatorWorkerMetrics;
+  finalizationFailuresTotal: string;
+}
+
+export interface NativeDerivedRouteMetrics {
+  routeId: string;
+  endpointId: string;
+  output: NativeSignalQueueMetrics;
+  endpoint: NativeEndpointMetrics;
+}
+
+export interface NativeAudioReentryMetrics {
+  operatorInstanceId: string;
+  stemId: string;
+  queueCapacitySignals: string;
+  queueDepthSignals: string;
+  queuePeakSignals: string;
+  signalsEnqueuedTotal: string;
+  signalsReceivedTotal: string;
+  signalsDroppedTotal: string;
+  poolSlots: string;
+  frameCapacitySamples: string;
+  maximumBufferedAudioBytes: string;
+  normalizedTotal: string;
+  invalidTotal: string;
+  sharedAudioRejectedTotal: string;
+  poolExhaustedTotal: string;
+  ingressRejectedTotal: string;
+  audioFramesEnqueuedTotal: string;
+  cancellationTotal: string;
+  joined: boolean;
+}
+
+export interface NativeSessionMetrics {
+  eventQueue: NativeEventQueueMetrics;
+  polledAudio: NativePolledAudioMetrics;
+  sources: NativeSourceMetrics[];
+  externalSources: NativeExternalSourceMetrics[];
+  routes: NativeRouteMetrics[];
+  operators: NativeOperatorMetrics[];
+  derivedRoutes: NativeDerivedRouteMetrics[];
+  audioReentries: NativeAudioReentryMetrics[];
+  sourceCount: string;
+  externalSourceCount: string;
+  routeCount: string;
+  operatorCount: string;
+  derivedRouteCount: string;
+  audioReentryCount: string;
+}
+
+export interface NativeRecordingDiscontinuity {
+  stemId: string;
+  label: string;
+  kind: string;
+  timestampStartNs: string;
+  timestampEndNs: string;
+  sequenceStart?: string | null;
+  sequenceEnd?: string | null;
+}
+
+export interface NativeRecordingStemOutcome {
+  stemName: string;
+  framesWrittenTotal: string;
+  staleFramesTotal: string;
+  error?: string | null;
+  queueCapacityFrames: string;
+  queuePeakFrames: string;
+  framesDeliveredTotal: string;
+  framesDroppedTotal: string;
+  queueFullDropsTotal: string;
+  discontinuitiesTotal: string;
+  discontinuities: NativeRecordingDiscontinuity[];
+}
+
+export interface NativeRecordingOutcome {
+  sessionId: string;
+  groupId: string;
+  complete: boolean;
+  state: string;
+  completedStems: string;
+  failedStems: string;
+  sessionDirectory: string;
+  manifestPath: string;
+  manifestSchemaVersion: number;
+  errorCode?: string | null;
+  stems: NativeRecordingStemOutcome[];
+}
+
+export interface NativeTraceRecorderOutcome {
+  path: string;
+  recordsAttemptedTotal: string;
+  recordsEnqueuedTotal: string;
+  recordsDroppedTotal: string;
+  recordsWrittenTotal: string;
+  rollingHash: string;
+  complete: boolean;
+}
+
+export interface NativeSessionTraceRecord {
+  sequenceIndex: string;
+  observedAtNs: string;
+  sessionId: string;
+  kind: string;
+  lifecycleState?: string | null;
+  terminalState?: string | null;
+  stemId?: string | null;
+  routeId?: string | null;
+  endpointId?: string | null;
+  endpointStage?: string | null;
+  rollbackStage?: string | null;
+  finalizationStage?: string | null;
+  sourceFailuresTotal?: string | null;
+  endpointFailuresTotal?: string | null;
+  rollbackFailuresTotal?: string | null;
+  finalizationFailuresTotal?: string | null;
+}
+
+export interface NativeSessionTraceValidation {
+  sessionId: string;
+  lifecycle: string[];
+  terminalState: string;
+  sourceFailuresTotal: string;
+  endpointFailuresTotal: string;
+  rollbackFailuresTotal: string;
+  finalizationFailuresTotal: string;
+  recordsValidatedTotal: string;
+}
+
+export interface NativeSessionTraceHandle {
+  readonly sessionId: string;
+  readonly recordsTotal: string;
+  readonly outcome: NativeTraceRecorderOutcome;
+  records(): NativeSessionTraceRecord[];
+  validate(): NativeSessionTraceValidation;
+}
+
+interface NativeSessionTraceConstructor {
+  read(path: string): NativeSessionTraceHandle;
+}
+
+export interface NativeSourceFailure {
+  sourceEventKind: string;
+  stemId: string;
+  sourcePlatform: string;
+  sourceKind: string;
+  sourceStableKey: string;
+  sourceId: string;
+  sourceGeneration: number;
+  sourceRecoveryRequirement?: string | null;
+  sourceFailureOperation: string;
+  sourceFailureClass: string;
+  sourcePlatformStatusCode?: number | null;
+  sourceBackendClass?: string | null;
+}
+
+export interface NativeEndpointFailure {
+  routeId: string;
+  endpointId: string;
+  failureStage: string;
+  failureMessage: string;
+  failureCode?: string | null;
+  failureRetryability?: string | null;
+}
+
+export interface NativeControlFailure {
+  failureStage: string;
+  componentKind: string;
+  componentId: string;
+  failureOperation: string;
+  failureErrorClass: string;
+}
+
 export interface NativeSessionEvent {
   eventType: string;
   sessionId: string;
@@ -556,6 +895,10 @@ export interface NativeSessionEvent {
   endpointFailuresTotal?: string | null;
   rollbackFailuresTotal?: string | null;
   finalizationFailuresTotal?: string | null;
+  sourceFailures?: NativeSourceFailure[] | null;
+  endpointFailures?: NativeEndpointFailure[] | null;
+  rollbackFailures?: NativeControlFailure[] | null;
+  finalizationFailures?: NativeControlFailure[] | null;
 }
 
 export interface NativeEventRead {
@@ -577,6 +920,11 @@ export interface NativeStopResult {
   sourceSendRejectionsTotal: string;
   runtimeEventsTotal: string;
   sidecarOutcomes: NativeSidecarSnapshot[];
+  recording?: NativeRecordingOutcome | null;
+  trace?: NativeTraceRecorderOutcome | null;
+  traceError?: string | null;
+  metrics?: NativeSessionMetrics | null;
+  metricsUnavailableReason?: string | null;
   remainingEvents: NativeSessionEvent[];
 }
 
@@ -592,6 +940,7 @@ export interface NativeRunningSessionHandle {
   signalMetrics(
     subscription: NativeBusSubscriptionHandle,
   ): Promise<NativeSignalMetrics>;
+  metrics(): Promise<NativeSessionMetrics>;
   sendSidecar(
     sidecarId: string,
     message: NativeSidecarMessage,
@@ -694,6 +1043,8 @@ interface NativeSessionConstructor {
     channels?: number;
     frameDurationMs?: number;
     recordingRoot?: string;
+    tracePath?: string;
+    traceCapacityRecords?: number;
   }): NativeSessionHandle;
   conformance?: (saturation?: boolean) => NativeSessionHandle;
 }
@@ -701,6 +1052,7 @@ interface NativeSessionConstructor {
 export interface NativeAddon {
   NativeSource: NativeSourceConstructor;
   NativeSession: NativeSessionConstructor;
+  NativeSessionTrace: NativeSessionTraceConstructor;
   NativeCapturePermissionLifecycle: NativeCapturePermissionLifecycleConstructor;
   NativeSignalSpec: NativeSignalSpecConstructor;
   NativeMediaCaps: NativeMediaCapsConstructor;

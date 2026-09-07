@@ -1,9 +1,12 @@
 import { PocketStationError, nativeCall } from './errors.js';
 import type {
+  NativeControlFailure,
+  NativeEndpointFailure,
   NativeRunningSessionHandle,
   NativeSessionEvent,
+  NativeSourceFailure,
 } from './native.js';
-import type { Platform, SourceKind, StableSourceId } from './sources.js';
+import type { StableSourceId } from './sources.js';
 
 /** Public native Session lifecycle state. */
 export type SessionState =
@@ -66,13 +69,58 @@ export interface EndpointFailureEvent {
   /** Endpoint affected by the failure. */
   readonly endpointId: bigint;
   /** Endpoint lifecycle stage that failed. */
-  readonly stage: string;
+  readonly stage: EndpointFailureStage;
   /** Human-readable failure description. */
   readonly message: string;
   /** Stable provider error code, when supplied. */
   readonly code?: string;
   /** Provider retry guidance, when supplied. */
   readonly retryability?: 'never' | 'retryable' | 'reconfiguration-required';
+}
+
+/** Endpoint lifecycle operation that reported a failure. */
+export type EndpointFailureStage =
+  | 'prepare'
+  | 'cancel-preparation'
+  | 'start'
+  | 'request-stop'
+  | 'join-finalize';
+
+/** One Endpoint failure retained in the terminal Session result. */
+export interface EndpointFailure {
+  readonly routeId: bigint;
+  readonly endpointId: bigint;
+  readonly stage: EndpointFailureStage;
+  readonly message: string;
+  readonly code?: string;
+  readonly retryability?: 'never' | 'retryable' | 'reconfiguration-required';
+}
+
+/** Startup operation used while closing resources opened before a failed start. */
+export type RollbackFailureStage =
+  | 'cancel-operator'
+  | 'cancel-endpoint-preparation'
+  | 'finalize-started-endpoint'
+  | 'stop-opened-capture'
+  | 'discard-runtime-queues';
+
+/** Shutdown operation that could not finish normally. */
+export type FinalizationFailureStage =
+  | 'stop-capture'
+  | 'drain-runtime'
+  | 'drain-operator'
+  | 'request-endpoint-stop'
+  | 'join-endpoint'
+  | 'finalize-endpoint'
+  | 'drain-sidecar';
+
+/** One component failure retained in the terminal Session result. */
+export interface SessionControlFailure {
+  readonly stage: RollbackFailureStage | FinalizationFailureStage;
+  readonly componentKind: 'source' | 'endpoint' | 'operator' | 'sidecar' | 'runtime';
+  readonly componentId: string;
+  readonly operation: string;
+  readonly errorClass: string;
 }
 
 /** Failure while rolling back startup or finalizing shutdown. */
@@ -82,7 +130,7 @@ export interface SessionControlFailureEvent {
   /** Session that emitted the event. */
   readonly sessionId: bigint;
   /** Startup or shutdown stage that failed. */
-  readonly stage: string;
+  readonly stage: RollbackFailureStage | FinalizationFailureStage;
   /** Kind of Session component that failed. */
   readonly componentKind: 'source' | 'endpoint' | 'operator' | 'sidecar' | 'runtime';
   /** Component identity formatted without numeric precision loss. */
@@ -109,6 +157,14 @@ export interface TerminalEvent {
   readonly rollbackFailuresTotal: bigint;
   /** Number of shutdown finalization failures. */
   readonly finalizationFailuresTotal: bigint;
+  /** Complete source failures retained by Core. */
+  readonly sourceFailures: readonly SourceFailure[];
+  /** Complete Endpoint failures retained by Core. */
+  readonly endpointFailures: readonly EndpointFailure[];
+  /** Complete startup rollback failures retained by Core. */
+  readonly rollbackFailures: readonly SessionControlFailure[];
+  /** Complete shutdown failures retained by Core. */
+  readonly finalizationFailures: readonly SessionControlFailure[];
 }
 
 /** One lifecycle or failure event from the native Session owner. */
@@ -196,7 +252,7 @@ export class EventStream implements AsyncIterable<SessionEvent> {
 
   /** @internal */
   public _finish(events: readonly NativeSessionEvent[]): void {
-    this.#pending.push(...events.map(eventFromNative));
+    this.#pending.push(...events.map(_eventFromNative));
     this.#closed = true;
   }
 
@@ -216,78 +272,119 @@ export class EventStream implements AsyncIterable<SessionEvent> {
       this.#closed = true;
     }
     options.signal?.throwIfAborted();
-    return result.event == null ? undefined : eventFromNative(result.event);
+    return result.event == null ? undefined : _eventFromNative(result.event);
   }
 }
 
-function eventFromNative(event: NativeSessionEvent): SessionEvent {
+/** @internal */
+export function _eventFromNative(event: NativeSessionEvent): SessionEvent {
   const sessionId = BigInt(event.sessionId);
   switch (event.eventType) {
     case 'lifecycle':
-      return {
+      return Object.freeze({
         type: 'lifecycle',
         sessionId,
-        state: required(event.sessionState, 'sessionState') as SessionState,
-      };
+        state: choice(
+          required(event.sessionState, 'sessionState'),
+          'lifecycle state',
+          SESSION_STATES,
+        ),
+      });
     case 'source-failure': {
-      const platform = required(event.sourcePlatform, 'sourcePlatform') as Platform;
-      const kind = required(event.sourceKind, 'sourceKind') as SourceKind;
-      return {
+      const platform = choice(required(event.sourcePlatform, 'sourcePlatform'), 'source platform', PLATFORMS);
+      const kind = choice(required(event.sourceKind, 'sourceKind'), 'source kind', SOURCE_KINDS);
+      return Object.freeze({
         type: 'source-failure',
         sessionId,
-        failure: {
-          kind: required(event.sourceEventKind, 'sourceEventKind') as SourceFailure['kind'],
+        failure: Object.freeze({
+          kind: choice(
+            required(event.sourceEventKind, 'sourceEventKind'),
+            'source failure kind',
+            SOURCE_FAILURE_KINDS,
+          ),
           stemId: BigInt(required(event.stemId, 'stemId')),
-          stableId: {
+          stableId: Object.freeze({
             platform,
             kind,
             stableKey: required(event.sourceStableKey, 'sourceStableKey'),
             sourceId: BigInt(required(event.sourceId, 'sourceId')),
-          },
+          }),
           generation: required(event.sourceGeneration, 'sourceGeneration'),
-          recoveryRequirement: (event.sourceRecoveryRequirement ??
-            undefined) as SourceFailure['recoveryRequirement'],
+          recoveryRequirement:
+            event.sourceRecoveryRequirement == null
+              ? undefined
+              : choice(
+                  event.sourceRecoveryRequirement,
+                  'source recovery requirement',
+                  RECOVERY_REQUIREMENTS,
+                ),
           operation: required(event.sourceFailureOperation, 'sourceFailureOperation'),
-          failureClass: required(
-            event.sourceFailureClass,
-            'sourceFailureClass',
-          ) as SourceFailure['failureClass'],
+          failureClass: choice(
+            required(event.sourceFailureClass, 'sourceFailureClass'),
+            'source failure class',
+            SOURCE_FAILURE_CLASSES,
+          ),
           platformStatusCode: event.sourcePlatformStatusCode ?? undefined,
           backendClass: event.sourceBackendClass ?? undefined,
-        },
-      };
+        }),
+      });
     }
     case 'endpoint-failure':
-      return {
+      return Object.freeze({
         type: 'endpoint-failure',
         sessionId,
         routeId: BigInt(required(event.routeId, 'routeId')),
         endpointId: BigInt(required(event.endpointId, 'endpointId')),
-        stage: required(event.failureStage, 'failureStage'),
+        stage: choice(
+          required(event.failureStage, 'failureStage'),
+          'Endpoint failure stage',
+          ENDPOINT_STAGES,
+        ),
         message: required(event.failureMessage, 'failureMessage'),
         code: event.failureCode ?? undefined,
-        retryability: (event.failureRetryability ??
-          undefined) as EndpointFailureEvent['retryability'],
-      };
+        retryability:
+          event.failureRetryability == null
+            ? undefined
+            : choice(
+                event.failureRetryability,
+                'Endpoint retryability',
+                RETRYABILITY,
+              ),
+      });
     case 'rollback-failure':
     case 'finalization-failure':
-      return {
+      return Object.freeze({
         type: event.eventType,
         sessionId,
-        stage: required(event.failureStage, 'failureStage'),
-        componentKind: required(
-          event.componentKind,
-          'componentKind',
-        ) as SessionControlFailureEvent['componentKind'],
+        stage: event.eventType === 'rollback-failure'
+          ? choice(
+              required(event.failureStage, 'failureStage'),
+              'rollback failure stage',
+              ROLLBACK_STAGES,
+            )
+          : choice(
+              required(event.failureStage, 'failureStage'),
+              'finalization failure stage',
+              FINALIZATION_STAGES,
+            ),
+        componentKind: choice(
+          required(event.componentKind, 'componentKind'),
+          'Session component kind',
+          COMPONENT_KINDS,
+        ),
         componentId: required(event.componentId, 'componentId'),
         operation: required(event.failureOperation, 'failureOperation'),
         errorClass: required(event.failureErrorClass, 'failureErrorClass'),
-      };
-    case 'terminal':
-      return {
+      });
+    case 'terminal': {
+      const terminal: TerminalEvent = Object.freeze({
         type: 'terminal',
         sessionId,
-        state: required(event.sessionState, 'sessionState') as TerminalEvent['state'],
+        state: choice(
+          required(event.sessionState, 'sessionState'),
+          'terminal state',
+          TERMINAL_STATES,
+        ),
         sourceFailuresTotal: BigInt(required(event.sourceFailuresTotal, 'sourceFailuresTotal')),
         endpointFailuresTotal: BigInt(
           required(event.endpointFailuresTotal, 'endpointFailuresTotal'),
@@ -298,13 +395,87 @@ function eventFromNative(event: NativeSessionEvent): SessionEvent {
         finalizationFailuresTotal: BigInt(
           required(event.finalizationFailuresTotal, 'finalizationFailuresTotal'),
         ),
-      };
+        sourceFailures: Object.freeze(
+          required(event.sourceFailures, 'sourceFailures').map(sourceFailureFromNative),
+        ),
+        endpointFailures: Object.freeze(
+          required(event.endpointFailures, 'endpointFailures').map(endpointFailureFromNative),
+        ),
+        rollbackFailures: Object.freeze(
+          required(event.rollbackFailures, 'rollbackFailures').map(controlFailureFromNative),
+        ),
+        finalizationFailures: Object.freeze(
+          required(event.finalizationFailures, 'finalizationFailures').map(
+            controlFailureFromNative,
+          ),
+        ),
+      });
+      if (
+        terminal.sourceFailuresTotal !== BigInt(terminal.sourceFailures.length) ||
+        terminal.endpointFailuresTotal !== BigInt(terminal.endpointFailures.length) ||
+        terminal.rollbackFailuresTotal !== BigInt(terminal.rollbackFailures.length) ||
+        terminal.finalizationFailuresTotal !==
+          BigInt(terminal.finalizationFailures.length)
+      ) {
+        throw new PocketStationError(
+          'session.invalid_event',
+          'Native terminal event failure counts are inconsistent',
+        );
+      }
+      return terminal;
+    }
     default:
       throw new PocketStationError(
         'session.invalid_event',
         `Native Session returned an unknown event type: ${event.eventType}`,
       );
   }
+}
+
+function sourceFailureFromNative(failure: NativeSourceFailure): SourceFailure {
+  return Object.freeze({
+    kind: choice(failure.sourceEventKind, 'source failure kind', SOURCE_FAILURE_KINDS),
+    stemId: BigInt(failure.stemId),
+    stableId: Object.freeze({
+      platform: choice(failure.sourcePlatform, 'source platform', PLATFORMS),
+      kind: choice(failure.sourceKind, 'source kind', SOURCE_KINDS),
+      stableKey: failure.sourceStableKey,
+      sourceId: BigInt(failure.sourceId),
+    }),
+    generation: failure.sourceGeneration,
+    recoveryRequirement:
+      failure.sourceRecoveryRequirement == null
+        ? undefined
+        : choice(failure.sourceRecoveryRequirement, 'source recovery requirement', RECOVERY_REQUIREMENTS),
+    operation: failure.sourceFailureOperation,
+    failureClass: choice(failure.sourceFailureClass, 'source failure class', SOURCE_FAILURE_CLASSES),
+    platformStatusCode: failure.sourcePlatformStatusCode ?? undefined,
+    backendClass: failure.sourceBackendClass ?? undefined,
+  });
+}
+
+function endpointFailureFromNative(failure: NativeEndpointFailure): EndpointFailure {
+  return Object.freeze({
+    routeId: BigInt(failure.routeId),
+    endpointId: BigInt(failure.endpointId),
+    stage: choice(failure.failureStage, 'Endpoint failure stage', ENDPOINT_STAGES),
+    message: failure.failureMessage,
+    code: failure.failureCode ?? undefined,
+    retryability:
+      failure.failureRetryability == null
+        ? undefined
+        : choice(failure.failureRetryability, 'Endpoint retryability', RETRYABILITY),
+  });
+}
+
+function controlFailureFromNative(failure: NativeControlFailure): SessionControlFailure {
+  return Object.freeze({
+    stage: choice(failure.failureStage, 'Session control failure stage', CONTROL_STAGES),
+    componentKind: choice(failure.componentKind, 'Session component kind', COMPONENT_KINDS),
+    componentId: failure.componentId,
+    operation: failure.failureOperation,
+    errorClass: failure.failureErrorClass,
+  });
 }
 
 function required<T>(value: T | null | undefined, name: string): T {
@@ -321,4 +492,32 @@ function validateTimeout(timeoutMs: number): void {
   if (!Number.isInteger(timeoutMs) || timeoutMs < 0 || timeoutMs > 1_000) {
     throw new RangeError('timeoutMs must be an integer between 0 and 1000');
   }
+}
+
+const SESSION_STATES = ['starting', 'running', 'stopping', 'stopped', 'failed'] as const;
+const TERMINAL_STATES = ['stopped', 'failed'] as const;
+const PLATFORMS = ['macos', 'windows', 'linux', 'ios', 'android', 'web', 'unknown'] as const;
+const SOURCE_KINDS = ['application', 'output-device', 'input-device', 'system-mix'] as const;
+const SOURCE_FAILURE_KINDS = ['source-unavailable', 'backend-failure'] as const;
+const SOURCE_FAILURE_CLASSES = ['source-instance-exited', 'platform-status', 'backend-class'] as const;
+const RECOVERY_REQUIREMENTS = ['explicit-rediscovery-and-new-session'] as const;
+const ENDPOINT_STAGES = ['prepare', 'cancel-preparation', 'start', 'request-stop', 'join-finalize'] as const;
+const ROLLBACK_STAGES = ['cancel-operator', 'cancel-endpoint-preparation', 'finalize-started-endpoint', 'stop-opened-capture', 'discard-runtime-queues'] as const;
+const FINALIZATION_STAGES = ['stop-capture', 'drain-runtime', 'drain-operator', 'request-endpoint-stop', 'join-endpoint', 'finalize-endpoint', 'drain-sidecar'] as const;
+const CONTROL_STAGES = [...ROLLBACK_STAGES, ...FINALIZATION_STAGES] as const;
+const COMPONENT_KINDS = ['source', 'endpoint', 'operator', 'sidecar', 'runtime'] as const;
+const RETRYABILITY = ['never', 'retryable', 'reconfiguration-required'] as const;
+
+function choice<const T extends readonly string[]>(
+  value: string,
+  name: string,
+  accepted: T,
+): T[number] {
+  if (!(accepted as readonly string[]).includes(value)) {
+    throw new PocketStationError(
+      'session.invalid_event',
+      `Native Session returned an unknown ${name}: ${value}`,
+    );
+  }
+  return value as T[number];
 }

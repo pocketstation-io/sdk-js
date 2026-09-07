@@ -242,3 +242,30 @@ the normal native addon and is not physical-device or provider evidence.
 - Relay composition or voice composition;
 - publication, tags, or version selection;
 - cross-platform or performance claims.
+
+## Staff Bar Self-Check — JavaScript Session observations
+
+- Smallest correct design: yes — Core remains the source of events, metrics,
+  trace records, recording results, and shutdown state. The addon copies one
+  snapshot through the Session worker; TypeScript only validates and converts
+  it into immutable values.
+- Tests added or updated: yes — deterministic Core and application-PCM tests
+  cover live and final metrics, values beyond JavaScript's safe integer range,
+  collection-count consistency, closed state values, retained terminal
+  failures, recording results, trace writing, checksum reading, lifecycle
+  validation, invalid settings, exports, and packed-package execution.
+- Hot-path safe: yes — snapshots and conversions run through the existing
+  Session worker. Trace records use Core's dedicated writer and configured
+  queue; JavaScript never runs on capture callbacks or realtime partitions.
+- Public API changed: yes — the unpublished Node entry gains `SessionMetrics`,
+  typed recording results, `SessionTrace`, trace configuration and validation,
+  closed failure stages, complete terminal failures, and final observations on
+  `StopResult`.
+- New dependency: no — production continues to use released Core 1.1.10,
+  napi-rs, and Node built-ins.
+- Phase scope respected: yes — no Relay, browser, voice, provider package,
+  release, or target-platform claim is included.
+- Unsafe added: no.
+- Remaining risk: the tests establish component and installed-package behavior
+  on macOS. They do not prove a physical Source, provider, browser, WAN,
+  Windows/Linux package, or latency result.

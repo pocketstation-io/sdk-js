@@ -18,6 +18,7 @@ without loading native code in a browser build.
 - [Run compiled extensions and managed processes](guides/extensions-and-sidecars.md)
 - [Add JavaScript Sources, Operators, Connectors, and Endpoints](guides/provider-authoring.md)
 - [Choose media and delivery settings](concepts/route-settings.md)
+- [Understand delivery, failures, recordings, and traces](guides/observe-a-session.md)
 - [Understand native ownership and shutdown](JAVASCRIPT_SDK_DESIGN.md)
 
 ## Check current support

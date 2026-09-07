@@ -256,6 +256,24 @@ When an application or device disappears, the event keeps its Source and Stem
 identity and states whether rediscovery and a new Session are required. It does
 not silently switch to another application or microphone.
 
+Inspect current delivery and timing without consuming the audio stream:
+
+```ts
+const metrics = await running.metrics();
+
+for (const route of metrics.routes) {
+  console.log(route.routeId, route.delivery.framesDroppedTotal);
+}
+```
+
+All counters, identities, and nanosecond values are `bigint`. The final result
+retains the last metrics, the complete terminal event, and recording or trace
+results when those features were enabled.
+
+Read [Understand a running Session](docs/guides/observe-a-session.md) for queue
+depth, latency percentiles, retained failures, multistem results, and trace
+validation.
+
 ## Stop or cancel
 
 `stop()` finishes accepted work and returns the Session outcome. `cancel()` asks
@@ -268,6 +286,19 @@ const outcome = await running.stop();
 if (!outcome.success) {
   console.error(outcome);
 }
+```
+
+Enable a checksummed lifecycle trace when a reproducible shutdown record is
+needed:
+
+```ts
+import { SessionTrace } from "pocketstation/node";
+
+const session = new Session({ trace: { path: "./meeting.pkstrace" } });
+// Declare Sources and destinations, then start and stop the Session.
+
+const trace = SessionTrace.read("./meeting.pkstrace");
+console.log(trace.validate());
 ```
 
 Breaking an audio loop releases that reader; it does not stop the Session.

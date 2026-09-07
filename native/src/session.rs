@@ -19,6 +19,10 @@ use crate::graph::{
     NativeConfigurationEntry, NativeEndpointDefinition, NativeOperator, NativeOperatorInput,
     NativeOperatorInstance, NativePortSpec, NativeRouteSettings,
 };
+use crate::observations::{
+    copy_metrics, copy_recording_outcome, copy_trace_outcome, NativeRecordingOutcome,
+    NativeSessionMetrics, NativeTraceRecorderOutcome,
+};
 use crate::provider::{NativeProviderCall, NativeProviderResult};
 use crate::sidecar::{
     error_reason as sidecar_error_reason, poll as poll_sidecar, runtime_error as sidecar_error,
@@ -35,6 +39,42 @@ use crate::streams::{copy_audio, NativeAudioRead};
 
 const COMMAND_CAPACITY_COUNT: usize = 8;
 const MAXIMUM_AUDIO_WAIT_MS: u32 = 1_000;
+const MAXIMUM_TRACE_CAPACITY_RECORDS: u32 = 1_000_000;
+
+#[napi(object)]
+pub struct NativeSourceFailure {
+    pub source_event_kind: String,
+    pub stem_id: String,
+    pub source_platform: String,
+    pub source_kind: String,
+    pub source_stable_key: String,
+    pub source_id: String,
+    pub source_generation: u32,
+    pub source_recovery_requirement: Option<String>,
+    pub source_failure_operation: String,
+    pub source_failure_class: String,
+    pub source_platform_status_code: Option<i32>,
+    pub source_backend_class: Option<String>,
+}
+
+#[napi(object)]
+pub struct NativeEndpointFailure {
+    pub route_id: String,
+    pub endpoint_id: String,
+    pub failure_stage: String,
+    pub failure_message: String,
+    pub failure_code: Option<String>,
+    pub failure_retryability: Option<String>,
+}
+
+#[napi(object)]
+pub struct NativeControlFailure {
+    pub failure_stage: String,
+    pub component_kind: String,
+    pub component_id: String,
+    pub failure_operation: String,
+    pub failure_error_class: String,
+}
 
 #[napi(object)]
 pub struct NativeSessionEvent {
@@ -67,6 +107,10 @@ pub struct NativeSessionEvent {
     pub endpoint_failures_total: Option<String>,
     pub rollback_failures_total: Option<String>,
     pub finalization_failures_total: Option<String>,
+    pub source_failures: Option<Vec<NativeSourceFailure>>,
+    pub endpoint_failures: Option<Vec<NativeEndpointFailure>>,
+    pub rollback_failures: Option<Vec<NativeControlFailure>>,
+    pub finalization_failures: Option<Vec<NativeControlFailure>>,
 }
 
 #[napi(object)]
@@ -81,6 +125,8 @@ pub struct NativeSessionOptions {
     pub channels: Option<u8>,
     pub frame_duration_ms: Option<u32>,
     pub recording_root: Option<String>,
+    pub trace_path: Option<String>,
+    pub trace_capacity_records: Option<u32>,
 }
 
 #[napi(object)]
@@ -98,6 +144,11 @@ pub struct NativeStopResult {
     pub source_send_rejections_total: String,
     pub runtime_events_total: String,
     pub sidecar_outcomes: Vec<NativeSidecarSnapshot>,
+    pub recording: Option<NativeRecordingOutcome>,
+    pub trace: Option<NativeTraceRecorderOutcome>,
+    pub trace_error: Option<String>,
+    pub metrics: Option<NativeSessionMetrics>,
+    pub metrics_unavailable_reason: Option<String>,
     pub remaining_events: Vec<NativeSessionEvent>,
 }
 
@@ -240,6 +291,8 @@ impl NativeSession {
             channels: None,
             frame_duration_ms: None,
             recording_root: None,
+            trace_path: None,
+            trace_capacity_records: None,
         });
         let sample_rate_hz = options.sample_rate_hz.unwrap_or(48_000);
         let channels = options.channels.unwrap_or(1);
@@ -274,6 +327,31 @@ impl NativeSession {
                 ));
             }
             builder = builder.recording_root(recording_root);
+        }
+        match (options.trace_path, options.trace_capacity_records) {
+            (None, None) => {}
+            (Some(path), capacity) => {
+                if path.trim().is_empty() {
+                    return Err(error(
+                        "session.invalid_trace_configuration",
+                        "trace.path cannot be empty",
+                    ));
+                }
+                let capacity = capacity.unwrap_or(256);
+                if capacity == 0 || capacity > MAXIMUM_TRACE_CAPACITY_RECORDS {
+                    return Err(error(
+                        "session.invalid_trace_configuration",
+                        "trace.capacityRecords must be an integer between 1 and 1000000",
+                    ));
+                }
+                builder = builder.session_trace(path, capacity as usize);
+            }
+            (None, Some(_)) => {
+                return Err(error(
+                    "session.invalid_trace_configuration",
+                    "trace.path is required when trace.capacityRecords is set",
+                ));
+            }
         }
         let session = builder.build();
         let session_id = session.id().get();
@@ -756,6 +834,9 @@ enum SessionCommand {
         route_id: u64,
         response: SyncSender<std::result::Result<NativeSignalMetrics, String>>,
     },
+    SessionMetrics {
+        response: SyncSender<std::result::Result<NativeSessionMetrics, String>>,
+    },
     SendSidecar {
         sidecar_id: u64,
         message: pocketstation::SidecarMessage,
@@ -855,6 +936,13 @@ impl NativeRunningSession {
         Ok(AsyncTask::new(SignalMetricsTask {
             commands: self.commands()?,
             route_id: subscription.route_id,
+        }))
+    }
+
+    #[napi]
+    pub fn metrics(&self) -> Result<AsyncTask<SessionMetricsTask>> {
+        Ok(AsyncTask::new(SessionMetricsTask {
+            commands: self.commands()?,
         }))
     }
 
@@ -1012,6 +1100,10 @@ pub struct SignalMetricsTask {
     route_id: u64,
 }
 
+pub struct SessionMetricsTask {
+    commands: SyncSender<SessionCommand>,
+}
+
 pub struct SendSidecarTask {
     commands: SyncSender<SessionCommand>,
     sidecar_id: u64,
@@ -1145,6 +1237,31 @@ impl Task for SignalMetricsTask {
     }
 }
 
+impl Task for SessionMetricsTask {
+    type Output = NativeSessionMetrics;
+    type JsValue = NativeSessionMetrics;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        let (response, receiver) = sync_channel(1);
+        self.commands
+            .send(SessionCommand::SessionMetrics { response })
+            .map_err(|_| error("session.stopped", "native Session worker has stopped"))?;
+        receiver
+            .recv()
+            .map_err(|_| {
+                error(
+                    "session.worker_stopped",
+                    "native Session worker did not return Session metrics",
+                )
+            })?
+            .map_err(|failure| error("session.metrics_unavailable", failure))
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output)
+    }
+}
+
 impl Task for ReadAudioTask {
     type Output = NativeAudioRead;
     type JsValue = NativeAudioRead;
@@ -1242,6 +1359,9 @@ fn session_worker(mut running: pocketstation::RunningSession, receiver: Receiver
             }
             SessionCommand::SignalMetrics { route_id, response } => {
                 let _ = response.send(copy_signal_metrics(&running, route_id));
+            }
+            SessionCommand::SessionMetrics { response } => {
+                let _ = response.send(copy_metrics(&running));
             }
             SessionCommand::SendSidecar {
                 sidecar_id,
@@ -1372,6 +1492,10 @@ fn empty_event(event_type: &str, session_id: u64) -> NativeSessionEvent {
         endpoint_failures_total: None,
         rollback_failures_total: None,
         finalization_failures_total: None,
+        source_failures: None,
+        endpoint_failures: None,
+        rollback_failures: None,
+        finalization_failures: None,
     }
 }
 
@@ -1384,67 +1508,36 @@ fn project_session_event(event: &pocketstation::SessionEvent) -> NativeSessionEv
             result
         }
         pocketstation::SessionEventKind::Source(failure) => {
-            let (event_kind, stable_id, generation, recovery, runtime_failure) =
-                match failure.event() {
-                    pocketstation::SourceRuntimeEvent::SourceUnavailable {
-                        stable_id,
-                        generation,
-                        recovery_requirement,
-                        failure,
-                    } => (
-                        "source-unavailable",
-                        stable_id,
-                        generation.0,
-                        Some(match recovery_requirement {
-                            pocketstation::SourceRecoveryRequirement::ExplicitRediscoveryAndNewSession => {
-                                "explicit-rediscovery-and-new-session"
-                            }
-                        }),
-                        failure,
-                    ),
-                    pocketstation::SourceRuntimeEvent::BackendFailure {
-                        stable_id,
-                        generation,
-                        failure,
-                    } => ("backend-failure", stable_id, generation.0, None, failure),
-                };
+            let failure = native_source_failure(failure.stem_id().get(), failure.event());
             let mut result = empty_event("source-failure", session_id);
-            result.source_event_kind = Some(event_kind.to_owned());
-            result.stem_id = Some(failure.stem_id().get().to_string());
-            result.source_platform = Some(platform_name(stable_id.platform).to_owned());
-            result.source_kind = Some(source_kind_name(stable_id.kind).to_owned());
-            result.source_stable_key = Some(stable_id.stable_key.clone());
-            result.source_id = Some(stable_id.source_id().get().to_string());
-            result.source_generation = Some(generation);
-            result.source_recovery_requirement = recovery.map(str::to_owned);
-            result.source_failure_operation = Some(runtime_failure.operation.to_owned());
-            match &runtime_failure.error_class {
-                pocketstation::CaptureRuntimeFailureClass::SourceInstanceExited => {
-                    result.source_failure_class = Some("source-instance-exited".to_owned());
-                }
-                pocketstation::CaptureRuntimeFailureClass::PlatformStatus { status_code } => {
-                    result.source_failure_class = Some("platform-status".to_owned());
-                    result.source_platform_status_code = Some(*status_code);
-                }
-                pocketstation::CaptureRuntimeFailureClass::BackendClass { class } => {
-                    result.source_failure_class = Some("backend-class".to_owned());
-                    result.source_backend_class = Some(class.clone());
-                }
-            }
+            result.source_event_kind = Some(failure.source_event_kind);
+            result.stem_id = Some(failure.stem_id);
+            result.source_platform = Some(failure.source_platform);
+            result.source_kind = Some(failure.source_kind);
+            result.source_stable_key = Some(failure.source_stable_key);
+            result.source_id = Some(failure.source_id);
+            result.source_generation = Some(failure.source_generation);
+            result.source_recovery_requirement = failure.source_recovery_requirement;
+            result.source_failure_operation = Some(failure.source_failure_operation);
+            result.source_failure_class = Some(failure.source_failure_class);
+            result.source_platform_status_code = failure.source_platform_status_code;
+            result.source_backend_class = failure.source_backend_class;
             result
         }
         pocketstation::SessionEventKind::Endpoint(failure) => {
+            let failure = native_endpoint_failure(
+                failure.route_id().get(),
+                failure.endpoint_id().get(),
+                failure.stage(),
+                failure.failure(),
+            );
             let mut result = empty_event("endpoint-failure", session_id);
-            result.route_id = Some(failure.route_id().get().to_string());
-            result.endpoint_id = Some(failure.endpoint_id().get().to_string());
-            result.failure_stage = Some(endpoint_stage_name(failure.stage()).to_owned());
-            result.failure_message = Some(failure.failure().message().to_owned());
-            result.failure_code = failure.failure().code().map(str::to_owned);
-            result.failure_retryability = failure
-                .failure()
-                .retryability()
-                .map(endpoint_retryability_name)
-                .map(str::to_owned);
+            result.route_id = Some(failure.route_id);
+            result.endpoint_id = Some(failure.endpoint_id);
+            result.failure_stage = Some(failure.failure_stage);
+            result.failure_message = Some(failure.failure_message);
+            result.failure_code = failure.failure_code;
+            result.failure_retryability = failure.failure_retryability;
             result
         }
         pocketstation::SessionEventKind::Rollback(failure) => {
@@ -1473,8 +1566,133 @@ fn project_session_event(event: &pocketstation::SessionEvent) -> NativeSessionEv
             result.rollback_failures_total = Some(outcome.rollback_failures().len().to_string());
             result.finalization_failures_total =
                 Some(outcome.finalization_failures().len().to_string());
+            result.source_failures = Some(
+                outcome
+                    .source_failures()
+                    .iter()
+                    .map(|failure| native_source_failure(failure.stem_id().get(), failure.event()))
+                    .collect(),
+            );
+            result.endpoint_failures = Some(
+                outcome
+                    .endpoint_failures()
+                    .iter()
+                    .map(|failure| {
+                        native_endpoint_failure(
+                            failure.route_id().get(),
+                            failure.endpoint_id().get(),
+                            failure.stage(),
+                            failure.failure(),
+                        )
+                    })
+                    .collect(),
+            );
+            result.rollback_failures = Some(
+                outcome
+                    .rollback_failures()
+                    .iter()
+                    .map(|failure| NativeControlFailure {
+                        failure_stage: debug_name(failure.stage()),
+                        ..native_control_failure(failure.failure())
+                    })
+                    .collect(),
+            );
+            result.finalization_failures = Some(
+                outcome
+                    .finalization_failures()
+                    .iter()
+                    .map(|failure| NativeControlFailure {
+                        failure_stage: debug_name(failure.stage()),
+                        ..native_control_failure(failure.failure())
+                    })
+                    .collect(),
+            );
             result
         }
+    }
+}
+
+fn native_source_failure(
+    stem_id: u64,
+    event: &pocketstation::SourceRuntimeEvent,
+) -> NativeSourceFailure {
+    let (event_kind, stable_id, generation, recovery, runtime_failure) = match event {
+        pocketstation::SourceRuntimeEvent::SourceUnavailable {
+            stable_id,
+            generation,
+            recovery_requirement,
+            failure,
+        } => (
+            "source-unavailable",
+            stable_id,
+            generation.0,
+            Some(match recovery_requirement {
+                pocketstation::SourceRecoveryRequirement::ExplicitRediscoveryAndNewSession => {
+                    "explicit-rediscovery-and-new-session"
+                }
+            }),
+            failure,
+        ),
+        pocketstation::SourceRuntimeEvent::BackendFailure {
+            stable_id,
+            generation,
+            failure,
+        } => ("backend-failure", stable_id, generation.0, None, failure),
+    };
+    let (failure_class, status_code, backend_class) = match &runtime_failure.error_class {
+        pocketstation::CaptureRuntimeFailureClass::SourceInstanceExited => {
+            ("source-instance-exited", None, None)
+        }
+        pocketstation::CaptureRuntimeFailureClass::PlatformStatus { status_code } => {
+            ("platform-status", Some(*status_code), None)
+        }
+        pocketstation::CaptureRuntimeFailureClass::BackendClass { class } => {
+            ("backend-class", None, Some(class.clone()))
+        }
+    };
+    NativeSourceFailure {
+        source_event_kind: event_kind.to_owned(),
+        stem_id: stem_id.to_string(),
+        source_platform: platform_name(stable_id.platform).to_owned(),
+        source_kind: source_kind_name(stable_id.kind).to_owned(),
+        source_stable_key: stable_id.stable_key.clone(),
+        source_id: stable_id.source_id().get().to_string(),
+        source_generation: generation,
+        source_recovery_requirement: recovery.map(str::to_owned),
+        source_failure_operation: runtime_failure.operation.to_owned(),
+        source_failure_class: failure_class.to_owned(),
+        source_platform_status_code: status_code,
+        source_backend_class: backend_class,
+    }
+}
+
+fn native_endpoint_failure(
+    route_id: u64,
+    endpoint_id: u64,
+    stage: pocketstation::EndpointFailureStage,
+    failure: &pocketstation::EndpointFailure,
+) -> NativeEndpointFailure {
+    NativeEndpointFailure {
+        route_id: route_id.to_string(),
+        endpoint_id: endpoint_id.to_string(),
+        failure_stage: endpoint_stage_name(stage).to_owned(),
+        failure_message: failure.message().to_owned(),
+        failure_code: failure.code().map(str::to_owned),
+        failure_retryability: failure
+            .retryability()
+            .map(endpoint_retryability_name)
+            .map(str::to_owned),
+    }
+}
+
+fn native_control_failure(failure: &pocketstation::SessionControlFailure) -> NativeControlFailure {
+    let (component_kind, component_id) = control_failure_component(failure.component());
+    NativeControlFailure {
+        failure_stage: String::new(),
+        component_kind: component_kind.to_owned(),
+        component_id,
+        failure_operation: failure.operation().to_owned(),
+        failure_error_class: failure.error_class().to_owned(),
     }
 }
 
@@ -1482,7 +1700,17 @@ fn project_control_failure(
     result: &mut NativeSessionEvent,
     failure: &pocketstation::SessionControlFailure,
 ) {
-    let (kind, id) = match failure.component() {
+    let (kind, id) = control_failure_component(failure.component());
+    result.component_kind = Some(kind.to_owned());
+    result.component_id = Some(id);
+    result.failure_operation = Some(failure.operation().to_owned());
+    result.failure_error_class = Some(failure.error_class().to_owned());
+}
+
+fn control_failure_component(
+    component: pocketstation::SessionComponentId,
+) -> (&'static str, String) {
+    match component {
         pocketstation::SessionComponentId::Source { stem_id } => {
             ("source", stem_id.get().to_string())
         }
@@ -1500,11 +1728,7 @@ fn project_control_failure(
             ("sidecar", sidecar_id.to_string())
         }
         pocketstation::SessionComponentId::Runtime => ("runtime", "0".to_owned()),
-    };
-    result.component_kind = Some(kind.to_owned());
-    result.component_id = Some(id);
-    result.failure_operation = Some(failure.operation().to_owned());
-    result.failure_error_class = Some(failure.error_class().to_owned());
+    }
 }
 
 const fn endpoint_stage_name(stage: pocketstation::EndpointFailureStage) -> &'static str {
@@ -1548,6 +1772,12 @@ fn stop_result(
     outcome: &pocketstation::SessionStopOutcome,
     remaining_events: Vec<NativeSessionEvent>,
 ) -> NativeStopResult {
+    let (metrics, metrics_unavailable_reason) = match copy_metrics(running) {
+        Ok(metrics) => (Some(metrics), None),
+        Err(reason) => (None, Some(reason)),
+    };
+    let recording = copy_recording_outcome(running);
+    let (trace, trace_error) = copy_trace_outcome(running);
     NativeStopResult {
         success,
         already_stopped,
@@ -1577,6 +1807,11 @@ fn stop_result(
             .into_iter()
             .map(NativeSidecarSnapshot::from)
             .collect(),
+        recording,
+        trace,
+        trace_error,
+        metrics,
+        metrics_unavailable_reason,
         remaining_events,
     }
 }

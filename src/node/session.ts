@@ -30,7 +30,7 @@ import {
 } from './graph.js';
 import { Source, nativeSource } from './sources.js';
 import { AudioStream } from './streams.js';
-import { EventStream } from './events.js';
+import { _eventFromNative, EventStream, type TerminalEvent } from './events.js';
 import { BusSubscription, SignalStream } from './signals.js';
 import {
   extensionLibraryFromNative,
@@ -44,6 +44,22 @@ import {
 } from './sidecar.js';
 import { Connector } from './connector.js';
 import { EndpointFactory, OperatorFactory, SourceFactory } from './provider.js';
+import {
+  _recordingOutcomeFromNative,
+  _sessionMetricsFromNative,
+  _traceOutcomeFromNative,
+  type RecordingOutcome,
+  type SessionMetrics,
+  type SessionTraceOutcome,
+} from './observations.js';
+
+/** Finite native event trace written alongside a Session. */
+export interface SessionTraceOptions {
+  /** New file to create. The file must not already exist. */
+  readonly path: string;
+  /** Maximum queued records. Defaults to 256; maximum 1,000,000. */
+  readonly capacityRecords?: number;
+}
 
 /** Audio format and frame cadence used by a Session. */
 export interface SessionOptions {
@@ -55,6 +71,8 @@ export interface SessionOptions {
   frameDurationMs?: 10 | 20;
   /** Directory where declared multistem recordings are written. */
   recordingRoot?: string;
+  /** Optional native lifecycle and failure trace. */
+  trace?: SessionTraceOptions;
 }
 
 /** Final result returned after a running Session stops or is cancelled. */
@@ -85,6 +103,18 @@ export interface StopResult {
   readonly runtimeEventsTotal: bigint;
   /** Final process state and queue counters for every registered sidecar. */
   readonly sidecarOutcomes: readonly SidecarSnapshot[];
+  /** Multistem recording result when this Session declared recording outputs. */
+  readonly recording?: RecordingOutcome;
+  /** Native trace write result when tracing was enabled. */
+  readonly trace?: SessionTraceOutcome;
+  /** Why the native trace could not be finalized, when finalization failed. */
+  readonly traceError?: string;
+  /** Complete terminal Session event, including retained failures. */
+  readonly terminalEvent?: TerminalEvent;
+  /** Final Core metrics, including queue depth, delivery, timing, and provider state. */
+  readonly metrics?: SessionMetrics;
+  /** Why final metrics could not be read, when Core could not produce them. */
+  readonly metricsUnavailableReason?: string;
 }
 
 /** String settings passed to an externally registered Source. */
@@ -556,11 +586,26 @@ export class DerivedStream {
 }
 
 function stopResultFromNative(result: NativeStopResult): StopResult {
-  return {
+  let terminalEvent: TerminalEvent | undefined;
+  for (let index = result.remainingEvents.length - 1; index >= 0; index -= 1) {
+    const event = result.remainingEvents[index];
+    if (event?.eventType === 'terminal') {
+      const projected = _eventFromNative(event);
+      if (projected.type !== 'terminal') {
+        throw new PocketStationError(
+          'session.invalid_stop_result',
+          'Native terminal event did not project as a terminal event',
+        );
+      }
+      terminalEvent = projected;
+      break;
+    }
+  }
+  return Object.freeze({
     success: result.success,
     alreadyStopped: result.alreadyStopped,
-    disposition: result.disposition as StopResult['disposition'],
-    sessionState: result.sessionState as StopResult['sessionState'],
+    disposition: terminationDisposition(result.disposition),
+    sessionState: terminalSessionState(result.sessionState),
     runtimeWorkerPanicked: result.runtimeWorkerPanicked,
     captureFinalizationFailuresTotal: BigInt(
       result.captureFinalizationFailuresTotal,
@@ -578,7 +623,37 @@ function stopResultFromNative(result: NativeStopResult): StopResult {
     sidecarOutcomes: Object.freeze(
       result.sidecarOutcomes.map((snapshot) => new SidecarSnapshot(snapshot)),
     ),
-  };
+    recording:
+      result.recording == null
+        ? undefined
+        : _recordingOutcomeFromNative(result.recording),
+    trace: result.trace == null ? undefined : _traceOutcomeFromNative(result.trace),
+    traceError: result.traceError ?? undefined,
+    terminalEvent,
+    metrics:
+      result.metrics == null
+        ? undefined
+        : _sessionMetricsFromNative(result.metrics),
+    metricsUnavailableReason: result.metricsUnavailableReason ?? undefined,
+  });
+}
+
+function terminationDisposition(value: string): StopResult['disposition'] {
+  if (value === 'stopped' || value === 'cancelled' || value === 'already-stopped') {
+    return value;
+  }
+  throw new PocketStationError(
+    'session.invalid_stop_result',
+    `Native Session returned an unknown stop disposition: ${value}`,
+  );
+}
+
+function terminalSessionState(value: string): StopResult['sessionState'] {
+  if (value === 'stopped' || value === 'failed') return value;
+  throw new PocketStationError(
+    'session.invalid_stop_result',
+    `Native Session returned an unknown terminal state: ${value}`,
+  );
 }
 
 /** Owns a started native Session until it is stopped or cancelled. */
@@ -627,6 +702,13 @@ export class RunningSession implements AsyncDisposable {
       this.#signalStreams.set(subscription.id, stream);
     }
     return stream;
+  }
+
+  /** Read one immutable snapshot of Core-owned queues, delivery, timing, and lifecycle state. */
+  public async metrics(): Promise<SessionMetrics> {
+    return _sessionMetricsFromNative(
+      await nativeCall(() => this.#native.metrics()),
+    );
   }
 
   /** Access one child process registered by the same Session. */
@@ -691,8 +773,27 @@ export class Session {
   public constructor(options: SessionOptions = {}) {
     this.#sampleRateHz = options.sampleRateHz ?? 48_000;
     this.#channels = options.channels ?? 1;
-    this.#native = nativeCallSync(
-      () => new (nativeAddon().NativeSession)(options),
+    const trace = options.trace;
+    if (trace !== undefined) {
+      if (trace.path.trim().length === 0) {
+        throw new RangeError('trace.path cannot be empty');
+      }
+      const capacity = trace.capacityRecords ?? 256;
+      if (!Number.isInteger(capacity) || capacity < 1 || capacity > 1_000_000) {
+        throw new RangeError(
+          'trace.capacityRecords must be an integer between 1 and 1000000',
+        );
+      }
+    }
+    this.#native = nativeCallSync(() =>
+      new (nativeAddon().NativeSession)({
+        sampleRateHz: options.sampleRateHz,
+        channels: options.channels,
+        frameDurationMs: options.frameDurationMs,
+        recordingRoot: options.recordingRoot,
+        tracePath: trace?.path,
+        traceCapacityRecords: trace?.capacityRecords,
+      }),
     );
   }
 

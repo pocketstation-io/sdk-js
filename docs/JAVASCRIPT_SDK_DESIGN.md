@@ -150,6 +150,28 @@ route, Session, sequence, epoch, and nanosecond fields are therefore public
 `bigint` values. The native addon transfers them as decimal strings and the
 TypeScript layer performs the exact conversion outside the media thread.
 
+## Session observations
+
+Core remains the only owner of queue, delivery, timing, provider, recording,
+and shutdown state. `running.metrics()` asks the native Session worker for one
+snapshot and converts it into immutable TypeScript values. The SDK verifies
+that every reported collection count matches the collection it received.
+
+Events use closed discriminated unions. Terminal events carry the complete
+retained Source, Endpoint, rollback, and finalization failures in addition to
+their totals. Unknown states and stages are rejected, which prevents a newer
+native addon from being misread by an older TypeScript package.
+
+`stop()` and `cancel()` return the final metrics, terminal event, multistem
+recording result, trace result, and sidecar results that Core can provide. A
+missing observation stays absent and carries a reason where Core supplies one.
+The SDK never turns “not available” into a successful zero value.
+
+Session traces are written by Core on a dedicated worker. JavaScript sets the
+file and queue capacity before startup, then uses `SessionTrace.read()` to
+verify the artifact checksum and `validate()` to check record order, Session
+identity, timestamp order, lifecycle transitions, and terminal state.
+
 ## Failure behavior
 
 Errors retain a stable PocketStation code and explain the failed operation.
@@ -193,7 +215,7 @@ claim follows from the macOS result.
 
 ## Later work
 
-Remaining work includes Session-wide metrics, traces, Relay publication, voice
-composition, target-specific packages, and cross-platform execution evidence.
+Remaining work includes Relay publication, voice composition, target-specific
+packages, and cross-platform execution evidence.
 Those modules are added only with working behavior and tests; empty parity
 files are not created.

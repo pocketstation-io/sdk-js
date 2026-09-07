@@ -49,6 +49,7 @@ describe('package structure', () => {
       'mod errors;',
       'mod extensions;',
       'mod graph;',
+      'mod observations;',
       'mod provider;',
       'mod session;',
       'mod sidecar;',
