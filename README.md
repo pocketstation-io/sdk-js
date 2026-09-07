@@ -12,9 +12,8 @@ so model calls and application work do not run on an audio callback.
 
 > The Node SDK is under active development and is not published to npm yet.
 > The current candidate has a real macOS selected-application capture proof.
-> Windows, Linux, in-process provider authoring, Relay publication, and the
-> remaining Rust/Python features still require implementation or target-specific
-> proof.
+> Windows and Linux packages, Relay publication, and the remaining Rust/Python
+> features still require implementation or target-specific proof.
 
 ## Capture an application
 
@@ -74,38 +73,76 @@ application.send(session.audio());
 application.record("application");
 ```
 
-Operators and custom Endpoints use open identifiers and named ports. Core
-validates the complete Session before capture starts and reports the exact
+Operators and custom Endpoints use open identifiers and named ports. They may
+be implemented in JavaScript, a trusted native extension, or a managed process.
+Core validates the complete Session before capture starts and reports the exact
 Operator, node, or port when compilation fails. The JavaScript package does not
 compile a second execution plan.
-
-The Operator and destination implementations must be installed and registered
-with Core. JavaScript authoring for those implementations is a later package
-step; the current API does not pretend an unknown provider exists.
 
 Read [Route, process, and record media](docs/guides/compose-a-session.md) for
 named ports, generated audio, compiler diagnostics, and delivery settings.
 
+## Send audio to application code
+
+Use a Connector for a socket, encoder, provider client, or another destination
+that consumes source-aware PCM:
+
+```ts
+import { connector } from "pocketstation/node";
+
+const destination = connector((frame) => {
+  console.log(frame.sourceId, frame.sequenceNumber, frame.samples);
+});
+
+application.sendTo(destination);
+```
+
+The class form adds `start()`, `send()`, and `stop()` for destinations that own
+resources. Sending application and microphone Stems to the same Connector uses
+one instance and preserves both Source identities.
+
+Read [Add JavaScript Sources, Operators, and destinations](docs/guides/provider-authoring.md)
+for the class form, typed Sources, Operators, and multi-input Endpoints.
+
 ## Read an Operator result
 
 Subscribe to a named output before starting the Session, then read it from the
-running Session. In this example, an installed provider package has registered
-the `io.example.transcriber.v1` Operator:
+running Session. Operators can come from application code, an installed
+provider package, a native extension, or a managed process:
 
 ```ts
-import { Operator, Session, SignalSpec, Source } from "pocketstation/node";
+import {
+  PortSpec,
+  Session,
+  SignalSpec,
+  Source,
+  defineOperator,
+} from "pocketstation/node";
+
+const audio = SignalSpec.audio();
+const text = SignalSpec.text();
+const levelMeter = defineOperator({
+  id: "com.example.operator.level-meter.v1",
+  inputs: [PortSpec.input("audio", audio)],
+  outputs: [PortSpec.output("level", text)],
+  create: () => ({
+    process(value) {
+      if (value.payload.kind !== "audio") return [];
+      const peak = value.payload.samples.reduce(
+        (current, sample) => Math.max(current, Math.abs(sample)),
+        0,
+      );
+      return [{ output: "level", data: peak.toFixed(3) }];
+    },
+  }),
+});
 
 const session = new Session();
 const application = session.capture(Source.application("Zoom"));
-const transcriber = session.operator(
-  new Operator("io.example.transcriber.v1"),
-);
-application.connect(transcriber.input("audio"));
+const meter = session.operator(levelMeter);
+application.connect(meter.input("audio"));
 
-const transcript = transcriber.output("transcript");
-const subscription = session.subscribe(transcript, {
-  signal: SignalSpec.text("json"),
-});
+const subscription = session.subscribe(meter.output("level"), { signal: text });
 
 await using running = await session.start();
 for await (const value of running.signals(subscription)) {
@@ -115,8 +152,8 @@ for await (const value of running.signals(subscription)) {
 }
 ```
 
-Each value includes its source and stream identity when the producer supplies
-lineage. Derived values also identify the Operator that produced them. A
+Each value includes the source and stream identity retained from its input.
+Derived values also identify the Operator that produced them. A
 subscription has one reader, can be closed without stopping the Session, and
 reports its current queue depth and delivery totals through `metrics()`.
 

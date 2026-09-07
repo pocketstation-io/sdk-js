@@ -543,7 +543,9 @@ fn copy_lineage(value: pocketstation::SignalLineage) -> NativeSignalLineage {
     }
 }
 
-fn copy_envelope(value: &SignalEnvelope) -> std::result::Result<NativeSignalEnvelope, String> {
+pub(crate) fn copy_envelope(
+    value: &SignalEnvelope,
+) -> std::result::Result<NativeSignalEnvelope, String> {
     let (payload_kind, text, bytes, audio) = match value.payload() {
         SignalPayload::Audio(frame) => {
             let mut samples = Vec::with_capacity(std::mem::size_of_val(frame.samples()));

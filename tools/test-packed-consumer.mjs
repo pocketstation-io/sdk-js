@@ -46,6 +46,7 @@ try {
   const source = `
     import {
       CapturePermissionLifecycle,
+      EndpointFactory,
       DeliveryPolicy,
       END_OF_STREAM,
       ExtensionAbiVersion,
@@ -53,6 +54,7 @@ try {
       ExtensionPort,
       MediaCaps,
       Operator,
+      PortSpec,
       RouteSettings,
       Session,
       SessionStartError,
@@ -60,6 +62,9 @@ try {
       SidecarProcess,
       SignalSpec,
       Source,
+      connector,
+      defineOperator,
+      defineSource,
       discoverSources,
       microphonePermissionObservation,
     } from 'pocketstation/node';
@@ -107,6 +112,74 @@ try {
     await runningInput.stop();
     if (await runningInput.audio.read({ timeoutMs: 0 }) !== END_OF_STREAM) {
       throw new Error('packed audio stream did not report end-of-stream');
+    }
+    const providerSession = new Session({ frameDurationMs: 10 });
+    const text = SignalSpec.text();
+    const feed = defineSource({
+      id: 'dev.pocketstation.source.packed-provider.v1',
+      outputs: [PortSpec.output('text', text)],
+      create: () => {
+        let sent = false;
+        return {
+          next: () => {
+            if (sent) return undefined;
+            sent = true;
+            return { output: 'text', data: 'packed', terminal: true };
+          },
+        };
+      },
+    });
+    const transform = defineOperator({
+      id: 'dev.pocketstation.operator.packed-provider.v1',
+      inputs: [PortSpec.input('text', text)],
+      outputs: [
+        PortSpec.output('text', text),
+        PortSpec.output('audio', SignalSpec.audio(), {
+          media: MediaCaps.audio({
+            sampleRateHz: 48000,
+            frameSamples: 480,
+            channelLayout: 'mono',
+          }),
+        }),
+      ],
+      create: () => ({
+        process: () => [
+          { output: 'text', data: 'PACKED' },
+          { output: 'audio', data: new Float32Array(480).fill(0.5) },
+        ],
+      }),
+    });
+    const endpointValues = [];
+    const endpoint = new EndpointFactory({
+      id: 'dev.pocketstation.endpoint.packed-provider.v1',
+      inputs: [PortSpec.input('text', text)],
+      create: () => ({
+        receive: (item) => endpointValues.push(item),
+      }),
+    });
+    const connectorFrames = [];
+    const sourceOutput = providerSession.source(feed).output('text');
+    const operator = providerSession.operator(transform);
+    sourceOutput.connect(operator.input('text'));
+    operator.output('text').send(providerSession.endpoint(endpoint), { input: 'text' });
+    operator.output('audio').reenterAudio().sendTo(
+      connector((frame) => connectorFrames.push(frame)),
+    );
+    const runningProvider = await providerSession.start();
+    const providerDeadline = Date.now() + 1000;
+    while (endpointValues.length !== 1 || connectorFrames.length !== 1) {
+      if (Date.now() >= providerDeadline) {
+        throw new Error('packed provider authoring did not deliver every output');
+      }
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    const providerStop = await runningProvider.stop();
+    if (!providerStop.success) throw new Error('packed provider Session did not stop cleanly');
+    if (endpointValues[0].signal.payload.text !== 'PACKED') {
+      throw new Error('packed Endpoint did not receive Operator text');
+    }
+    if (connectorFrames[0].samples[0] !== 0.5) {
+      throw new Error('packed Connector did not receive generated audio');
     }
     const sidecarSession = new Session({ frameDurationMs: 10 });
     const sidecarInput = sidecarSession.audioInput('sidecar proof');

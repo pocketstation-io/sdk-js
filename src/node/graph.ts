@@ -451,6 +451,11 @@ export class PortSpec {
   public get required(): boolean {
     return this.#native.required;
   }
+
+  /** @internal */
+  public _nativeHandle(): NativePortSpecHandle {
+    return this.#native;
+  }
 }
 
 /** Clock source used to interpret media timestamps. */

@@ -22,6 +22,7 @@ import {
 } from './application-audio.js';
 import { PocketStationError } from '../errors.js';
 import {
+  type Configuration,
   EndpointDefinition,
   Operator,
   RouteSettings,
@@ -41,6 +42,8 @@ import {
   SidecarProcess,
   SidecarSnapshot,
 } from './sidecar.js';
+import { Connector } from './connector.js';
+import { EndpointFactory, OperatorFactory, SourceFactory } from './provider.js';
 
 /** Audio format and frame cadence used by a Session. */
 export interface SessionOptions {
@@ -216,6 +219,11 @@ export class Stem {
     );
   }
 
+  /** Send this Stem to one application-owned Connector. */
+  public sendTo(connector: Connector): bigint {
+    return this.send(this.#session.destination(connector));
+  }
+
   /** Connect this Stem to one named Operator input. */
   public connect(input: OperatorInput): bigint {
     return BigInt(nativeCallSync(() => this.#native.connect(input._nativeHandle())));
@@ -300,6 +308,11 @@ export class SourceOutput {
         this.#native.send(endpoint._nativeHandle(), options.input),
       ),
     );
+  }
+
+  /** Send this output to one application-owned Connector. */
+  public sendTo(connector: Connector): bigint {
+    return this.send(this.#session.destination(connector));
   }
 
   /** Connect this output to one named Operator input. */
@@ -501,6 +514,11 @@ export class DerivedStream {
     );
   }
 
+  /** Send this output to one application-owned Connector. */
+  public sendTo(connector: Connector): bigint {
+    return this.send(this.#session.destination(connector));
+  }
+
   /** Apply another Operator and select its output. */
   public through(
     operator: Operator,
@@ -573,16 +591,24 @@ export class RunningSession implements AsyncDisposable {
   #finish: Promise<StopResult> | undefined;
   readonly #signalStreams = new Map<bigint, SignalStream>();
   readonly #sidecars = new Map<bigint, SidecarConnection>();
+  readonly #providers: readonly { _abort(reason?: unknown): void }[];
 
-  private constructor(native: NativeRunningSessionHandle) {
+  private constructor(
+    native: NativeRunningSessionHandle,
+    providers: readonly { _abort(reason?: unknown): void }[],
+  ) {
     this.#native = native;
+    this.#providers = providers;
     this.audio = AudioStream._create(native);
     this.events = EventStream._create(native);
   }
 
   /** @internal */
-  public static _create(native: NativeRunningSessionHandle): RunningSession {
-    return new RunningSession(native);
+  public static _create(
+    native: NativeRunningSessionHandle,
+    providers: readonly { _abort(reason?: unknown): void }[] = [],
+  ): RunningSession {
+    return new RunningSession(native, providers);
   }
 
   /** Native Session identity. */
@@ -623,6 +649,7 @@ export class RunningSession implements AsyncDisposable {
 
   /** Stop without draining pending work. */
   public cancel(): Promise<StopResult> {
+    for (const provider of this.#providers) provider._abort();
     return this.#finishSession('cancel');
   }
 
@@ -654,6 +681,11 @@ export class Session {
   #native: NativeSessionHandle;
   readonly #sampleRateHz: number;
   readonly #channels: 1 | 2;
+  readonly #connectorEndpoints = new WeakMap<Connector, Endpoint>();
+  readonly #registeredSources = new WeakSet<SourceFactory>();
+  readonly #registeredOperators = new WeakSet<OperatorFactory>();
+  #nextEndpointRegistration = 0;
+  readonly #providers = new Set<{ _abort(reason?: unknown): void }>();
 
   /** Create a Session declaration. No capture resource is opened yet. */
   public constructor(options: SessionOptions = {}) {
@@ -693,9 +725,11 @@ export class Session {
 
   /** Declare one instance of an externally registered Source. */
   public source(
-    sourceTypeId: string,
+    source: string | SourceFactory,
     configuration: SourceConfiguration = {},
   ): SourceInstance {
+    const sourceTypeId = typeof source === 'string' ? source : source.id;
+    if (source instanceof SourceFactory) this.registerSource(source);
     const entries = Object.entries(configuration)
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([key, value]) => ({ key, value, sensitive: false }));
@@ -703,6 +737,16 @@ export class Session {
       this,
       nativeCallSync(() => this.#native.source(sourceTypeId, entries)),
     );
+  }
+
+  /** Register one reusable JavaScript Source implementation. */
+  public registerSource(source: SourceFactory): SourceFactory {
+    if (this.#registeredSources.has(source)) return source;
+    source._bind(this.id);
+    nativeCallSync(() => source._register(this.#native));
+    this.#registeredSources.add(source);
+    this.#providers.add(source);
+    return source;
   }
 
   /** Register one managed process to be started with this Session. */
@@ -767,16 +811,74 @@ export class Session {
     );
   }
 
+  /** Declare one destination implemented by application-owned JavaScript. */
+  public destination(connector: Connector): Endpoint {
+    const existing = this.#connectorEndpoints.get(connector);
+    if (existing !== undefined) return existing;
+    connector._bind(this.id);
+    const endpoint = Endpoint._create(
+      this,
+      nativeCallSync(() =>
+        this.#native.audioConnector(connector._dispatch, connector._deadline()),
+      ),
+    );
+    this.#connectorEndpoints.set(connector, endpoint);
+    this.#providers.add(connector);
+    return endpoint;
+  }
+
   /** Declare one configured Operator and select its named ports. */
-  public operator(operator: Operator): OperatorInstance {
+  public operator(
+    operator: Operator | OperatorFactory,
+    configuration: Configuration = {},
+  ): OperatorInstance {
+    if (operator instanceof OperatorFactory) this.registerOperator(operator);
+    if (!(operator instanceof OperatorFactory) && Object.keys(configuration).length !== 0) {
+      throw new TypeError('Pass configuration to the Operator constructor or supply an OperatorFactory');
+    }
+    const declaration = operator instanceof OperatorFactory
+      ? operator.configured(configuration)
+      : operator;
     return OperatorInstance._create(
       this,
-      nativeCallSync(() => this.#native.operator(operator._nativeHandle())),
+      nativeCallSync(() => this.#native.operator(declaration._nativeHandle())),
     );
   }
 
-  /** Declare one native Endpoint implementation. */
-  public endpoint(definition: EndpointDefinition): Endpoint {
+  /** Register one reusable JavaScript Operator implementation. */
+  public registerOperator(operator: OperatorFactory): OperatorFactory {
+    if (this.#registeredOperators.has(operator)) return operator;
+    operator._bind(this.id);
+    nativeCallSync(() => operator._register(this.#native));
+    this.#registeredOperators.add(operator);
+    this.#providers.add(operator);
+    return operator;
+  }
+
+  /** Declare one native or application-owned Endpoint implementation. */
+  public endpoint(
+    definition: EndpointDefinition | EndpointFactory,
+    configuration: Configuration = {},
+  ): Endpoint {
+    if (definition instanceof EndpointFactory) {
+      definition._bind(this.id);
+      this.#nextEndpointRegistration += 1;
+      const registrationId = `${definition.id}.endpoint.${this.#nextEndpointRegistration}`;
+      const declared = nativeCallSync(() =>
+        definition._register(this.#native, registrationId, configuration),
+      );
+      const endpoint = Endpoint._create(
+        this,
+        nativeCallSync(() => this.#native.endpoint(declared._nativeHandle())),
+      );
+      this.#providers.add(definition);
+      return endpoint;
+    }
+    if (Object.keys(configuration).length !== 0) {
+      throw new TypeError(
+        'Pass configuration to EndpointDefinition or supply an EndpointFactory',
+      );
+    }
     return Endpoint._create(
       this,
       nativeCallSync(() => this.#native.endpoint(definition._nativeHandle())),
@@ -831,6 +933,6 @@ export class Session {
         'native Session start returned neither a running Session nor a failure',
       );
     }
-    return RunningSession._create(running);
+    return RunningSession._create(running, Object.freeze([...this.#providers]));
   }
 }

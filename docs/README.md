@@ -16,6 +16,7 @@ without loading native code in a browser build.
 - [Route, process, and record media](guides/compose-a-session.md)
 - [Consume Operator output](guides/signal-streams.md)
 - [Run compiled extensions and managed processes](guides/extensions-and-sidecars.md)
+- [Add JavaScript Sources, Operators, Connectors, and Endpoints](guides/provider-authoring.md)
 - [Choose media and delivery settings](concepts/route-settings.md)
 - [Understand native ownership and shutdown](JAVASCRIPT_SDK_DESIGN.md)
 

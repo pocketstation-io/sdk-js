@@ -8,9 +8,14 @@
 `W21-JAVASCRIPT-STREAM-PROTOCOLS` is complete in the current source candidate.
 Its acceptance artifact and commit are recorded before the task is closed.
 
-`W21-JAVASCRIPT-EXTENSIONS-SIDECARS` is implemented in the current source
-candidate. The final execution record is written after the complete acceptance
-commands pass on the exact commit.
+`W21-JAVASCRIPT-EXTENSIONS-SIDECARS` is complete in commit
+`4ca0350e550d8007646821fc30bf5f6d942d25e7`.
+
+`W21-JAVASCRIPT-PROVIDER-AUTHORING` is complete in the current source
+candidate. Connector, typed Source, off-realtime Operator, and advanced
+Endpoint tests pass. The package exports and a clean installation from the
+packed tarball also pass. Exact commits and file hashes are recorded in the
+task evidence.
 
 The repository now contains a browser Relay client and the first working Node
 binding for native capture. It must not yet be described as feature-equivalent
@@ -49,10 +54,10 @@ callback and does not implement another media engine.
 - Source lifecycle: `PARTIAL`; all built-in selectors and local macOS
   discovery, permission inspection, lifecycle transitions, and Session events
   pass. Windows and Linux target execution remain later gates.
-- Graph declarations: `PARTIAL`; native validation, negotiation, route settings,
-  named-port composition, recording declarations, generated-audio lowering, and
-  compiler diagnostics pass. JavaScript provider implementations remain later
-  work.
+- Graph declarations: `REAL` for the current component scope; native validation,
+  negotiation, route settings, named-port composition, recording declarations,
+  generated-audio lowering, compiler diagnostics, and application-owned
+  provider implementations pass.
 - Stream consumption: `REAL` for the current component scope. Audio and typed
   signal reads have one reader, finite waits, `AbortSignal`, separate timeout
   and end results, early iterator release, independent subscription close, and
@@ -75,6 +80,22 @@ callback and does not implement another media engine.
   the configured queue capacity, exposes process and queue counters, and is
   closed or cancelled and reaped. A child that ignores shutdown is killed after
   the configured deadline and still reaped.
+- Connector authoring: `REAL` for the current component scope. Class and
+  function forms receive source-aware PCM. Several routes may share one
+  configured Connector and one start/stop lifecycle. Provider calls have finite
+  dispatch capacity and deadlines, and cancellation reaches `AbortSignal`.
+- Source authoring: `REAL` for typed non-PCM values in the current component
+  scope. Core assigns Source and stream identity, sequence, timing, and
+  lifecycle. Preparation failure closes the JavaScript instance. PCM produced
+  by JavaScript uses the existing `AudioInput` API.
+- Operator authoring: `REAL` for off-realtime JavaScript in the current
+  component scope. Named inputs and outputs, configuration validation,
+  lifecycle, typed payloads, lineage, derivation, and exact PCM reentry execute
+  through Core.
+- Endpoint authoring: `REAL` for the current component scope. Factory and
+  receive-function forms accept named PCM or typed-signal inputs. Core retains
+  grouping, transactional preparation, drain/abort, observations, and final
+  outcomes; JavaScript preparation failures clean up their instance.
 - npm package: not published.
 
 The browser entry now uses `RelaySession`, shares `PocketStationError` with the
@@ -133,10 +154,9 @@ the normal native addon and is not physical-device or provider evidence.
 - Phase scope respected: yes — the execution task records
   `phase-exception-approved`.
 - Unsafe added: no.
-- Remaining risk: provider execution, selected-output cancellation, typed
-  provider authoring, per-Stem recording outcomes, target packages, and real
-  Windows/Linux execution are
-  later gates and must not be inferred from the local macOS run.
+- Remaining risk: selected-output cancellation, per-Stem recording outcomes,
+  target packages, and real Windows/Linux execution are later gates and must
+  not be inferred from the local macOS run.
 
 ## Staff Bar Self-Check — JavaScript stream consumption
 
@@ -188,11 +208,37 @@ the normal native addon and is not physical-device or provider evidence.
   not prove a provider, physical device, remote service, Windows/Linux package,
   or production deployment.
 
+## Staff Bar Self-Check — JavaScript provider authoring
+
+- Smallest correct design: yes — JavaScript implements provider behavior while
+  Core retains Session compilation, identity, timing, route queues, delivery
+  state, rollback, drain/abort, and finalization.
+- Tests added or updated: yes — focused tests cover class and function
+  Connectors, shared multi-Source delivery, typed Sources, configuration
+  rejection, Source preparation cleanup, named Operator processing, exact PCM
+  reentry, class and function Endpoints, multi-input grouping, cancellation,
+  Endpoint preparation cleanup, and cross-Session rejection.
+- Hot-path safe: yes — JavaScript calls run only through worker-owned native
+  dispatch. The fixed-capacity dispatch uses nonblocking submissions and every
+  JavaScript Promise has a finite deadline.
+- Public API changed: yes — the unpublished Node entry gains `Connector`,
+  `SourceFactory`, `OperatorFactory`, `EndpointFactory`, their concise function
+  forms, lifecycle context, and typed delivery values.
+- New dependency: yes — the native addon uses `futures` and `futures-timer` for
+  caught Promise completion with finite deadlines. Neither is an npm runtime
+  dependency.
+- Phase scope respected: yes — no provider implementation, credential,
+  inference model, Relay change, browser behavior, or second media runtime is
+  included.
+- Unsafe added: no.
+- Remaining risk: target operating-system execution still remains. Component
+  fixtures and the installed-package consumer do not prove a real provider,
+  physical device, WAN, browser, or performance claim.
+
 ## Intentionally not included in this step
 
 - provider packages or API keys;
 - Electron application code;
-- JavaScript Operator or Endpoint implementations, Connectors, Relay
-  composition, or voice composition;
+- Relay composition or voice composition;
 - publication, tags, or version selection;
 - cross-platform or performance claims.
