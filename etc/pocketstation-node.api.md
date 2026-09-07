@@ -166,6 +166,48 @@ export interface AudioInputWriteOptions extends AudioInputTryWriteOptions {
 export type AudioReadResult = AudioFrame | EndOfStream | undefined;
 
 // @public
+export interface AudioReentryMetrics {
+    // (undocumented)
+    readonly audioFramesEnqueuedTotal: bigint;
+    // (undocumented)
+    readonly cancellationTotal: bigint;
+    // (undocumented)
+    readonly frameCapacitySamples: bigint;
+    // (undocumented)
+    readonly ingressRejectedTotal: bigint;
+    // (undocumented)
+    readonly invalidTotal: bigint;
+    // (undocumented)
+    readonly joined: boolean;
+    // (undocumented)
+    readonly maximumBufferedAudioBytes: bigint;
+    // (undocumented)
+    readonly normalizedTotal: bigint;
+    // (undocumented)
+    readonly operatorInstanceId: bigint;
+    // (undocumented)
+    readonly poolExhaustedTotal: bigint;
+    // (undocumented)
+    readonly poolSlots: bigint;
+    // (undocumented)
+    readonly queueCapacitySignals: bigint;
+    // (undocumented)
+    readonly queueDepthSignals: bigint;
+    // (undocumented)
+    readonly queuePeakSignals: bigint;
+    // (undocumented)
+    readonly sharedAudioRejectedTotal: bigint;
+    // (undocumented)
+    readonly signalsDroppedTotal: bigint;
+    // (undocumented)
+    readonly signalsEnqueuedTotal: bigint;
+    // (undocumented)
+    readonly signalsReceivedTotal: bigint;
+    // (undocumented)
+    readonly stemId: bigint;
+}
+
+// @public
 export interface AudioSignalPayload {
     readonly channelCount: number;
     readonly kind: 'audio';
@@ -366,6 +408,18 @@ export class DeliveryPolicy {
 export type DeliverySemantics = 'best-effort-realtime' | 'ordered' | 'exactly-once-not-realtime';
 
 // @public
+export interface DerivedRouteMetrics {
+    // (undocumented)
+    readonly endpoint: EndpointMetrics;
+    // (undocumented)
+    readonly endpointId: bigint;
+    // (undocumented)
+    readonly output: SignalQueueMetrics;
+    // (undocumented)
+    readonly routeId: bigint;
+}
+
+// @public
 export class DerivedStream {
     connect(input: OperatorInput): bigint;
     get operatorId(): bigint;
@@ -464,6 +518,22 @@ export interface EndpointFactoryOptions extends EndpointProviderOptions {
 }
 
 // @public
+export interface EndpointFailure {
+    // (undocumented)
+    readonly code?: string;
+    // (undocumented)
+    readonly endpointId: bigint;
+    // (undocumented)
+    readonly message: string;
+    // (undocumented)
+    readonly retryability?: 'never' | 'retryable' | 'reconfiguration-required';
+    // (undocumented)
+    readonly routeId: bigint;
+    // (undocumented)
+    readonly stage: EndpointFailureStage;
+}
+
+// @public
 export interface EndpointFailureEvent {
     readonly code?: string;
     readonly endpointId: bigint;
@@ -471,12 +541,33 @@ export interface EndpointFailureEvent {
     readonly retryability?: 'never' | 'retryable' | 'reconfiguration-required';
     readonly routeId: bigint;
     readonly sessionId: bigint;
-    readonly stage: string;
+    readonly stage: EndpointFailureStage;
     readonly type: 'endpoint-failure';
 }
 
 // @public
+export type EndpointFailureStage = 'prepare' | 'cancel-preparation' | 'start' | 'request-stop' | 'join-finalize';
+
+// @public
 export type EndpointItem = EndpointAudioItem | EndpointSignalItem;
+
+// @public
+export interface EndpointMetrics {
+    // (undocumented)
+    readonly discontinuitiesTotal: bigint;
+    // (undocumented)
+    readonly failuresTotal: bigint;
+    // (undocumented)
+    readonly finalizationFailuresTotal: bigint;
+    // (undocumented)
+    readonly framesDeliveredTotal: bigint;
+    // (undocumented)
+    readonly framesDroppedTotal: bigint;
+    // (undocumented)
+    readonly framesReceivedTotal: bigint;
+    // (undocumented)
+    readonly observationStage: 'unavailable' | 'live' | 'finalized';
+}
 
 // @public
 export interface EndpointNode {
@@ -519,6 +610,32 @@ export interface EndpointSignalItem {
 
 // @public
 export type EventFormat = 'json' | 'protobuf' | 'flatbuffers' | 'cbor';
+
+// @public
+export interface EventQueueMetrics {
+    // (undocumented)
+    readonly capacityCount: bigint;
+    // (undocumented)
+    readonly depthCount: bigint;
+    // (undocumented)
+    readonly depthOwnedBytes: bigint;
+    // (undocumented)
+    readonly droppedOversizedTotal: bigint;
+    // (undocumented)
+    readonly droppedTotal: bigint;
+    // (undocumented)
+    readonly enqueuedTotal: bigint;
+    // (undocumented)
+    readonly maximumBufferedOwnedBytes: bigint;
+    // (undocumented)
+    readonly maximumEventOwnedBytes: bigint;
+    // (undocumented)
+    readonly peakDepthCount: bigint;
+    // (undocumented)
+    readonly peakDepthOwnedBytes: bigint;
+    // (undocumented)
+    readonly receiverClosedTotal: bigint;
+}
 
 // @public
 export interface EventReadOptions {
@@ -610,7 +727,56 @@ export interface ExtensionPortOptions {
 }
 
 // @public
+export interface ExternalSourceMetrics {
+    // (undocumented)
+    readonly cancellationTotal: bigint;
+    // (undocumented)
+    readonly discontinuityTotal: bigint;
+    // (undocumented)
+    readonly droppedTotal: bigint;
+    // (undocumented)
+    readonly emittedTotal: bigint;
+    // (undocumented)
+    readonly failureTotal: bigint;
+    // (undocumented)
+    readonly joined: boolean;
+    // (undocumented)
+    readonly policyChangeTotal: bigint;
+    // (undocumented)
+    readonly ready: boolean;
+    // (undocumented)
+    readonly recoveryTotal: bigint;
+    // (undocumented)
+    readonly sourceId: bigint;
+    // (undocumented)
+    readonly sourceInstanceId: bigint;
+}
+
+// @public
+export type FinalizationFailureStage = 'stop-capture' | 'drain-runtime' | 'drain-operator' | 'request-endpoint-stop' | 'join-endpoint' | 'finalize-endpoint' | 'drain-sidecar';
+
+// @public
 export type FrameOwnership = 'move' | 'share' | 'copy';
+
+// @public
+export interface LatencyHistogram {
+    // (undocumented)
+    readonly futureTotal: bigint;
+    // (undocumented)
+    readonly invalidOrderTotal: bigint;
+    // (undocumented)
+    readonly maxNs: bigint;
+    // (undocumented)
+    readonly missingTotal: bigint;
+    // (undocumented)
+    readonly p50Ns: bigint;
+    // (undocumented)
+    readonly p95Ns: bigint;
+    // (undocumented)
+    readonly p99Ns: bigint;
+    // (undocumented)
+    readonly samplesTotal: bigint;
+}
 
 // @public
 export interface LifecycleEvent {
@@ -733,10 +899,32 @@ export class OperatorInput {
 }
 
 // @public
+export interface OperatorInputMetrics {
+    // (undocumented)
+    readonly delivery: RouteDeliveryMetrics;
+    // (undocumented)
+    readonly portName: string;
+}
+
+// @public
 export class OperatorInstance {
     get id(): bigint;
     input(name: string): OperatorInput;
     output(name: string): DerivedStream;
+}
+
+// @public
+export interface OperatorMetrics {
+    // (undocumented)
+    readonly finalizationFailuresTotal: bigint;
+    // (undocumented)
+    readonly inputDelivery: RouteDeliveryMetrics;
+    // (undocumented)
+    readonly inputPorts: readonly OperatorInputMetrics[];
+    // (undocumented)
+    readonly operatorInstanceId: bigint;
+    // (undocumented)
+    readonly worker: OperatorWorkerMetrics;
 }
 
 // @public
@@ -754,6 +942,38 @@ export interface OperatorNode {
 }
 
 // @public
+export interface OperatorWorkerMetrics {
+    // (undocumented)
+    readonly cancellationTotal: bigint;
+    // (undocumented)
+    readonly gracefulFinishTotal: bigint;
+    // (undocumented)
+    readonly idlePollTotal: bigint;
+    // (undocumented)
+    readonly inputAttemptedTotal: bigint;
+    // (undocumented)
+    readonly inputDroppedTotal: bigint;
+    // (undocumented)
+    readonly joined: boolean;
+    // (undocumented)
+    readonly outputDroppedTotal: bigint;
+    // (undocumented)
+    readonly outputEmittedTotal: bigint;
+    // (undocumented)
+    readonly outputNonterminalTotal: bigint;
+    // (undocumented)
+    readonly outputTerminalTotal: bigint;
+    // (undocumented)
+    readonly processedTotal: bigint;
+    // (undocumented)
+    readonly processFailureTotal: bigint;
+    // (undocumented)
+    readonly ready: boolean;
+    // (undocumented)
+    readonly timeoutTotal: bigint;
+}
+
+// @public
 export type PermissionObservation = 'allowed' | 'denied' | 'restricted' | 'not-determined' | 'revoked' | 'not-observable' | 'not-applicable';
 
 // @public
@@ -766,6 +986,40 @@ export class PocketStationError extends Error {
     });
     readonly cause: unknown;
     readonly code: string;
+}
+
+// @public
+export interface PolledAudioMetrics {
+    // (undocumented)
+    readonly batchesPolledTotal: bigint;
+    // (undocumented)
+    readonly discardedOutputFramesTotal: bigint;
+    // (undocumented)
+    readonly framesDeliveredTotal: bigint;
+    // (undocumented)
+    readonly framesPolledTotal: bigint;
+    // (undocumented)
+    readonly framesReceivedTotal: bigint;
+    // (undocumented)
+    readonly invalidOwnershipDropsTotal: bigint;
+    // (undocumented)
+    readonly leaseCapacityCount: bigint;
+    // (undocumented)
+    readonly leaseExhaustedTotal: bigint;
+    // (undocumented)
+    readonly outstandingLeases: bigint;
+    // (undocumented)
+    readonly queueCapacityFrames: bigint;
+    // (undocumented)
+    readonly queueDepthFrames: bigint;
+    // (undocumented)
+    readonly queueDepthInvariantFailuresTotal: bigint;
+    // (undocumented)
+    readonly queueFullDropsTotal: bigint;
+    // (undocumented)
+    readonly queuePeakFrames: bigint;
+    // (undocumented)
+    readonly registeredEndpoints: bigint;
 }
 
 // @public
@@ -804,6 +1058,152 @@ export type ProcessTreeScope = 'selected-process-only' | 'selected-process-and-d
 export type QueuePressure = 'drop-newest' | 'drop-oldest' | 'buffer' | 'fail';
 
 // @public
+export interface RecordingDiscontinuity {
+    // (undocumented)
+    readonly kind: 'timestamp-gap' | 'sequence-gap' | 'overlap-rejected';
+    // (undocumented)
+    readonly label: string;
+    // (undocumented)
+    readonly sequenceEnd?: bigint;
+    // (undocumented)
+    readonly sequenceStart?: bigint;
+    // (undocumented)
+    readonly stemId: bigint;
+    // (undocumented)
+    readonly timestampEndNs: bigint;
+    // (undocumented)
+    readonly timestampStartNs: bigint;
+}
+
+// @public
+export interface RecordingOutcome {
+    // (undocumented)
+    readonly complete: boolean;
+    // (undocumented)
+    readonly completedStems: bigint;
+    // (undocumented)
+    readonly errorCode?: string;
+    // (undocumented)
+    readonly failedStems: bigint;
+    // (undocumented)
+    readonly groupId: string;
+    // (undocumented)
+    readonly manifestPath: string;
+    // (undocumented)
+    readonly manifestSchemaVersion: number;
+    // (undocumented)
+    readonly sessionDirectory: string;
+    // (undocumented)
+    readonly sessionId: bigint;
+    // (undocumented)
+    readonly state: 'recording' | 'complete' | 'incomplete';
+    // (undocumented)
+    readonly stems: readonly RecordingStemOutcome[];
+}
+
+// @public
+export interface RecordingStemOutcome {
+    // (undocumented)
+    readonly discontinuities: readonly RecordingDiscontinuity[];
+    // (undocumented)
+    readonly discontinuitiesTotal: bigint;
+    // (undocumented)
+    readonly error?: string;
+    // (undocumented)
+    readonly framesDeliveredTotal: bigint;
+    // (undocumented)
+    readonly framesDroppedTotal: bigint;
+    // (undocumented)
+    readonly framesWrittenTotal: bigint;
+    // (undocumented)
+    readonly queueCapacityFrames: bigint;
+    // (undocumented)
+    readonly queueFullDropsTotal: bigint;
+    // (undocumented)
+    readonly queuePeakFrames: bigint;
+    // (undocumented)
+    readonly staleFramesTotal: bigint;
+    // (undocumented)
+    readonly stemName: string;
+}
+
+// @public
+export type RollbackFailureStage = 'cancel-operator' | 'cancel-endpoint-preparation' | 'finalize-started-endpoint' | 'stop-opened-capture' | 'discard-runtime-queues';
+
+// @public
+export interface RouteDeliveryMetrics {
+    // (undocumented)
+    readonly branchPoolExhaustedDropsTotal: bigint;
+    readonly discardedOutputFramesTotal?: bigint;
+    // (undocumented)
+    readonly discontinuitiesTotal: bigint;
+    // (undocumented)
+    readonly enqueueToReceive: LatencyHistogram;
+    // (undocumented)
+    readonly framesDeliveredTotal: bigint;
+    // (undocumented)
+    readonly framesDroppedTotal: bigint;
+    // (undocumented)
+    readonly framesEnqueuedTotal: bigint;
+    // (undocumented)
+    readonly freezeFailedDropsTotal: bigint;
+    // (undocumented)
+    readonly invalidCopyPolicyDropsTotal: bigint;
+    // (undocumented)
+    readonly lineageEpochDiscontinuitiesTotal: bigint;
+    // (undocumented)
+    readonly manuallyReportedDiscontinuitiesTotal: bigint;
+    // (undocumented)
+    readonly overrunsTotal: bigint;
+    // (undocumented)
+    readonly queueCapacityFrames: bigint;
+    // (undocumented)
+    readonly queueDepthFrames: bigint;
+    // (undocumented)
+    readonly queueFullDropsTotal: bigint;
+    // (undocumented)
+    readonly queuePeakFrames: bigint;
+    // (undocumented)
+    readonly receiverUnavailableDropsTotal: bigint;
+    // (undocumented)
+    readonly sequenceDiscontinuitiesTotal: bigint;
+    // (undocumented)
+    readonly sharedReferenceExhaustedDropsTotal: bigint;
+    // (undocumented)
+    readonly shutdownDiscardedTotal: bigint;
+    // (undocumented)
+    readonly sourceIdentityDiscontinuitiesTotal: bigint;
+    // (undocumented)
+    readonly sourceTimestampToReceive: LatencyHistogram;
+    // (undocumented)
+    readonly timestampDiscontinuitiesTotal: bigint;
+    // (undocumented)
+    readonly workerFailuresTotal: bigint;
+}
+
+// @public
+export interface RouteMetrics {
+    // (undocumented)
+    readonly delivery: RouteDeliveryMetrics;
+    // (undocumented)
+    readonly dropRatePct: number;
+    // (undocumented)
+    readonly endpoint: EndpointMetrics;
+    // (undocumented)
+    readonly endpointId: bigint;
+    // (undocumented)
+    readonly framesAttemptedTotal: bigint;
+    // (undocumented)
+    readonly observationInterval: 'route-lifetime-to-snapshot';
+    // (undocumented)
+    readonly routeId: bigint;
+    // (undocumented)
+    readonly sourceLatencyMeasurement: 'source-monotonic-timestamp-to-route-receive';
+    // (undocumented)
+    readonly sourceLatencyUnit: 'nanoseconds';
+}
+
+// @public
 export type RouteObservability = 'off' | 'counters' | 'full';
 
 // @public
@@ -823,6 +1223,7 @@ export class RunningSession implements AsyncDisposable {
     readonly audio: AudioStream;
     cancel(): Promise<StopResult>;
     readonly events: EventStream;
+    metrics(): Promise<SessionMetrics>;
     get sessionId(): bigint;
     sidecar(handle: SidecarHandle): SidecarConnection;
     signals(subscription: BusSubscription): SignalStream;
@@ -864,13 +1265,27 @@ export class Session {
 }
 
 // @public
+export interface SessionControlFailure {
+    // (undocumented)
+    readonly componentId: string;
+    // (undocumented)
+    readonly componentKind: 'source' | 'endpoint' | 'operator' | 'sidecar' | 'runtime';
+    // (undocumented)
+    readonly errorClass: string;
+    // (undocumented)
+    readonly operation: string;
+    // (undocumented)
+    readonly stage: RollbackFailureStage | FinalizationFailureStage;
+}
+
+// @public
 export interface SessionControlFailureEvent {
     readonly componentId: string;
     readonly componentKind: 'source' | 'endpoint' | 'operator' | 'sidecar' | 'runtime';
     readonly errorClass: string;
     readonly operation: string;
     readonly sessionId: bigint;
-    readonly stage: string;
+    readonly stage: RollbackFailureStage | FinalizationFailureStage;
     readonly type: 'rollback-failure' | 'finalization-failure';
 }
 
@@ -878,11 +1293,44 @@ export interface SessionControlFailureEvent {
 export type SessionEvent = LifecycleEvent | SourceFailureEvent | EndpointFailureEvent | SessionControlFailureEvent | TerminalEvent;
 
 // @public
+export interface SessionMetrics {
+    // (undocumented)
+    readonly audioReentries: readonly AudioReentryMetrics[];
+    // (undocumented)
+    readonly audioReentryCount: bigint;
+    // (undocumented)
+    readonly derivedRouteCount: bigint;
+    // (undocumented)
+    readonly derivedRoutes: readonly DerivedRouteMetrics[];
+    // (undocumented)
+    readonly eventQueue: EventQueueMetrics;
+    // (undocumented)
+    readonly externalSourceCount: bigint;
+    // (undocumented)
+    readonly externalSources: readonly ExternalSourceMetrics[];
+    // (undocumented)
+    readonly operatorCount: bigint;
+    // (undocumented)
+    readonly operators: readonly OperatorMetrics[];
+    // (undocumented)
+    readonly polledAudio: PolledAudioMetrics;
+    // (undocumented)
+    readonly routeCount: bigint;
+    // (undocumented)
+    readonly routes: readonly RouteMetrics[];
+    // (undocumented)
+    readonly sourceCount: bigint;
+    // (undocumented)
+    readonly sources: readonly SourceMetrics[];
+}
+
+// @public
 export interface SessionOptions {
     channels?: 1 | 2;
     frameDurationMs?: 10 | 20;
     recordingRoot?: string;
     sampleRateHz?: number;
+    trace?: SessionTraceOptions;
 }
 
 // @public
@@ -893,6 +1341,99 @@ export class SessionStartError extends PocketStationError {
 
 // @public
 export type SessionState = 'starting' | 'running' | 'stopping' | 'stopped' | 'failed';
+
+// @public
+export class SessionTrace {
+    get outcome(): SessionTraceOutcome;
+    static read(path: string): SessionTrace;
+    records(): readonly SessionTraceRecord[];
+    get recordsTotal(): bigint;
+    get sessionId(): bigint;
+    validate(): SessionTraceValidation;
+}
+
+// @public
+export interface SessionTraceOptions {
+    readonly capacityRecords?: number;
+    readonly path: string;
+}
+
+// @public
+export interface SessionTraceOutcome {
+    // (undocumented)
+    readonly complete: boolean;
+    // (undocumented)
+    readonly path: string;
+    // (undocumented)
+    readonly recordsAttemptedTotal: bigint;
+    // (undocumented)
+    readonly recordsDroppedTotal: bigint;
+    // (undocumented)
+    readonly recordsEnqueuedTotal: bigint;
+    // (undocumented)
+    readonly recordsWrittenTotal: bigint;
+    // (undocumented)
+    readonly rollingHash: bigint;
+}
+
+// @public
+export interface SessionTraceRecord {
+    // (undocumented)
+    readonly endpointFailuresTotal?: bigint;
+    // (undocumented)
+    readonly endpointId?: bigint;
+    // (undocumented)
+    readonly endpointStage?: EndpointFailureStage;
+    // (undocumented)
+    readonly finalizationFailuresTotal?: bigint;
+    // (undocumented)
+    readonly finalizationStage?: FinalizationFailureStage;
+    // (undocumented)
+    readonly kind: SessionTraceRecordKind;
+    // (undocumented)
+    readonly lifecycleState?: SessionState;
+    // (undocumented)
+    readonly observedAtNs: bigint;
+    // (undocumented)
+    readonly rollbackFailuresTotal?: bigint;
+    // (undocumented)
+    readonly rollbackStage?: RollbackFailureStage;
+    // (undocumented)
+    readonly routeId?: bigint;
+    // (undocumented)
+    readonly sequenceIndex: bigint;
+    // (undocumented)
+    readonly sessionId: bigint;
+    // (undocumented)
+    readonly sourceFailuresTotal?: bigint;
+    // (undocumented)
+    readonly stemId?: bigint;
+    // (undocumented)
+    readonly terminalState?: 'stopped' | 'failed';
+}
+
+// @public
+export type SessionTraceRecordKind = 'lifecycle' | 'source-failure' | 'endpoint-failure' | 'rollback-failure' | 'finalization-failure' | 'terminal';
+
+// @public
+export interface SessionTraceValidation {
+    // (undocumented)
+    readonly endpointFailuresTotal: bigint;
+    // (undocumented)
+    readonly finalizationFailuresTotal: bigint;
+    // (undocumented)
+    readonly lifecycle: readonly SessionState[];
+    // (undocumented)
+    readonly recordsValidatedTotal: bigint;
+    // (undocumented)
+    readonly rollbackFailuresTotal: bigint;
+    // (undocumented)
+    readonly sessionId: bigint;
+    // (undocumented)
+    readonly sourceFailuresTotal: bigint;
+    // (undocumented)
+    readonly terminalState: 'stopped' | 'failed';
+}
 
 // @public
 export class SidecarBackpressureError extends SidecarError {
@@ -1096,6 +1637,26 @@ export interface SignalOptions {
 export type SignalPayload = AudioSignalPayload | TextSignalPayload | BytesSignalPayload;
 
 // @public
+export interface SignalQueueMetrics {
+    // (undocumented)
+    readonly capacitySignals: bigint;
+    // (undocumented)
+    readonly depthSignals: bigint;
+    // (undocumented)
+    readonly droppedTotal: bigint;
+    // (undocumented)
+    readonly enqueuedTotal: bigint;
+    // (undocumented)
+    readonly maximumBufferedPayloadBytes: bigint;
+    // (undocumented)
+    readonly maxPayloadBytes: bigint;
+    // (undocumented)
+    readonly peakDepthSignals: bigint;
+    // (undocumented)
+    readonly receivedTotal: bigint;
+}
+
+// @public
 export type SignalReadResult = SignalEnvelope | EndOfStream | undefined;
 
 // @public
@@ -1264,6 +1825,52 @@ export class SourceInstance {
 export type SourceKind = 'application' | 'output-device' | 'input-device' | 'system-mix';
 
 // @public
+export interface SourceMetrics {
+    // (undocumented)
+    readonly callbackBuffersTotal: bigint;
+    // (undocumented)
+    readonly captureDispatchQueueFullTotal: bigint;
+    // (undocumented)
+    readonly captureFramesEnqueuedTotal: bigint;
+    // (undocumented)
+    readonly captureInvalidBufferTotal: bigint;
+    // (undocumented)
+    readonly captureOversizedBufferTotal: bigint;
+    // (undocumented)
+    readonly capturePoolExhaustedTotal: bigint;
+    // (undocumented)
+    readonly captureStreamErrorsTotal: bigint;
+    // (undocumented)
+    readonly captureTimestampEpochClampsTotal: bigint;
+    // (undocumented)
+    readonly framesDiscardedBeforeStartTotal: bigint;
+    // (undocumented)
+    readonly frameStreamDeliveredFramesTotal: bigint;
+    // (undocumented)
+    readonly frameStreamDroppedNewestFramesTotal: bigint;
+    // (undocumented)
+    readonly ingressFramesDeliveredTotal: bigint;
+    // (undocumented)
+    readonly ingressFramesDiscardedTotal: bigint;
+    // (undocumented)
+    readonly ingressFramesEnqueuedTotal: bigint;
+    // (undocumented)
+    readonly ingressFramesRejectedCancelledTotal: bigint;
+    // (undocumented)
+    readonly ingressFramesRejectedFullTotal: bigint;
+    // (undocumented)
+    readonly ingressQueueCapacityFrames: bigint;
+    // (undocumented)
+    readonly ingressQueueDepthFrames: bigint;
+    // (undocumented)
+    readonly ingressQueuePeakFrames: bigint;
+    // (undocumented)
+    readonly runtimeEventQueue: EventQueueMetrics;
+    // (undocumented)
+    readonly stemId: bigint;
+}
+
+// @public
 export class SourceOutput {
     connect(input: OperatorInput): bigint;
     get outputName(): string;
@@ -1346,7 +1953,10 @@ export interface StopResult {
     readonly disposition: 'stopped' | 'cancelled' | 'already-stopped';
     readonly endpointFinalizationFailuresTotal: bigint;
     readonly lineageFailuresTotal: bigint;
+    readonly metrics?: SessionMetrics;
+    readonly metricsUnavailableReason?: string;
     readonly operatorFinalizationFailuresTotal: bigint;
+    readonly recording?: RecordingOutcome;
     readonly runtimeEventsTotal: bigint;
     readonly runtimeFailuresTotal: bigint;
     readonly runtimeWorkerPanicked: boolean;
@@ -1354,6 +1964,9 @@ export interface StopResult {
     readonly sidecarOutcomes: readonly SidecarSnapshot[];
     readonly sourceSendRejectionsTotal: bigint;
     readonly success: boolean;
+    readonly terminalEvent?: TerminalEvent;
+    readonly trace?: SessionTraceOutcome;
+    readonly traceError?: string;
 }
 
 // @public
@@ -1370,10 +1983,14 @@ export interface StreamReadOptions {
 
 // @public
 export interface TerminalEvent {
+    readonly endpointFailures: readonly EndpointFailure[];
     readonly endpointFailuresTotal: bigint;
+    readonly finalizationFailures: readonly SessionControlFailure[];
     readonly finalizationFailuresTotal: bigint;
+    readonly rollbackFailures: readonly SessionControlFailure[];
     readonly rollbackFailuresTotal: bigint;
     readonly sessionId: bigint;
+    readonly sourceFailures: readonly SourceFailure[];
     readonly sourceFailuresTotal: bigint;
     readonly state: 'stopped' | 'failed';
     readonly type: 'terminal';

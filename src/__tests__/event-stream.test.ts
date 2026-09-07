@@ -132,15 +132,37 @@ describe('Session event stream', () => {
         sessionId: '1',
         sessionState: 'stopped',
         sourceFailuresTotal: '0',
-        endpointFailuresTotal: '0',
+        endpointFailuresTotal: '1',
         rollbackFailuresTotal: '0',
         finalizationFailuresTotal: '0',
+        sourceFailures: [],
+        endpointFailures: [
+          {
+            routeId: '3',
+            endpointId: '4',
+            failureStage: 'request-stop',
+            failureMessage: 'provider did not stop',
+            failureCode: 'provider.timeout',
+            failureRetryability: 'retryable',
+          },
+        ],
+        rollbackFailures: [],
+        finalizationFailures: [],
       },
     ]);
 
     await expect(stream.read()).resolves.toMatchObject({
       type: 'terminal',
       state: 'stopped',
+      sourceFailures: [],
+      endpointFailures: [
+        expect.objectContaining({
+          routeId: 3n,
+          endpointId: 4n,
+          stage: 'request-stop',
+          code: 'provider.timeout',
+        }),
+      ],
     });
     await expect(stream.read()).resolves.toBeUndefined();
     expect(stream.closed).toBe(true);
