@@ -80,6 +80,63 @@ export interface NativeEndpointHandle {
   readonly sessionId: string;
 }
 
+export interface NativeProviderAudio {
+  samplesF32Le: Buffer;
+  sampleCount: number;
+  sampleRateHz: number;
+  channelCount: number;
+  sourceId: string;
+  streamId: string;
+  sequenceNumber: string;
+  timestampNs: string;
+  routeEnqueuedAtNs: string;
+  routeReceivedAtNs: string;
+  outputGenerationId?: string | null;
+}
+
+export interface NativeProviderCall {
+  operation: string;
+  instanceId?: string | null;
+  shutdownMode?: string | null;
+  audio?: NativeProviderAudio | null;
+  configuration?: NativeConfigurationEntry[] | null;
+  sourceContext?: NativeSourceContext | null;
+  cancelled?: boolean | null;
+  inputPort?: string | null;
+  signal?: NativeSignalEnvelope | null;
+  routeId?: string | null;
+  endpointId?: string | null;
+}
+
+export interface NativeProviderResult {
+  outcome?: string | null;
+  emission?: NativeProviderEmission | null;
+  emissions?: NativeProviderEmission[] | null;
+}
+
+export interface NativeSourceContext {
+  sourceTypeId: string;
+  sessionId?: string | null;
+  sourceId?: string | null;
+  outputs: { name: string; streamId: string }[];
+}
+
+export interface NativeProviderEmission {
+  output: string;
+  payloadKind: string;
+  text?: string | null;
+  bytes?: Buffer | null;
+  samplesF32Le?: Buffer | null;
+  sourceTimestampNs?: string | null;
+  observedTimestampNs?: string | null;
+  durationNs?: string | null;
+  sourceGeneration?: number | null;
+  discontinuityEpoch?: string | null;
+  policyEpoch?: string | null;
+  clockId?: number | null;
+  terminal?: boolean | null;
+}
+
 export interface NativeSourceOutputHandle {
   readonly sessionId: string;
   readonly sourceInstanceId: string;
@@ -581,12 +638,41 @@ export interface NativeSessionHandle {
   ): NativeAudioInputHandle;
   audio(): NativeEndpointHandle;
   audioWithRoute(route: NativeRouteSettingsHandle): NativeEndpointHandle;
+  audioConnector(
+    dispatch: (request: NativeProviderCall) => Promise<NativeProviderResult>,
+    deadlineMs?: number,
+  ): NativeEndpointHandle;
   operator(operator: NativeOperatorHandle): NativeOperatorInstanceHandle;
   endpoint(definition: NativeEndpointDefinitionHandle): NativeEndpointHandle;
   source(
     sourceTypeId: string,
     configuration: NativeConfigurationEntry[],
   ): NativeSourceInstanceHandle;
+  registerSource(
+    sourceTypeId: string,
+    revision: number,
+    generation: number,
+    outputs: NativePortSpecHandle[],
+    dispatch: (request: NativeProviderCall) => Promise<NativeProviderResult>,
+    deadlineMs?: number,
+  ): void;
+  registerOperator(
+    operatorId: string,
+    revision: number,
+    generation: number,
+    inputs: NativePortSpecHandle[],
+    outputs: NativePortSpecHandle[],
+    queueCapacity: number,
+    dispatch: (request: NativeProviderCall) => Promise<NativeProviderResult>,
+    deadlineMs?: number,
+  ): void;
+  registerEndpoint(
+    operatorId: string,
+    nodeTypeId: string,
+    inputs: NativePortSpecHandle[],
+    dispatch: (request: NativeProviderCall) => Promise<NativeProviderResult>,
+    deadlineMs?: number,
+  ): void;
   registerSidecar(spec: NativeSidecarProcessSpec): string;
   loadNativeExtensionLibrary(path: string): Promise<NativeExtensionLibrary>;
   subscribeDerived(

@@ -2,6 +2,7 @@ mod application_audio;
 mod errors;
 mod extensions;
 mod graph;
+mod provider;
 mod session;
 mod sidecar;
 mod signals;

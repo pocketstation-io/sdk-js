@@ -354,7 +354,7 @@ export class SignalStream
               'Native signal read returned no envelope',
             );
           }
-          return envelopeFromNative(result.envelope);
+          return _envelopeFromNative(result.envelope);
         case 'closed':
           this.#closed = true;
           return END_OF_STREAM;
@@ -418,7 +418,8 @@ function lineageFromNative(value: NativeSignalLineage): SignalLineage {
   };
 }
 
-function envelopeFromNative(value: NativeSignalEnvelope): SignalEnvelope {
+/** @internal */
+export function _envelopeFromNative(value: NativeSignalEnvelope): SignalEnvelope {
   const signal = SignalSpec._fromDescription({
     kind: value.signalKind as SignalKind,
     format: value.signalFormat ?? undefined,

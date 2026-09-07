@@ -294,6 +294,56 @@ export type Configuration = Readonly<Record<string, ConfigurationValue>>;
 export type ConfigurationValue = string | SecretValue;
 
 // @public
+export abstract class Connector {
+    protected constructor(options?: ConnectorOptions);
+    abstract send(frame: ConnectorAudioFrame, context: ConnectorContext): void | Promise<void>;
+    start(_context: ConnectorContext): void | Promise<void>;
+    stop(_mode: 'drain' | 'abort', _context: ConnectorContext): void | Promise<void>;
+}
+
+// @public
+export function connector(send: ConnectorSend, options?: ConnectorOptions): Connector;
+
+// @public
+export interface ConnectorAudioFrame {
+    readonly channels: number;
+    readonly outputGenerationId?: bigint;
+    readonly routeEnqueuedAtNs: bigint;
+    readonly routeReceivedAtNs: bigint;
+    readonly sampleRateHz: number;
+    readonly samples: Float32Array;
+    readonly sequenceNumber: bigint;
+    readonly sourceId: bigint;
+    readonly streamId: bigint;
+    readonly timestampNs: bigint;
+}
+
+// @public
+export interface ConnectorContext {
+    readonly signal: AbortSignal;
+}
+
+// @public
+export interface ConnectorOptions {
+    readonly deadlineMs?: number;
+}
+
+// @public
+export type ConnectorSend = (frame: ConnectorAudioFrame, context: ConnectorContext) => void | Promise<void>;
+
+// @public
+export function defineEndpoint(options: EndpointFactoryOptions): EndpointFactory;
+
+// @public
+export function defineEndpoint(options: EndpointProviderOptions, receive: EndpointReceive): EndpointFactory;
+
+// @public
+export function defineOperator(options: OperatorFactoryOptions): OperatorFactory;
+
+// @public
+export function defineSource(options: SourceFactoryOptions): SourceFactory;
+
+// @public
 export class DeliveryPolicy {
     static buffered(): DeliveryPolicy;
     get clock(): ClockDomain;
@@ -325,6 +375,7 @@ export class DerivedStream {
     send(endpoint: Endpoint, options?: {
         input?: string;
     }): bigint;
+    sendTo(connector: Connector): bigint;
     through(operator: Operator, options?: {
         input?: string;
         output?: string;
@@ -364,6 +415,25 @@ export class Endpoint {
 }
 
 // @public
+export interface EndpointAudioItem {
+    // (undocumented)
+    readonly endpointId: bigint;
+    // (undocumented)
+    readonly frame: ConnectorAudioFrame;
+    // (undocumented)
+    readonly input: string;
+    // (undocumented)
+    readonly kind: 'audio';
+    // (undocumented)
+    readonly routeId: bigint;
+}
+
+// @public
+export interface EndpointContext {
+    readonly signal: AbortSignal;
+}
+
+// @public
 export class EndpointDefinition {
     constructor(nodeType: string, operatorId: string, options?: {
         configuration?: Configuration;
@@ -371,6 +441,26 @@ export class EndpointDefinition {
     });
     readonly nodeType: string;
     readonly operatorId: string;
+}
+
+// @public
+export class EndpointFactory {
+    constructor(options: EndpointFactoryOptions);
+    // (undocumented)
+    readonly deadlineMs: number;
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly inputs: readonly PortSpec[];
+    // (undocumented)
+    readonly nodeType: string;
+}
+
+// @public
+export interface EndpointFactoryOptions extends EndpointProviderOptions {
+    // Warning: (ae-forgotten-export) The symbol "SourceConfiguration_2" needs to be exported by the entry point index.d.ts
+    readonly create: (configuration: SourceConfiguration_2) => EndpointNode;
+    readonly validate?: (configuration: SourceConfiguration_2) => void | Promise<void>;
 }
 
 // @public
@@ -383,6 +473,48 @@ export interface EndpointFailureEvent {
     readonly sessionId: bigint;
     readonly stage: string;
     readonly type: 'endpoint-failure';
+}
+
+// @public
+export type EndpointItem = EndpointAudioItem | EndpointSignalItem;
+
+// @public
+export interface EndpointNode {
+    // (undocumented)
+    close?(): void | Promise<void>;
+    // (undocumented)
+    prepare?(context: EndpointContext): void | Promise<void>;
+    // (undocumented)
+    receive(item: EndpointItem, context: EndpointContext): void | Promise<void>;
+    // (undocumented)
+    start?(context: EndpointContext): void | Promise<void>;
+    // (undocumented)
+    stop?(mode: 'drain' | 'abort', context: EndpointContext): void | Promise<void>;
+}
+
+// @public
+export interface EndpointProviderOptions {
+    readonly deadlineMs?: number;
+    readonly id: string;
+    readonly inputs: readonly PortSpec[];
+    readonly nodeType?: string;
+}
+
+// @public
+export type EndpointReceive = (item: EndpointItem, context: EndpointContext) => void | Promise<void>;
+
+// @public
+export interface EndpointSignalItem {
+    // (undocumented)
+    readonly endpointId: bigint;
+    // (undocumented)
+    readonly input: string;
+    // (undocumented)
+    readonly kind: 'signal';
+    // (undocumented)
+    readonly routeId: bigint;
+    // (undocumented)
+    readonly signal: SignalEnvelope;
 }
 
 // @public
@@ -545,6 +677,57 @@ export class Operator {
 }
 
 // @public
+export interface OperatorContext {
+    readonly signal: AbortSignal;
+}
+
+// @public
+export interface OperatorEmission {
+    readonly data: string | Uint8Array | Float32Array;
+    readonly output: string;
+}
+
+// @public
+export class OperatorFactory {
+    constructor(options: OperatorFactoryOptions);
+    configured(configuration?: Configuration): Operator;
+    // (undocumented)
+    readonly deadlineMs: number;
+    // (undocumented)
+    readonly generation: number;
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly inputs: readonly PortSpec[];
+    // (undocumented)
+    readonly outputs: readonly PortSpec[];
+    // (undocumented)
+    readonly queueCapacity: number;
+    // (undocumented)
+    readonly revision: number;
+}
+
+// @public
+export interface OperatorFactoryOptions {
+    // (undocumented)
+    readonly create: (configuration: SourceConfiguration_2) => OperatorNode;
+    readonly deadlineMs?: number;
+    // (undocumented)
+    readonly generation?: number;
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly inputs: readonly PortSpec[];
+    // (undocumented)
+    readonly outputs: readonly PortSpec[];
+    readonly queueCapacity?: number;
+    // (undocumented)
+    readonly revision?: number;
+    // (undocumented)
+    readonly validate?: (configuration: SourceConfiguration_2) => void | Promise<void>;
+}
+
+// @public
 export class OperatorInput {
     get name(): string;
 }
@@ -554,6 +737,20 @@ export class OperatorInstance {
     get id(): bigint;
     input(name: string): OperatorInput;
     output(name: string): DerivedStream;
+}
+
+// @public
+export interface OperatorNode {
+    // (undocumented)
+    cancel?(context: OperatorContext): void | Promise<void>;
+    // (undocumented)
+    close?(): void | Promise<void>;
+    // (undocumented)
+    flush?(context: OperatorContext): readonly OperatorEmission[] | Promise<readonly OperatorEmission[]>;
+    // (undocumented)
+    prepare?(context: OperatorContext): void | Promise<void>;
+    // (undocumented)
+    process(input: SignalEnvelope, inputPort: string, context: OperatorContext): readonly OperatorEmission[] | Promise<readonly OperatorEmission[]>;
 }
 
 // @public
@@ -650,12 +847,15 @@ export class Session {
     audio(route?: RouteSettings): Endpoint;
     audioInput(name: string, options?: AudioInputOptions): AudioInput;
     capture(source: Source): Stem;
-    endpoint(definition: EndpointDefinition): Endpoint;
+    destination(connector: Connector): Endpoint;
+    endpoint(definition: EndpointDefinition | EndpointFactory, configuration?: Configuration): Endpoint;
     get id(): bigint;
     loadNativeExtensionLibrary(path: string): Promise<NativeExtensionLibrary>;
-    operator(operator: Operator): OperatorInstance;
+    operator(operator: Operator | OperatorFactory, configuration?: Configuration): OperatorInstance;
+    registerOperator(operator: OperatorFactory): OperatorFactory;
     registerSidecar(process: SidecarProcess): SidecarHandle;
-    source(sourceTypeId: string, configuration?: SourceConfiguration): SourceInstance;
+    registerSource(source: SourceFactory): SourceFactory;
+    source(source: string | SourceFactory, configuration?: SourceConfiguration): SourceInstance;
     start(): Promise<RunningSession>;
     subscribe(stream: SourceOutput | DerivedStream, options: {
         signal: SignalSpec;
@@ -967,6 +1167,69 @@ export class Source {
 export type SourceConfiguration = Readonly<Record<string, string>>;
 
 // @public
+export interface SourceContext {
+    readonly signal: AbortSignal;
+}
+
+// @public
+export interface SourceDriver {
+    // (undocumented)
+    close?(): void | Promise<void>;
+    // (undocumented)
+    next(context: SourceContext): SourceEmission | undefined | Promise<SourceEmission | undefined>;
+    // (undocumented)
+    prepare?(context: SourcePrepareContext): void | Promise<void>;
+}
+
+// @public
+export interface SourceEmission {
+    // (undocumented)
+    readonly clockId?: number;
+    readonly data: string | Uint8Array;
+    // (undocumented)
+    readonly discontinuityEpoch?: bigint;
+    // (undocumented)
+    readonly durationNs?: bigint;
+    // (undocumented)
+    readonly observedTimestampNs?: bigint;
+    readonly output: string;
+    // (undocumented)
+    readonly policyEpoch?: bigint;
+    // (undocumented)
+    readonly sourceGeneration?: number;
+    // (undocumented)
+    readonly sourceTimestampNs?: bigint;
+    // (undocumented)
+    readonly terminal?: boolean;
+}
+
+// @public
+export class SourceFactory {
+    constructor(options: SourceFactoryOptions);
+    // (undocumented)
+    readonly deadlineMs: number;
+    // (undocumented)
+    readonly generation: number;
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly outputs: readonly PortSpec[];
+    // (undocumented)
+    readonly revision: number;
+}
+
+// @public
+export interface SourceFactoryOptions {
+    readonly create: (configuration: SourceConfiguration_2) => SourceDriver;
+    readonly deadlineMs?: number;
+    readonly generation?: number;
+    readonly id: string;
+    readonly outputs: readonly PortSpec[];
+    readonly revision?: number;
+    readonly validate?: (configuration: SourceConfiguration_2) => void | Promise<void>;
+}
+
+// @public
 export interface SourceFailure {
     readonly backendClass?: string;
     readonly failureClass: 'source-instance-exited' | 'platform-status' | 'backend-class';
@@ -1008,6 +1271,7 @@ export class SourceOutput {
     send(endpoint: Endpoint, options?: {
         input?: string;
     }): bigint;
+    sendTo(connector: Connector): bigint;
     get sessionId(): bigint;
     get sourceId(): bigint;
     get sourceInstanceId(): bigint;
@@ -1016,6 +1280,21 @@ export class SourceOutput {
         input?: string;
         output?: string;
     }): DerivedStream;
+}
+
+// @public
+export interface SourcePrepareContext extends SourceContext {
+    // (undocumented)
+    readonly outputs: readonly {
+        readonly name: string;
+        readonly streamId: bigint;
+    }[];
+    // (undocumented)
+    readonly sessionId?: bigint;
+    // (undocumented)
+    readonly sourceId?: bigint;
+    // (undocumented)
+    readonly sourceTypeId: string;
 }
 
 // @public
@@ -1053,6 +1332,7 @@ export class Stem {
     send(endpoint: Endpoint, options?: {
         input?: string;
     }): bigint;
+    sendTo(connector: Connector): bigint;
     through(operator: Operator, options?: {
         input?: string;
         output?: string;

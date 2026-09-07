@@ -50,10 +50,26 @@ delivery behavior. JavaScript construction, compatibility, negotiation, and
 Session compilation call the native engine; TypeScript does not implement its
 own graph compiler.
 
-An `Operator` names an implementation registered outside the Session. Its
+An `Operator` names an implementation registered with the Session. Its
 `OperatorInstance` selects named inputs and outputs. An `EndpointDefinition`
 does the same for a destination. These identifiers remain open so adding a
 provider does not require a PocketStation release.
+
+Application code can register typed Sources, Operators, Connectors, and
+Endpoints. Each registration delegates execution to the corresponding Core
+lifecycle. JavaScript implements only provider behavior:
+
+- `SourceFactory` produces text, events, metrics, control data, or bytes.
+- `OperatorFactory` processes named inputs and emits named outputs.
+- `Connector` receives source-aware PCM through one configured destination.
+- `EndpointFactory` receives named PCM or typed-signal inputs.
+
+Core continues to assign identity, compile routes, retain queue and delivery
+state, start every component transactionally, distinguish drain from abort,
+and join finalization. Provider calls use a native dispatch queue with a fixed
+capacity of 16 and a configurable deadline from 1 through 60,000 ms. Promise
+rejections and thrown exceptions return through the Session outcome instead of
+escaping a native worker.
 
 `session.subscribe()` declares an Operator or Source output for JavaScript.
 Core owns the signal queue and preserves the signal description, timing,
@@ -177,6 +193,7 @@ claim follows from the macOS result.
 
 ## Later work
 
-The same ownership model extends to Operator and Endpoint authoring, Connectors,
-Session-wide metrics, traces, Relay, and voice composition. Those modules are added only with working
-behavior and tests; empty parity files are not created.
+Remaining work includes Session-wide metrics, traces, Relay publication, voice
+composition, target-specific packages, and cross-platform execution evidence.
+Those modules are added only with working behavior and tests; empty parity
+files are not created.

@@ -54,10 +54,10 @@ reading those files so every recorder has finalized.
 
 ## Describe processing by named ports
 
-An `Operator` identifies processing code registered by a native extension or a
-later provider package. PocketStation does not include a provider catalog.
-Named ports let Core reject misspelled or incompatible connections before
-capture starts.
+An `Operator` identifies processing code registered by JavaScript, a native
+extension, a managed process, or an installed provider package. PocketStation
+does not include a provider catalog. Named ports let Core reject misspelled or
+incompatible connections before capture starts.
 
 The following declarations show what an installed provider package supplies;
 they are not a standalone provider implementation:
@@ -79,13 +79,14 @@ const transcript = transcriber.output("transcript");
 `secret()` marks a value for native redaction. It does not load environment
 variables, store credentials, or send configuration to a service on its own.
 
-Operator authoring is not part of the current JavaScript package candidate.
-Declaring an unknown Operator fails during `start()` with
-`compile.unknown_async_operator`; it is never replaced by a JavaScript stub.
+Use `defineOperator()` or `OperatorFactory` to implement the Operator in
+application code. Declaring an identifier that was not registered still fails
+during `start()` with `compile.unknown_async_operator`; PocketStation never
+replaces it with a JavaScript stub.
 
 ## Send a derived result to an Endpoint
 
-`EndpointDefinition` describes a destination implemented outside the SDK. Its
+`EndpointDefinition` describes a destination registered outside the SDK. Its
 node type and implementation identifier are open strings so provider packages
 can add destinations without changing PocketStation:
 
@@ -102,9 +103,13 @@ const destination = session.endpoint(
 transcript.send(destination, { input: "events" });
 ```
 
-The destination implementation must already be registered with Core. Custom
-Endpoint and Connector authoring is scheduled separately from this declaration
-API.
+Use `Connector` for source-aware PCM and `EndpointFactory` for a destination
+with several named audio or signal inputs. Both execute application code away
+from capture callbacks while Core retains routing, timing, delivery accounting,
+and shutdown.
+
+Continue with [JavaScript provider authoring](provider-authoring.md) for complete
+class and function examples.
 
 ## Return generated audio to the Session
 

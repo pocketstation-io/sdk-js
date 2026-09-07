@@ -5,6 +5,7 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use napi::bindgen_prelude::AsyncTask;
+use napi::bindgen_prelude::{ClassInstance, Function, Promise};
 use napi::{Env, Result, Task};
 use napi_derive::napi;
 
@@ -16,8 +17,9 @@ use crate::extensions::{
 };
 use crate::graph::{
     NativeConfigurationEntry, NativeEndpointDefinition, NativeOperator, NativeOperatorInput,
-    NativeOperatorInstance, NativeRouteSettings,
+    NativeOperatorInstance, NativePortSpec, NativeRouteSettings,
 };
+use crate::provider::{NativeProviderCall, NativeProviderResult};
 use crate::sidecar::{
     error_reason as sidecar_error_reason, poll as poll_sidecar, runtime_error as sidecar_error,
     snapshot as sidecar_snapshot, wait as wait_sidecar, NativeSidecarMessage,
@@ -341,6 +343,24 @@ impl NativeSession {
     }
 
     #[napi]
+    pub fn audio_connector(
+        &self,
+        dispatch: Function<'_, NativeProviderCall, Promise<NativeProviderResult>>,
+        deadline_ms: Option<u32>,
+    ) -> Result<NativeEndpoint> {
+        let connector = crate::provider::audio_connector(dispatch, deadline_ms)?;
+        self.with_session(|session| {
+            session
+                .destination(connector)
+                .map(|handle| NativeEndpoint {
+                    session_id: self.session_id,
+                    handle,
+                })
+                .map_err(|failure| error("connector.registration_failed", failure.to_string()))
+        })
+    }
+
+    #[napi]
     pub fn audio_with_route(&self, route: &NativeRouteSettings) -> Result<NativeEndpoint> {
         self.with_session(|session| {
             session
@@ -363,6 +383,67 @@ impl NativeSession {
                     handle,
                 })
                 .map_err(|failure| error("session.invalid_operator", failure.to_string()))
+        })
+    }
+
+    #[napi]
+    #[allow(clippy::too_many_arguments)]
+    pub fn register_operator(
+        &self,
+        operator_id: String,
+        revision: u32,
+        generation: u32,
+        inputs: Vec<ClassInstance<'_, NativePortSpec>>,
+        outputs: Vec<ClassInstance<'_, NativePortSpec>>,
+        queue_capacity: u32,
+        dispatch: Function<'_, NativeProviderCall, Promise<NativeProviderResult>>,
+        deadline_ms: Option<u32>,
+    ) -> Result<()> {
+        let inputs = inputs
+            .iter()
+            .map(|input| input.as_ref().value.clone())
+            .collect();
+        let outputs = outputs
+            .iter()
+            .map(|output| output.as_ref().value.clone())
+            .collect();
+        self.with_session(|session| {
+            crate::provider::register_operator(
+                session,
+                operator_id,
+                revision,
+                generation,
+                inputs,
+                outputs,
+                queue_capacity,
+                dispatch,
+                deadline_ms,
+            )
+        })
+    }
+
+    #[napi]
+    pub fn register_endpoint(
+        &self,
+        operator_id: String,
+        node_type_id: String,
+        inputs: Vec<ClassInstance<'_, NativePortSpec>>,
+        dispatch: Function<'_, NativeProviderCall, Promise<NativeProviderResult>>,
+        deadline_ms: Option<u32>,
+    ) -> Result<()> {
+        let inputs = inputs
+            .iter()
+            .map(|input| input.as_ref().value.clone())
+            .collect();
+        self.with_session(|session| {
+            crate::provider::register_endpoint(
+                session,
+                operator_id,
+                node_type_id,
+                inputs,
+                dispatch,
+                deadline_ms,
+            )
         })
     }
 
@@ -395,6 +476,34 @@ impl NativeSession {
                     handle,
                 })
                 .map_err(|failure| error("session.invalid_source", failure.to_string()))
+        })
+    }
+
+    #[napi]
+    #[allow(clippy::too_many_arguments)]
+    pub fn register_source(
+        &self,
+        source_type_id: String,
+        revision: u32,
+        generation: u32,
+        outputs: Vec<ClassInstance<'_, NativePortSpec>>,
+        dispatch: Function<'_, NativeProviderCall, Promise<NativeProviderResult>>,
+        deadline_ms: Option<u32>,
+    ) -> Result<()> {
+        let outputs = outputs
+            .iter()
+            .map(|output| output.as_ref().value.clone())
+            .collect();
+        self.with_session(|session| {
+            crate::provider::register_source(
+                session,
+                source_type_id,
+                revision,
+                generation,
+                outputs,
+                dispatch,
+                deadline_ms,
+            )
         })
     }
 
