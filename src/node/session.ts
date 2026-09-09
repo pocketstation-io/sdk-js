@@ -23,6 +23,7 @@ import {
 } from './application-audio.js';
 import { PocketStationError } from '../errors.js';
 import {
+  DeliveryPolicy,
   type Configuration,
   EndpointDefinition,
   Operator,
@@ -816,6 +817,7 @@ export class Session {
   #native: NativeSessionHandle;
   readonly #sampleRateHz: number;
   readonly #channels: 1 | 2;
+  readonly #frameDurationMs: 10 | 20;
   readonly #connectorEndpoints = new WeakMap<Connector, Endpoint>();
   readonly #registeredSources = new WeakSet<SourceFactory>();
   readonly #registeredOperators = new WeakSet<OperatorFactory>();
@@ -826,6 +828,7 @@ export class Session {
   public constructor(options: SessionOptions = {}) {
     this.#sampleRateHz = options.sampleRateHz ?? 48_000;
     this.#channels = options.channels ?? 1;
+    this.#frameDurationMs = options.frameDurationMs ?? 20;
     const trace = options.trace;
     if (trace !== undefined) {
       if (trace.path.trim().length === 0) {
@@ -998,7 +1001,17 @@ export class Session {
     const endpoint = Endpoint._create(
       this,
       nativeCallSync(() =>
-        this.#native.audioConnector(connector._dispatch, connector._deadline()),
+        this.#native.audioConnector(
+          connector._dispatch,
+          connector._deadline(),
+          RouteSettings.realtimeAudio()
+            .withDelivery(
+              DeliveryPolicy.realtimeAudio().withJitterBudgetMs(
+                connector._capacityFrames() * this.#frameDurationMs,
+              ),
+            )
+            ._nativeHandle(),
+        ),
       ),
     );
     this.#connectorEndpoints.set(connector, endpoint);

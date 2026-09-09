@@ -1017,6 +1017,7 @@ export interface NativeSessionHandle {
   audioConnector(
     dispatch: (request: NativeProviderCall) => Promise<NativeProviderResult>,
     deadlineMs?: number,
+    route?: NativeRouteSettingsHandle,
   ): NativeEndpointHandle;
   operator(operator: NativeOperatorHandle): NativeOperatorInstanceHandle;
   endpoint(definition: NativeEndpointDefinitionHandle): NativeEndpointHandle;

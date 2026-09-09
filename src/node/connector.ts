@@ -38,6 +38,13 @@ export interface ConnectorContext {
 export interface ConnectorOptions {
   /** Maximum duration of each lifecycle call in milliseconds. Defaults to 5,000. */
   readonly deadlineMs?: number;
+  /**
+   * Maximum frames each Source may wait for JavaScript delivery.
+   *
+   * Defaults to 8; maximum 63. Core rejects the arriving frame and records a
+   * discontinuity when this queue is full.
+   */
+  readonly capacityFrames?: number;
 }
 
 /** Function accepted by the concise Connector form. */
@@ -55,18 +62,27 @@ export type ConnectorSend = (
  */
 export abstract class Connector {
   readonly #deadlineMs: number;
+  readonly #capacityFrames: number;
   #sessionId: bigint | undefined;
   #controller = new AbortController();
   #state: 'new' | 'starting' | 'running' | 'stopping' | 'closed' = 'new';
 
   protected constructor(options: ConnectorOptions = {}) {
     this.#deadlineMs = options.deadlineMs ?? 5_000;
+    this.#capacityFrames = options.capacityFrames ?? 8;
     if (
       !Number.isInteger(this.#deadlineMs) ||
       this.#deadlineMs < 1 ||
       this.#deadlineMs > 60_000
     ) {
       throw new RangeError('deadlineMs must be an integer from 1 through 60000');
+    }
+    if (
+      !Number.isInteger(this.#capacityFrames) ||
+      this.#capacityFrames < 1 ||
+      this.#capacityFrames > 63
+    ) {
+      throw new RangeError('capacityFrames must be an integer from 1 through 63');
     }
   }
 
@@ -99,6 +115,11 @@ export abstract class Connector {
   /** @internal */
   public _deadline(): number {
     return this.#deadlineMs;
+  }
+
+  /** @internal */
+  public _capacityFrames(): number {
+    return this.#capacityFrames;
   }
 
   /** @internal */
