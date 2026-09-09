@@ -163,8 +163,15 @@ export class RelayReceiver {
     if (this.#state === 'closed') {
       throw new PocketStationError('relay.receiver_closed', 'RelayReceiver is closed');
     }
-    this.#controller?.abort();
-    await this.#closeResources();
+    this.#closing = true;
+    try {
+      this.#controller?.abort(
+        new PocketStationError('relay.reconnect_requested', 'Relay receiver is reconnecting'),
+      );
+      await this.#closeResources();
+    } finally {
+      this.#closing = false;
+    }
     this.#connectOperation = null;
     this.#setState('idle');
     return this.connect(options);

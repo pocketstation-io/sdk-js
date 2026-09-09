@@ -32,6 +32,7 @@ try {
       throw new Error(`Receiver manifest is missing ${name}`);
     }
     const browser = await browserType.launch({ headless: true });
+    let resultRecorded = false;
     try {
       const page = await browser.newPage();
       page.setDefaultTimeout(arguments_.timeoutMs);
@@ -40,6 +41,42 @@ try {
       });
       const result = await page.evaluate(
         async ({ access, timeoutMs }) => {
+          const NativePeerConnection = globalThis.RTCPeerConnection;
+          const peerConnections = [];
+          globalThis.RTCPeerConnection = class ObservedPeerConnection extends NativePeerConnection {
+            constructor(configuration) {
+              super(configuration);
+              const events = [];
+              const candidates = [];
+              const record = () =>
+                events.push({
+                  atMs: Date.now(),
+                  connectionState: this.connectionState,
+                  iceConnectionState: this.iceConnectionState,
+                  iceGatheringState: this.iceGatheringState,
+                  signalingState: this.signalingState,
+                });
+              for (const name of [
+                'connectionstatechange',
+                'iceconnectionstatechange',
+                'icegatheringstatechange',
+                'signalingstatechange',
+              ]) {
+                this.addEventListener(name, record);
+              }
+              this.addEventListener('icecandidate', (event) => {
+                if (event.candidate !== null) {
+                  candidates.push({
+                    address: event.candidate.address || null,
+                    candidateType: event.candidate.type || null,
+                    protocol: event.candidate.protocol || null,
+                  });
+                }
+              });
+              peerConnections.push({ connection: this, events, candidates });
+              record();
+            }
+          };
           const { RelayReceiver } = await import('/pocketstation/browser/index.js');
           const states = {};
           const failures = [];
@@ -55,61 +92,186 @@ try {
               }),
             ];
           });
-          const streams = await Promise.all(
-            receivers.map(async ([bus, receiver]) => [bus, await receiver.connect()]),
-          );
-          for (const [bus, stream] of streams) {
-            const audio = document.createElement('audio');
-            audio.dataset.bus = bus;
-            audio.autoplay = true;
-            audio.muted = true;
-            audio.srcObject = stream;
-            document.body.append(audio);
-            await audio.play();
-          }
-          const deadline = Date.now() + timeoutMs;
+          const streams = [];
           let observations = [];
-          while (Date.now() < deadline) {
-            observations = await Promise.all(
-              receivers.map(async ([bus, receiver]) => [bus, await receiver.observe()]),
-            );
-            if (
-              observations.every(
-                ([, observation]) =>
+          let initialObservations = {};
+          let reconnectObservations = {};
+          let cancellation = null;
+          let executionError = null;
+          let receiverSnapshots = {};
+          let peerConnectionSnapshots = [];
+          try {
+            // Establish each receiver in a known order, then keep both streams live.
+            // This avoids making browser startup scheduling part of the media proof.
+            for (const [bus, receiver] of receivers) {
+              streams.push([bus, await receiver.connect()]);
+            }
+            for (const [bus, stream] of streams) {
+              const audio = document.createElement('audio');
+              audio.dataset.bus = bus;
+              audio.autoplay = true;
+              audio.muted = true;
+              audio.srcObject = stream;
+              document.body.append(audio);
+              await audio.play();
+            }
+            const deadline = Date.now() + timeoutMs;
+            while (Date.now() < deadline) {
+              observations = await Promise.all(
+                receivers.map(async ([bus, receiver]) => [bus, await receiver.observe()]),
+              );
+              if (
+                observations.every(
+                  ([, observation]) =>
+                    observation.packetsReceived !== null &&
+                    observation.packetsReceived > 0 &&
+                    observation.trackState === 'live',
+                )
+              ) {
+                break;
+              }
+              await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
+            }
+            initialObservations = Object.fromEntries(observations);
+
+            for (let index = 0; index < receivers.length; index += 1) {
+              const [bus, receiver] = receivers[index];
+              const stream = await receiver.reconnect();
+              streams[index][1] = stream;
+              const audio = document.querySelector(`audio[data-bus="${bus}"]`);
+              audio.srcObject = stream;
+              await audio.play();
+
+              const reconnectDeadline = Date.now() + timeoutMs;
+              let observation = null;
+              while (Date.now() < reconnectDeadline) {
+                observation = await receiver.observe();
+                if (
                   observation.packetsReceived !== null &&
                   observation.packetsReceived > 0 &&
-                  observation.trackState === 'live',
-              )
-            ) {
-              break;
+                  observation.trackState === 'live'
+                ) {
+                  break;
+                }
+                await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
+              }
+              reconnectObservations[bus] = observation;
             }
-            await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
-          }
-          const result = {
-            userAgent: navigator.userAgent,
-            failures,
-            buses: Object.fromEntries(
+            observations = receivers.map(([bus]) => [bus, reconnectObservations[bus]]);
+
+            const firstAccess = receivers[0][1].access;
+            if (firstAccess === null) throw new Error('Resolved Relay access is unavailable');
+            const cancelledReceiver = new RelayReceiver(firstAccess, {
+              connectTimeoutMs: timeoutMs,
+              disconnectTimeoutMs: 2_000,
+            });
+            const cancellationController = new AbortController();
+            const cancelledConnection = cancelledReceiver.connect({
+              signal: cancellationController.signal,
+            });
+            queueMicrotask(() =>
+              cancellationController.abort(
+                new DOMException('Browser proof requested cancellation', 'AbortError'),
+              ),
+            );
+            try {
+              await cancelledConnection;
+              cancellation = { connected: true, code: null, state: cancelledReceiver.state };
+            } catch (cause) {
+              cancellation = {
+                connected: false,
+                code:
+                  typeof cause === 'object' && cause !== null && 'code' in cause
+                    ? String(cause.code)
+                    : null,
+                state: cancelledReceiver.state,
+              };
+            } finally {
+              await cancelledReceiver.disconnect();
+              cancellation.finalState = cancelledReceiver.state;
+            }
+          } catch (cause) {
+            executionError = {
+              name: cause instanceof Error ? cause.name : null,
+              code:
+                typeof cause === 'object' && cause !== null && 'code' in cause
+                  ? String(cause.code)
+                  : null,
+              message: cause instanceof Error ? cause.message : String(cause),
+            };
+          } finally {
+            receiverSnapshots = Object.fromEntries(
               receivers.map(([bus, receiver], index) => [
                 bus,
                 {
                   state: receiver.state,
                   states: states[bus],
                   sessionState: receiver.sessionState,
+                  initialObservation: initialObservations[bus] ?? null,
                   observation: observations[index]?.[1] ?? null,
-                  audioTracks: streams[index][1].getAudioTracks().length,
+                  audioTracks: streams[index]?.[1].getAudioTracks().length ?? 0,
                 },
               ]),
-            ),
+            );
+            peerConnectionSnapshots = await Promise.all(
+              peerConnections.map(async ({ connection, events, candidates }) => {
+                const candidatePairs = [];
+                try {
+                  const reports = await connection.getStats();
+                  reports.forEach((report) => {
+                    if (report.type === 'candidate-pair') {
+                      candidatePairs.push({
+                        state: report.state ?? null,
+                        nominated: report.nominated ?? null,
+                        bytesReceived: report.bytesReceived ?? null,
+                        bytesSent: report.bytesSent ?? null,
+                      });
+                    }
+                  });
+                } catch {
+                  // A failed browser connection may no longer expose statistics.
+                }
+                return {
+                  connectionState: connection.connectionState,
+                  iceConnectionState: connection.iceConnectionState,
+                  iceGatheringState: connection.iceGatheringState,
+                  signalingState: connection.signalingState,
+                  candidates,
+                  candidatePairs,
+                  events,
+                };
+              }),
+            );
+            await Promise.allSettled(receivers.map(([, receiver]) => receiver.disconnect()));
+            for (const [bus, receiver] of receivers) {
+              receiverSnapshots[bus].finalState = receiver.state;
+            }
+            globalThis.RTCPeerConnection = NativePeerConnection;
+          }
+          return {
+            userAgent: navigator.userAgent,
+            failures,
+            executionError,
+            cancellation,
+            peerConnections: peerConnectionSnapshots,
+            buses: receiverSnapshots,
           };
-          await Promise.all(receivers.map(([, receiver]) => receiver.disconnect()));
-          return result;
         },
         { access: receiverAccess, timeoutMs: arguments_.timeoutMs },
       );
-      assertBrowserResult(name, result);
-      output.push({ browser: name, status: 'passed', ...result });
+      try {
+        assertBrowserResult(name, result);
+        output.push({ browser: name, status: 'passed', ...result });
+        resultRecorded = true;
+      } catch (cause) {
+        output.push({ browser: name, status: 'failed', ...result, error: String(cause) });
+        resultRecorded = true;
+        throw cause;
+      }
     } catch (cause) {
-      output.push({ browser: name, status: 'failed', error: String(cause) });
+      if (!resultRecorded) {
+        output.push({ browser: name, status: 'failed', error: String(cause) });
+      }
       throw cause;
     } finally {
       await browser.close();
@@ -211,14 +373,29 @@ function createStaticServer(root) {
 }
 
 function assertBrowserResult(name, result) {
+  if (result.executionError !== null) {
+    throw new Error(`${name} receiver failed: ${JSON.stringify(result.executionError)}`);
+  }
   if (result.failures.length !== 0) {
     throw new Error(`${name} reported asynchronous Relay failures: ${JSON.stringify(result.failures)}`);
+  }
+  if (
+    result.cancellation?.connected !== false ||
+    result.cancellation?.code !== 'relay.connect_cancelled' ||
+    result.cancellation?.finalState !== 'closed'
+  ) {
+    throw new Error(`${name} did not cancel browser connection startup cleanly`);
   }
   for (const bus of ['application', 'microphone']) {
     const value = result.buses[bus];
     if (
       value?.state !== 'connected' ||
+      value.finalState !== 'closed' ||
+      value.states.filter((state) => state === 'connected').length < 2 ||
+      value.sessionState?.busId !== bus ||
       value.audioTracks !== 1 ||
+      value.initialObservation?.packetsReceived === null ||
+      value.initialObservation?.packetsReceived < 1 ||
       value.observation?.packetsReceived === null ||
       value.observation?.packetsReceived < 1 ||
       value.observation?.trackState !== 'live' ||

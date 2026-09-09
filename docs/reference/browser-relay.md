@@ -60,6 +60,17 @@ receiver for each independent bus. This keeps application and microphone audio
 separate in the browser instead of mixing their identity before the page can
 choose what to do with them.
 
+Start several receivers in a known order, then keep their streams live
+together:
+
+```ts
+const applicationStream = await applicationReceiver.connect();
+const microphoneStream = await microphoneReceiver.connect();
+```
+
+This avoids coupling WebRTC startup to browser scheduling. It does not serialize
+media after connection; both AudioBuses continue independently.
+
 ## Handle lifecycle changes
 
 Callbacks are optional and run on the browser event loop:
@@ -112,9 +123,13 @@ a native capture callback.
 
 ## Current qualification
 
-The implementation validates current control-plane invitation fields, Relay
-signaling messages, finite response sizes, finite ICE candidate storage,
-connection deadlines, explicit asynchronous errors, and joined shutdown.
-Network tests that replace the services remain `MOCKED`. Browser and Relay
-status is promoted only after the installed package passes the real
-control-plane and Relay workflow in Chromium, Firefox, and WebKit.
+An installed package has published controlled application audio and a physical
+microphone through the real control plane and Relay on macOS. Chromium, Firefox,
+and WebKit each received both named AudioBuses, reconnected them, cancelled a
+separate connection attempt, read WebRTC statistics, and closed signaling. The
+20 ms run reported no active capture error, route loss, discontinuity, browser
+packet loss, or recording loss.
+
+That result proves the same-host workflow. It does not prove WAN or TURN
+connectivity, Windows or Linux packages, physical loudspeaker output, or that a
+person heard the audio.
