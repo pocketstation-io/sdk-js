@@ -41,3 +41,23 @@ node examples/send-to-connector.mjs
 The function form is useful when a destination needs only one `send` callback.
 Use the class form in the [provider authoring guide](../docs/guides/provider-authoring.md)
 when a connection owns startup and shutdown resources.
+
+## Publish an application to Relay
+
+Create a RelaySession through your PocketStation control plane, then set the
+returned connection values:
+
+```bash
+export POCKETSTATION_RELAY_URL=http://127.0.0.1:4800
+export POCKETSTATION_RELAY_SESSION_ID=<session-id>
+export POCKETSTATION_RELAY_SOURCE_TOKEN=<source-token>
+```
+
+Run the example with the exact name or application ID of a running app:
+
+```bash
+node examples/publish-to-relay.mjs Spotify
+```
+
+The example publishes only the selected application. Add a microphone Stem
+and send it to `relay.audio('microphone')` when the workflow requires both.

@@ -1200,6 +1200,26 @@ export interface RecordingStemOutcome {
 }
 
 // @public
+export interface RelayIceServer {
+    readonly urls: string | readonly string[];
+}
+
+// @public
+export class RelayPublisher {
+    audio(busId: string): Endpoint;
+}
+
+// @public
+export interface RelayPublisherOptions {
+    readonly iceServers?: readonly RelayIceServer[];
+    readonly lowLatency?: boolean;
+    readonly sessionId: string;
+    readonly sourceToken: string;
+    readonly startupTimeoutMs?: number;
+    readonly url: string;
+}
+
+// @public
 export type RollbackFailureStage = 'cancel-operator' | 'cancel-endpoint-preparation' | 'finalize-started-endpoint' | 'stop-opened-capture' | 'discard-runtime-queues';
 
 // @public
@@ -1328,6 +1348,7 @@ export class Session {
     registerOperator(operator: OperatorFactory): OperatorFactory;
     registerSidecar(process: SidecarProcess): SidecarHandle;
     registerSource(source: SourceFactory): SourceFactory;
+    relay(options: RelayPublisherOptions): RelayPublisher;
     run(work: (running: RunningSession) => void | Promise<void>): Promise<StopResult>;
     source(source: string | SourceFactory, configuration?: SourceConfiguration): SourceInstance;
     start(): Promise<RunningSession>;

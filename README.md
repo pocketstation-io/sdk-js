@@ -12,8 +12,8 @@ so model calls and application work do not run on an audio callback.
 
 > The Node SDK is under active development and is not published to npm yet.
 > The current code has a real macOS selected-application capture proof.
-> Windows and Linux packages, Relay publication, and the remaining Rust/Python
-> features still require implementation or target-specific proof.
+> Windows and Linux packages, real Relay/browser execution, and the remaining
+> Rust/Python features still require target-specific proof.
 
 ## Capture an application
 
@@ -84,6 +84,28 @@ compile a second execution plan.
 
 Read [Route, process, and record media](docs/guides/compose-a-session.md) for
 named ports, generated audio, compiler diagnostics, and delivery settings.
+
+## Publish independent Stems to Relay
+
+Use the connection values returned by your PocketStation control plane. One
+publisher carries every named AudioBus while Core keeps the application and
+microphone as separate Stems:
+
+```ts
+const relay = session.relay({ url, sessionId, sourceToken });
+
+application.send(relay.audio("application"));
+microphone.send(relay.audio("microphone"));
+```
+
+The Node addon uses the released Rust Relay Connector for Opus, RTP, WebRTC,
+and signaling. JavaScript does not encode audio or maintain another media
+queue. Relay startup completes before `session.start()` returns, uses a finite
+deadline, and closes with the Session.
+
+The microphone remains opt-in. A selected application can be the only
+published source when that is all the receiver needs. See the
+[runnable Relay example](examples/publish-to-relay.mjs) for configuration.
 
 ## Send audio to application code
 
@@ -341,11 +363,10 @@ The [capability status](docs/JAVASCRIPT_CAPABILITY_MATRIX.md) records what works
 today and what remains. The [SDK design](docs/JAVASCRIPT_SDK_DESIGN.md) explains
 native ownership, frame copying, cancellation, and browser separation.
 
-Browser Relay receiving is exposed from `pocketstation/browser`. It is kept
-separate so browser builds never try to load a native addon. Its current tests
-use simulated services and are not evidence of a deployed Relay session. Read
-the [browser Relay status](docs/reference/browser-relay.md) before using that
-export.
+Browser Relay receiving is exposed from `pocketstation/browser`. It stays
+separate so browser builds never load a native addon. Read the
+[browser Relay status](docs/reference/browser-relay.md) for the current proof
+level.
 
 ## Develop from source
 
