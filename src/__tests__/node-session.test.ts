@@ -71,4 +71,38 @@ describe('native Node Session', () => {
     expect(failure).toBeInstanceOf(Error);
     expect(failure.code).toBe('test.code');
   });
+
+  it('Given successful Session work When run Then accepted work is drained', async () => {
+    const session = Session._conformance();
+    const input = session.audioInput('test input');
+    input.output.send(session.audio());
+
+    const result = await session.run(async (running) => {
+      expect(running.sessionId).toBe(session.id);
+      await running.metrics();
+      input.close();
+    });
+
+    expect(result.disposition).toBe('stopped');
+    expect(result.success).toBe(true);
+  });
+
+  it('Given failed Session work When run Then the Session is cancelled before rethrow', async () => {
+    const session = Session._conformance();
+    const input = session.audioInput('test input');
+    input.output.send(session.audio());
+    const failure = new Error('application failed');
+    let runningSession: Awaited<ReturnType<Session['start']>> | undefined;
+
+    await expect(
+      session.run((running) => {
+        runningSession = running;
+        throw failure;
+      }),
+    ).rejects.toBe(failure);
+
+    await expect(runningSession?.stop()).resolves.toMatchObject({
+      disposition: 'cancelled',
+    });
+  });
 });

@@ -5,7 +5,8 @@ use napi::Result;
 use napi_derive::napi;
 use pocketstation::{
     AudioInput, AudioInputBufferAcquireError, AudioInputObservations, AudioInputWriteError,
-    AudioInputWriteErrorKind, SourceOutputHandle,
+    AudioInputWriteErrorKind, AudioOutputWriteError, AudioOutputWriteErrorKind, OutputCancelResult,
+    OutputGeneration, SourceOutputHandle,
 };
 
 use crate::errors::{error, state_unavailable};
@@ -20,12 +21,13 @@ pub struct NativeAudioInputObservations {
     pub accepted_total: String,
     pub full_total: String,
     pub invalid_total: String,
+    pub cancelled_output_writes_total: String,
     pub cancelled: bool,
     pub closed: bool,
 }
 
-impl From<AudioInputObservations> for NativeAudioInputObservations {
-    fn from(value: AudioInputObservations) -> Self {
+impl NativeAudioInputObservations {
+    fn new(value: AudioInputObservations, cancelled_output_writes_total: u64) -> Self {
         Self {
             capacity_frames: value.capacity_frames.to_string(),
             buffer_slots: value.buffer_slots.to_string(),
@@ -33,9 +35,33 @@ impl From<AudioInputObservations> for NativeAudioInputObservations {
             accepted_total: value.accepted_total.to_string(),
             full_total: value.full_total.to_string(),
             invalid_total: value.invalid_total.to_string(),
+            cancelled_output_writes_total: cancelled_output_writes_total.to_string(),
             cancelled: value.cancelled,
             closed: value.closed,
         }
+    }
+}
+
+#[napi(js_name = "NativeOutputGeneration")]
+pub struct NativeOutputGeneration {
+    generation: OutputGeneration,
+}
+
+#[napi]
+impl NativeOutputGeneration {
+    #[napi(getter)]
+    pub fn id(&self) -> String {
+        self.generation.id().get().to_string()
+    }
+
+    #[napi(getter)]
+    pub fn active(&self) -> bool {
+        self.generation.is_active()
+    }
+
+    #[napi]
+    pub fn cancel(&self) -> bool {
+        matches!(self.generation.cancel(), OutputCancelResult::Cancelled)
     }
 }
 
@@ -150,6 +176,7 @@ impl NativeAudioInput {
         &self,
         sample_count: usize,
         discontinuity: bool,
+        generation: Option<&NativeOutputGeneration>,
         copy: impl FnOnce(&mut [f32]),
     ) -> Result<()> {
         self.with_input(|input| {
@@ -161,7 +188,13 @@ impl NativeAudioInput {
             if discontinuity {
                 buffer.mark_discontinuity();
             }
-            input.try_send(buffer).map_err(write_error)
+            if let Some(generation) = generation {
+                input
+                    .try_send_for_output(&generation.generation, buffer)
+                    .map_err(output_write_error)
+            } else {
+                input.try_send(buffer).map_err(write_error)
+            }
         })
     }
 }
@@ -189,14 +222,36 @@ impl NativeAudioInput {
     }
 
     #[napi]
-    pub fn try_write_f32(&self, samples: &[f32], discontinuity: bool) -> Result<()> {
-        self.write_samples(samples.len(), discontinuity, |destination| {
+    pub fn begin_output(&self) -> Result<NativeOutputGeneration> {
+        self.with_input(|input| {
+            input
+                .begin_output_generation()
+                .map(|generation| NativeOutputGeneration { generation })
+                .map_err(|failure| {
+                    error("audio_input.output_generation_limit", failure.to_string())
+                })
+        })
+    }
+
+    #[napi]
+    pub fn try_write_f32(
+        &self,
+        samples: &[f32],
+        discontinuity: bool,
+        generation: Option<&NativeOutputGeneration>,
+    ) -> Result<()> {
+        self.write_samples(samples.len(), discontinuity, generation, |destination| {
             destination.copy_from_slice(samples);
         })
     }
 
     #[napi]
-    pub fn try_write_f32_le(&self, samples: Buffer, discontinuity: bool) -> Result<()> {
+    pub fn try_write_f32_le(
+        &self,
+        samples: Buffer,
+        discontinuity: bool,
+        generation: Option<&NativeOutputGeneration>,
+    ) -> Result<()> {
         let bytes = samples.as_ref();
         if !bytes.len().is_multiple_of(std::mem::size_of::<f32>()) {
             return Err(invalid_buffer(
@@ -206,6 +261,7 @@ impl NativeAudioInput {
         self.write_samples(
             bytes.len() / std::mem::size_of::<f32>(),
             discontinuity,
+            generation,
             |output| {
                 for (sample, encoded) in output.iter_mut().zip(bytes.chunks_exact(4)) {
                     *sample = f32::from_le_bytes([encoded[0], encoded[1], encoded[2], encoded[3]]);
@@ -224,7 +280,12 @@ impl NativeAudioInput {
 
     #[napi]
     pub fn observations(&self) -> Result<NativeAudioInputObservations> {
-        self.with_input(|input| Ok(input.observations().into()))
+        self.with_input(|input| {
+            Ok(NativeAudioInputObservations::new(
+                input.observations(),
+                input.cancelled_output_writes_total(),
+            ))
+        })
     }
 }
 
@@ -258,6 +319,18 @@ fn write_error(failure: AudioInputWriteError) -> napi::Error {
     error(code, failure.to_string())
 }
 
+fn output_write_error(failure: AudioOutputWriteError) -> napi::Error {
+    let code = match failure.kind() {
+        AudioOutputWriteErrorKind::Full => "audio_input.full",
+        AudioOutputWriteErrorKind::Closed => "audio_input.closed",
+        AudioOutputWriteErrorKind::SessionCancelled => "audio_input.cancelled",
+        AudioOutputWriteErrorKind::OutputCancelled(_) => "audio_input.output_cancelled",
+        AudioOutputWriteErrorKind::WrongInput => "audio_input.wrong_output_input",
+        AudioOutputWriteErrorKind::InvalidBuffer(_) => "audio_input.invalid_buffer",
+    };
+    error(code, failure.to_string())
+}
+
 fn invalid_buffer(message: impl AsRef<str>) -> napi::Error {
     error("audio_input.invalid_buffer", message)
 }
@@ -286,10 +359,12 @@ mod tests {
     fn accepted_samples_are_copied_and_capacity_is_explicit() {
         let (_session, input) = input(1);
         let mut samples = vec![0.25; 480];
-        input.try_write_f32(&samples, false).expect("first write");
+        input
+            .try_write_f32(&samples, false, None)
+            .expect("first write");
         samples.fill(0.75);
         let failure = input
-            .try_write_f32(&samples, false)
+            .try_write_f32(&samples, false, None)
             .expect_err("second write must report capacity");
         assert!(failure.reason.contains("audio_input.full"));
         let observations = input.observations().expect("observations");
@@ -303,7 +378,7 @@ mod tests {
         input.close().expect("first close");
         input.close().expect("second close");
         let failure = input
-            .try_write_f32(&vec![0.0; 480], false)
+            .try_write_f32(&vec![0.0; 480], false, None)
             .expect_err("closed input must reject writes");
         assert!(failure.reason.contains("audio_input.closed"));
     }
@@ -312,8 +387,33 @@ mod tests {
     fn byte_input_requires_complete_little_endian_float32_samples() {
         let (_session, input) = input(1);
         let failure = input
-            .try_write_f32_le(Buffer::from(vec![0_u8; 3]), false)
+            .try_write_f32_le(Buffer::from(vec![0_u8; 3]), false, None)
             .expect_err("partial sample must fail");
         assert!(failure.reason.contains("audio_input.invalid_buffer"));
+    }
+
+    #[test]
+    fn newer_output_deactivates_older_output_without_closing_input() {
+        let (_session, input) = input(2);
+        let samples = vec![0.25; 480];
+        let first = input.begin_output().expect("first output");
+        input
+            .try_write_f32(&samples, false, Some(&first))
+            .expect("first output write");
+
+        let second = input.begin_output().expect("second output");
+        assert!(!first.active());
+        assert!(second.active());
+        let failure = input
+            .try_write_f32(&samples, false, Some(&first))
+            .expect_err("inactive output must reject writes");
+        assert!(failure.reason.contains("audio_input.output_cancelled"));
+        input
+            .try_write_f32(&samples, false, Some(&second))
+            .expect("current output write");
+
+        let observations = input.observations().expect("observations");
+        assert_eq!(observations.cancelled_output_writes_total, "1");
+        assert!(!observations.closed);
     }
 }

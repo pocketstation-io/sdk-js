@@ -169,7 +169,7 @@ function compileDiagnosticFromNative(
       });
 }
 
-/** Startup failure reported by the native Session owner. */
+/** Startup failure reported by the native Session runtime. */
 export class SessionStartError extends PocketStationError {
   /** Precise Core location data when startup failed during compilation. */
   public readonly diagnostic: CompileDiagnostic | undefined;
@@ -1035,5 +1035,33 @@ export class Session {
       );
     }
     return RunningSession._create(running, Object.freeze([...this.#providers]));
+  }
+
+  /**
+   * Run application work inside this Session's complete lifecycle.
+   *
+   * A successful callback drains accepted work with `stop()`. A thrown or
+   * rejected callback cancels pending work before the original failure is
+   * rethrown. Use `start()` when application code needs to choose shutdown
+   * independently.
+  */
+  public async run(
+    work: (running: RunningSession) => void | Promise<void>,
+  ): Promise<StopResult> {
+    const running = await this.start();
+    try {
+      await work(running);
+      return await running.stop();
+    } catch (cause) {
+      try {
+        await running.cancel();
+      } catch (cleanupFailure) {
+        throw new AggregateError(
+          [cause, cleanupFailure],
+          'Session work failed and cancellation did not complete',
+        );
+      }
+      throw cause;
+    }
   }
 }

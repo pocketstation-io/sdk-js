@@ -1,8 +1,9 @@
 /**
  * Environment-neutral PocketStation package metadata and errors.
  *
- * Use `pocketstation/node` for native desktop capture and
- * `pocketstation/browser` for Relay receiving.
+ * Use `pocketstation/node` for native desktop capture. The experimental
+ * `pocketstation/browser` export evaluates Relay publishing and receiving
+ * without loading native code.
  *
  * @packageDocumentation
  */

@@ -51,6 +51,7 @@ export interface AudioFrame {
 // @public
 export class AudioInput implements Disposable {
     [Symbol.dispose](): void;
+    beginOutput(): OutputGeneration;
     close(): void;
     get config(): AudioInputConfig;
     observations(): AudioInputObservations;
@@ -126,6 +127,7 @@ export interface AudioInputObservations {
     readonly availableBuffers: bigint;
     readonly bufferSlots: bigint;
     readonly cancelled: boolean;
+    readonly cancelledOutputWritesTotal: bigint;
     readonly capacityFrames: bigint;
     readonly closed: boolean;
     readonly fullTotal: bigint;
@@ -154,6 +156,7 @@ export class AudioInputTimeoutError extends AudioInputError {
 // @public
 export interface AudioInputTryWriteOptions {
     discontinuity?: boolean;
+    output?: OutputGeneration;
 }
 
 // @public
@@ -254,6 +257,36 @@ export interface BytesSignalPayload {
 }
 
 // @public
+export class Capture implements AsyncDisposable, AsyncIterable<AudioFrame> {
+    [Symbol.asyncDispose](): Promise<void>;
+    [Symbol.asyncIterator](): AsyncGenerator<AudioFrame>;
+    constructor(options: CaptureOptions);
+    readonly application: Stem;
+    readonly applicationRouteId: bigint | undefined;
+    get audio(): AudioStream;
+    cancel(): Promise<StopResult>;
+    get events(): EventStream;
+    frames(options?: StreamReadOptions): AsyncGenerator<AudioFrame>;
+    get isRunning(): boolean;
+    metrics(): Promise<SessionMetrics>;
+    readonly microphone: Stem | undefined;
+    readonly microphoneRouteId: bigint | undefined;
+    get recording(): RecordingOutcome | undefined;
+    readonly session: Session;
+    signals(subscription: BusSubscription): SignalStream;
+    start(): Promise<this>;
+    readonly stems: readonly Stem[];
+    stop(): Promise<StopResult>;
+    get stopResult(): StopResult | undefined;
+}
+
+// @public
+export function capture(application: ApplicationSelection, settings?: CaptureSettings): Promise<Capture>;
+
+// @public
+export function capture(options: CaptureOptions): Promise<Capture>;
+
+// @public
 export interface CaptureAuthorizationSnapshot {
     readonly applicationPolicy: ApplicationPolicyObservation;
     readonly capability: CaptureCapabilityState;
@@ -272,6 +305,14 @@ export type CaptureCapabilityState = 'available' | 'unavailable' | 'unsupported'
 
 // @public
 export type CaptureOpenOutcome = 'not-attempted' | 'succeeded' | 'permission-denied' | 'source-unavailable' | 'backend-failed';
+
+// @public
+export interface CaptureOptions extends Pick<SessionOptions, 'sampleRateHz' | 'channels' | 'frameDurationMs' | 'trace'> {
+    readonly application: ApplicationSelection;
+    readonly microphone?: boolean | string;
+    readonly recordTo?: string;
+    readonly streamAudio?: boolean;
+}
 
 // @public
 export class CapturePermissionLifecycle {
@@ -294,6 +335,9 @@ export type CaptureScope = 'exact-application' | 'exact-input-device' | 'exact-o
 
 // @public
 export type CaptureSessionGrant = 'granted-by-explicit-selection' | 'denied' | 'not-evaluated';
+
+// @public
+export type CaptureSettings = Omit<CaptureOptions, 'application'>;
 
 // @public
 export type ChannelLayout = 'mono' | 'stereo' | 'any';
@@ -974,6 +1018,34 @@ export interface OperatorWorkerMetrics {
 }
 
 // @public
+export class OutputCancelledError extends AudioInputError {
+    constructor(message?: string, options?: {
+        cause?: unknown;
+    });
+}
+
+// @public
+export class OutputGeneration {
+    get active(): boolean;
+    cancel(): boolean;
+    get id(): bigint;
+}
+
+// @public
+export class OutputGenerationLimitError extends AudioInputError {
+    constructor(message: string, options?: {
+        cause?: unknown;
+    });
+}
+
+// @public
+export class OutputOwnershipError extends AudioInputError {
+    constructor(message: string, options?: {
+        cause?: unknown;
+    });
+}
+
+// @public
 export type PermissionObservation = 'allowed' | 'denied' | 'restricted' | 'not-determined' | 'revoked' | 'not-observable' | 'not-applicable';
 
 // @public
@@ -1256,6 +1328,7 @@ export class Session {
     registerOperator(operator: OperatorFactory): OperatorFactory;
     registerSidecar(process: SidecarProcess): SidecarHandle;
     registerSource(source: SourceFactory): SourceFactory;
+    run(work: (running: RunningSession) => void | Promise<void>): Promise<StopResult>;
     source(source: string | SourceFactory, configuration?: SourceConfiguration): SourceInstance;
     start(): Promise<RunningSession>;
     subscribe(stream: SourceOutput | DerivedStream, options: {

@@ -1,18 +1,19 @@
 # JavaScript SDK design
 
-PocketStation for JavaScript has two independent uses:
+PocketStation for JavaScript has two separate exports:
 
 - Node captures and processes desktop audio through the native Rust engine.
-- Browsers receive audio that a Session publishes through PocketStation Relay.
+- Browsers can evaluate publishing or receiving one WebRTC audio track through
+  PocketStation Relay. This export is not production-qualified yet.
 
 Browser code never loads the native addon. Node code never starts a Relay or
 opens a microphone unless the application asks for it.
 
 ## Node lifecycle
 
-A `Session` is a declaration. Calling `capture()` adds one Source and returns a
-`Stem`. Calling `send()` routes that Stem to an Endpoint. `start()` validates
-the complete declaration, opens native resources, and returns a
+A `Session` is a declaration. Calling `Session.capture()` adds one Source and
+returns a `Stem`. Calling `send()` routes that Stem to an Endpoint. `start()`
+validates the complete declaration, opens native resources, and returns a
 `RunningSession`.
 
 The first supported Endpoint is the Session audio stream:
@@ -152,10 +153,10 @@ TypeScript layer performs the exact conversion outside the media thread.
 
 ## Session observations
 
-Core remains the only owner of queue, delivery, timing, provider, recording,
-and shutdown state. `running.metrics()` asks the native Session worker for one
-snapshot and converts it into immutable TypeScript values. The SDK verifies
-that every reported collection count matches the collection it received.
+Core maintains queue, delivery, timing, provider, recording, and shutdown
+state. `running.metrics()` asks the native Session worker for one snapshot and
+converts it into immutable TypeScript values. The SDK verifies that every
+reported collection count matches the collection it received.
 
 Events use closed discriminated unions. Terminal events carry the complete
 retained Source, Endpoint, rollback, and finalization failures in addition to
@@ -206,12 +207,11 @@ multistem recording with no runtime, lineage, delivery, or finalization
 failures. That is one-machine macOS evidence, not cross-platform recording or
 latency qualification.
 
-That physical test uses Core commit
-`a2bb0e12e3d38aca6bf72eee02773e6830d58ccb`, which fixes variable CoreAudio
-process-tap callback sizes. The normal Cargo manifest uses released Core
-`1.1.10`, so publication waits for an approved Core `1.1.x` release containing
-the fix. No Windows, Linux, microphone, system-audio, Relay, or performance
-claim follows from the macOS result.
+That physical test uses the corrected CoreAudio implementation in the current
+Core source. The normal Cargo manifest uses released Core `1.1.10`, so
+publication waits for an approved Core `1.1.x` release containing the fix. No
+Windows, Linux, microphone, system-audio, Relay, or performance claim follows
+from the macOS result.
 
 ## Later work
 

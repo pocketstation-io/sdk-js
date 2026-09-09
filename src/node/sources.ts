@@ -123,9 +123,9 @@ export interface ProcessInstanceSelector {
 export interface CaptureAuthorizationSnapshot {
   /** Availability of the capture capability. */
   readonly capability: CaptureCapabilityState;
-  /** Permission value supplied by the platform owner. */
+  /** Permission value reported by the operating system. */
   readonly osPermission: PermissionObservation;
-  /** Application capture policy supplied by the platform owner. */
+  /** Application capture policy reported by the operating system. */
   readonly applicationPolicy: ApplicationPolicyObservation;
   /** Access decision made by the host application. */
   readonly sessionGrant: CaptureSessionGrant;
@@ -241,10 +241,7 @@ const handles = new WeakMap<Source, NativeSourceHandle>();
 
 /** Describes audio that a Session should open when it starts. */
 export class Source {
-  readonly #native: NativeSourceHandle;
-
   private constructor(native: NativeSourceHandle) {
-    this.#native = native;
     handles.set(this, native);
   }
 

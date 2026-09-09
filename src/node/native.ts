@@ -239,16 +239,32 @@ export interface NativeAudioInputObservations {
   acceptedTotal: string;
   fullTotal: string;
   invalidTotal: string;
+  cancelledOutputWritesTotal: string;
   cancelled: boolean;
   closed: boolean;
+}
+
+export interface NativeOutputGenerationHandle {
+  readonly id: string;
+  readonly active: boolean;
+  cancel(): boolean;
 }
 
 export interface NativeAudioInputHandle {
   readonly sourceId: string;
   readonly streamId: string;
   readonly output: NativeSourceOutputHandle;
-  tryWriteF32(samples: Float32Array, discontinuity: boolean): void;
-  tryWriteF32Le(samples: Buffer, discontinuity: boolean): void;
+  beginOutput(): NativeOutputGenerationHandle;
+  tryWriteF32(
+    samples: Float32Array,
+    discontinuity: boolean,
+    generation?: NativeOutputGenerationHandle,
+  ): void;
+  tryWriteF32Le(
+    samples: Buffer,
+    discontinuity: boolean,
+    generation?: NativeOutputGenerationHandle,
+  ): void;
   close(): void;
   observations(): NativeAudioInputObservations;
 }

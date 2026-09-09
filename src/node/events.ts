@@ -167,7 +167,7 @@ export interface TerminalEvent {
   readonly finalizationFailures: readonly SessionControlFailure[];
 }
 
-/** One lifecycle or failure event from the native Session owner. */
+/** One lifecycle or failure event from the native Session runtime. */
 export type SessionEvent =
   | LifecycleEvent
   | SourceFailureEvent
