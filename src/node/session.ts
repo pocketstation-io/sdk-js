@@ -7,6 +7,7 @@ import {
   type NativeEndpointHandle,
   type NativeOperatorInputHandle,
   type NativeOperatorInstanceHandle,
+  type NativeRelayDestinationOptions,
   type NativeRunningSessionHandle,
   type NativeSessionHandle,
   type NativeStemHandle,
@@ -214,6 +215,58 @@ export class Endpoint {
   /** @internal */
   public _nativeHandle(): NativeEndpointHandle {
     return this.#native;
+  }
+}
+
+/** One STUN server available to the native Relay publisher. */
+export interface RelayIceServer {
+  /** One or more `stun:` URLs. */
+  readonly urls: string | readonly string[];
+}
+
+/** Connection details returned when the control plane creates a RelaySession. */
+export interface RelayPublisherOptions {
+  /** PocketStation Relay HTTP or HTTPS origin. */
+  readonly url: string;
+  /** RelaySession identity returned by the control plane. */
+  readonly sessionId: string;
+  /** Source credential returned with the RelaySession. */
+  readonly sourceToken: string;
+  /** Prefer fresh speech audio over preserving a growing queue. */
+  readonly lowLatency?: boolean;
+  /** Complete signaling, ICE, and DTLS startup deadline. Defaults to 30 seconds. */
+  readonly startupTimeoutMs?: number;
+  /** STUN servers returned by the control plane, when needed. */
+  readonly iceServers?: readonly RelayIceServer[];
+}
+
+/** Named audio destinations published through one shared Relay connection. */
+export class RelayPublisher {
+  readonly #session: Session;
+  readonly #options: RelayPublisherOptions;
+  readonly #destinations = new Map<string, Endpoint>();
+
+  private constructor(session: Session, options: RelayPublisherOptions) {
+    this.#session = session;
+    this.#options = Object.freeze({ ...options });
+  }
+
+  /** @internal */
+  public static _create(session: Session, options: RelayPublisherOptions): RelayPublisher {
+    return new RelayPublisher(session, options);
+  }
+
+  /** Return the Session destination for one named Relay AudioBus. */
+  public audio(busId: string): Endpoint {
+    const bus = busId.trim();
+    if (bus.length === 0) {
+      throw new RangeError('Relay AudioBus name cannot be empty');
+    }
+    const existing = this.#destinations.get(bus);
+    if (existing !== undefined) return existing;
+    const endpoint = this.#session._relayAudio(this.#options, bus);
+    this.#destinations.set(bus, endpoint);
+    return endpoint;
   }
 }
 
@@ -912,6 +965,31 @@ export class Session {
     );
   }
 
+  /** Publish one or more named audio buses through one native Relay connection. */
+  public relay(options: RelayPublisherOptions): RelayPublisher {
+    validateRelayPublisherOptions(options);
+    return RelayPublisher._create(this, options);
+  }
+
+  /** @internal */
+  public _relayAudio(options: RelayPublisherOptions, busId: string): Endpoint {
+    const nativeOptions: NativeRelayDestinationOptions = {
+      url: options.url,
+      sessionId: options.sessionId,
+      sourceToken: options.sourceToken,
+      busId,
+      lowLatency: options.lowLatency,
+      startupTimeoutMs: options.startupTimeoutMs,
+      iceServers: options.iceServers?.map((server) => ({
+        urls: typeof server.urls === 'string' ? [server.urls] : [...server.urls],
+      })),
+    };
+    return Endpoint._create(
+      this,
+      nativeCallSync(() => this.#native.relayAudio(nativeOptions)),
+    );
+  }
+
   /** Declare one destination implemented by application-owned JavaScript. */
   public destination(connector: Connector): Endpoint {
     const existing = this.#connectorEndpoints.get(connector);
@@ -1063,5 +1141,27 @@ export class Session {
       }
       throw cause;
     }
+  }
+}
+
+function validateRelayPublisherOptions(options: RelayPublisherOptions): void {
+  for (const [name, value] of [
+    ['url', options.url],
+    ['sessionId', options.sessionId],
+    ['sourceToken', options.sourceToken],
+  ] as const) {
+    if (value.trim().length === 0) {
+      throw new RangeError(`Relay ${name} cannot be empty`);
+    }
+  }
+  if (
+    options.startupTimeoutMs !== undefined &&
+    (!Number.isInteger(options.startupTimeoutMs) ||
+      options.startupTimeoutMs < 1 ||
+      options.startupTimeoutMs > 120_000)
+  ) {
+    throw new RangeError(
+      'Relay startupTimeoutMs must be an integer between 1 and 120000',
+    );
   }
 }

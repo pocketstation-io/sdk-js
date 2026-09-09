@@ -1,5 +1,26 @@
 # JavaScript SDK progress
 
+## W21 JavaScript Relay and browser workflow
+
+The Node publisher slice now uses the released `pocketstation-relay 0.1.5`
+crate directly from crates.io. `Session.relay()` creates one Session-owned
+publisher and `relay.audio(name)` declares a destination for each selected
+AudioBus. Several Stems therefore share one connector lifecycle while Core
+retains their source, Stem, route, and bus identities.
+
+The public JavaScript API does not expose the connector manifest or construct a
+second WebRTC publisher. Relay values are validated before startup, source
+credentials stay in Core's secret-aware configuration, and the current
+publisher rejects unsupported TURN credentials explicitly. Unit tests cover
+shared publication, distinct bus destinations, input validation, and the
+unsupported TURN case. The complete SDK suite, strict TypeScript, API report,
+documentation, examples, package exports, and a clean tarball consumer pass.
+
+This is component and installed-package evidence. A live Relay publication and
+browser receipt have not passed yet. The browser export still uses the retired
+room API at this checkpoint and remains `PARTIAL` until the next slice replaces
+it and the real-browser gate succeeds.
+
 ## W21 JavaScript API and developer experience
 
 `W21-JAVASCRIPT-API-PARITY-DEVELOPER-EXPERIENCE` is complete in the current

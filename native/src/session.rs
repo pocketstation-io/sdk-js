@@ -8,6 +8,8 @@ use napi::bindgen_prelude::AsyncTask;
 use napi::bindgen_prelude::{ClassInstance, Function, Promise};
 use napi::{Env, Result, Task};
 use napi_derive::napi;
+use pocketstation::connector::ConnectorSecret;
+use pocketstation_relay::{RelayConnector, RelayIceServer, RelayRouteConfiguration};
 
 use crate::application_audio::NativeAudioInput;
 use crate::errors::{error, state_unavailable};
@@ -127,6 +129,22 @@ pub struct NativeSessionOptions {
     pub recording_root: Option<String>,
     pub trace_path: Option<String>,
     pub trace_capacity_records: Option<u32>,
+}
+
+#[napi(object)]
+pub struct NativeRelayIceServer {
+    pub urls: Vec<String>,
+}
+
+#[napi(object)]
+pub struct NativeRelayDestinationOptions {
+    pub url: String,
+    pub session_id: String,
+    pub source_token: String,
+    pub bus_id: String,
+    pub low_latency: Option<bool>,
+    pub startup_timeout_ms: Option<u32>,
+    pub ice_servers: Option<Vec<NativeRelayIceServer>>,
 }
 
 #[napi(object)]
@@ -280,6 +298,7 @@ pub struct NativeSession {
     session_id: u64,
     signal_receipts: SignalReceipts,
     next_signal_subscription_id: AtomicU64,
+    relay_connector: Mutex<Option<pocketstation::connector::RegisteredConnector>>,
 }
 
 #[napi]
@@ -360,6 +379,7 @@ impl NativeSession {
             session_id,
             signal_receipts: new_signal_receipts(),
             next_signal_subscription_id: AtomicU64::new(0),
+            relay_connector: Mutex::new(None),
         })
     }
 
@@ -448,6 +468,78 @@ impl NativeSession {
                     handle,
                 })
                 .map_err(|failure| error("session.invalid_endpoint", failure.to_string()))
+        })
+    }
+
+    #[napi]
+    pub fn relay_audio(&self, options: NativeRelayDestinationOptions) -> Result<NativeEndpoint> {
+        let source_token = ConnectorSecret::new(options.source_token)
+            .map_err(|failure| error("relay.invalid_source_token", failure.to_string()))?;
+        let mut configuration = RelayRouteConfiguration::new(
+            options.url,
+            options.session_id,
+            source_token,
+            options.bus_id,
+        )
+        .map_err(|failure| error("relay.invalid_configuration", failure.to_string()))?;
+        if options.low_latency.unwrap_or(false) {
+            configuration = configuration.with_low_latency();
+        }
+        if let Some(timeout_ms) = options.startup_timeout_ms {
+            configuration = configuration
+                .with_startup_timeout(Duration::from_millis(u64::from(timeout_ms)))
+                .map_err(|failure| error("relay.invalid_configuration", failure.to_string()))?;
+        }
+        if let Some(servers) = options.ice_servers {
+            let servers = servers
+                .into_iter()
+                .map(|server| RelayIceServer::new(server.urls))
+                .collect::<std::result::Result<Vec<_>, _>>()
+                .map_err(|failure| error("relay.invalid_configuration", failure.to_string()))?;
+            configuration = configuration
+                .with_ice_servers(servers)
+                .map_err(|failure| error("relay.invalid_configuration", failure.to_string()))?;
+        }
+        let configuration = configuration
+            .connector_configuration()
+            .map_err(|failure| error("relay.invalid_configuration", failure.to_string()))?;
+
+        let session = self
+            .session
+            .lock()
+            .map_err(|_| state_unavailable("Session"))?;
+        let session = session
+            .as_ref()
+            .ok_or_else(|| error("session.draft_frozen", "Session has already started"))?;
+        let mut registered = self
+            .relay_connector
+            .lock()
+            .map_err(|_| state_unavailable("Relay connector"))?;
+        if registered.is_none() {
+            let relay = RelayConnector::new()
+                .map_err(|failure| error("relay.registration_failed", failure.to_string()))?;
+            *registered = Some(
+                relay
+                    .register(session)
+                    .map_err(|failure| error("relay.registration_failed", failure.to_string()))?,
+            );
+        }
+        let registered = registered.as_ref().ok_or_else(|| {
+            error(
+                "relay.registration_failed",
+                "Relay connector registration did not produce a destination",
+            )
+        })?;
+        let handle = registered
+            .declare(
+                session,
+                configuration,
+                pocketstation::RouteSettings::realtime_audio(),
+            )
+            .map_err(|failure| error("relay.destination_failed", failure.to_string()))?;
+        Ok(NativeEndpoint {
+            session_id: self.session_id,
+            handle,
         })
     }
 
@@ -724,6 +816,7 @@ impl NativeSession {
             session_id,
             signal_receipts: new_signal_receipts(),
             next_signal_subscription_id: AtomicU64::new(0),
+            relay_connector: Mutex::new(None),
         })
     }
 }

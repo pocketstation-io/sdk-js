@@ -80,6 +80,16 @@ export interface NativeEndpointHandle {
   readonly sessionId: string;
 }
 
+export interface NativeRelayDestinationOptions {
+  url: string;
+  sessionId: string;
+  sourceToken: string;
+  busId: string;
+  lowLatency?: boolean;
+  startupTimeoutMs?: number;
+  iceServers?: { urls: string[] }[];
+}
+
 export interface NativeProviderAudio {
   samplesF32Le: Buffer;
   sampleCount: number;
@@ -1003,6 +1013,7 @@ export interface NativeSessionHandle {
   ): NativeAudioInputHandle;
   audio(): NativeEndpointHandle;
   audioWithRoute(route: NativeRouteSettingsHandle): NativeEndpointHandle;
+  relayAudio(options: NativeRelayDestinationOptions): NativeEndpointHandle;
   audioConnector(
     dispatch: (request: NativeProviderCall) => Promise<NativeProviderResult>,
     deadlineMs?: number,
