@@ -8,6 +8,8 @@ import {
   AudioInputConfigurationError,
   AudioInputFullError,
   AudioInputTimeoutError,
+  OutputCancelledError,
+  OutputOwnershipError,
   Session,
 } from '../node/index.js';
 
@@ -72,6 +74,50 @@ describe('application-owned PCM', () => {
       cancelled: false,
       closed: false,
     });
+  });
+
+  it('cancels one output without stopping its AudioInput or Session', async () => {
+    const session = new Session({ frameDurationMs: 10 });
+    const input = session.audioInput('assistant audio', { capacityFrames: 4 });
+    input.output.send(session.audio());
+    const first = input.beginOutput();
+    const firstSamples = new Float32Array(480).fill(0.25);
+    const secondSamples = new Float32Array(480).fill(0.75);
+
+    input.tryWrite(firstSamples, { output: first });
+    const second = input.beginOutput();
+
+    expect(first.active).toBe(false);
+    expect(second.active).toBe(true);
+    expect(() => input.tryWrite(firstSamples, { output: first })).toThrow(
+      OutputCancelledError,
+    );
+
+    input.tryWrite(secondSamples, { output: second });
+    input.close();
+
+    const running = await session.start();
+    const received = await running.audio.read({ timeoutMs: 1_000 });
+    const metrics = await running.metrics();
+    await running.stop();
+
+    expect(received?.outputGenerationId).toBe(second.id);
+    expect(received?.samples[0]).toBeCloseTo(0.75);
+    expect(input.observations()).toMatchObject({
+      cancelledOutputWritesTotal: 1n,
+    });
+    expect(metrics.routes[0]?.delivery.discardedOutputFramesTotal).toBe(1n);
+  });
+
+  it('rejects output created by another AudioInput', () => {
+    const session = new Session({ frameDurationMs: 10 });
+    const first = session.audioInput('first output');
+    const second = session.audioInput('second output');
+    const output = first.beginOutput();
+
+    expect(() =>
+      second.tryWrite(new Float32Array(480), { output }),
+    ).toThrow(OutputOwnershipError);
   });
 
   it('does not advance sequence, time, or discontinuity after a full write', async () => {

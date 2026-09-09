@@ -32,6 +32,10 @@ export {
   AudioInputError,
   AudioInputFullError,
   AudioInputTimeoutError,
+  OutputCancelledError,
+  OutputGeneration,
+  OutputGenerationLimitError,
+  OutputOwnershipError,
   type AudioInputConfig,
   type AudioInputObservations,
   type AudioInputOptions,
@@ -39,6 +43,12 @@ export {
   type AudioInputTryWriteOptions,
   type AudioInputWriteOptions,
 } from './application-audio.js';
+export {
+  Capture,
+  capture,
+  type CaptureOptions,
+  type CaptureSettings,
+} from './capture.js';
 export {
   Connector,
   connector,

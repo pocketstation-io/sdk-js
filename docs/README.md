@@ -1,14 +1,13 @@
 # PocketStation JavaScript documentation
 
 Start with the job your application needs to perform. The native Node package
-and the browser receiver are separate exports and can be installed together
-without loading native code in a browser build.
+and experimental browser Relay client are separate exports, so a browser build
+does not load native code.
 
 ## Get started
 
-- [Capture an application](../README.md#capture-an-application)
-- [Add a microphone only when the user asks for it](../README.md#add-a-microphone)
-- [Discover applications and devices](../README.md#discover-sources-before-capture)
+- [Capture an application](getting-started/capture.md)
+- [Run the examples](../examples/README.md)
 - [Feed PCM from a provider, decoder, or network connection](guides/application-audio.md)
 
 ## Build a Session
@@ -18,14 +17,21 @@ without loading native code in a browser build.
 - [Run compiled extensions and managed processes](guides/extensions-and-sidecars.md)
 - [Add JavaScript Sources, Operators, Connectors, and Endpoints](guides/provider-authoring.md)
 - [Choose media and delivery settings](concepts/route-settings.md)
+- [Understand Session lifecycle and limits](concepts/session-lifecycle.md)
+- [Choose Sources and handle permissions](concepts/sources-and-permissions.md)
 - [Understand delivery, failures, recordings, and traces](guides/observe-a-session.md)
 - [Understand native ownership and shutdown](JAVASCRIPT_SDK_DESIGN.md)
 
-## Check current support
+## Operate and troubleshoot
 
 - [Capability status](JAVASCRIPT_CAPABILITY_MATRIX.md)
+- [Platform support](operations/platform-support.md)
+- [Troubleshooting](troubleshooting.md)
+- [API map](reference/api-map.md)
+- [Events, errors, and final results](reference/events-and-errors.md)
+- [Browser Relay status](reference/browser-relay.md)
 - [Public API report](../etc/pocketstation-node.api.md)
 
 The Node package is not published to npm yet. Examples in this repository run
-against the local package candidate and do not establish Windows, Linux, WAN,
+against the local package build and do not establish Windows, Linux, WAN,
 or performance support.

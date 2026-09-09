@@ -46,6 +46,7 @@ try {
   const source = `
     import {
       CapturePermissionLifecycle,
+      Capture,
       EndpointFactory,
       DeliveryPolicy,
       END_OF_STREAM,
@@ -54,6 +55,8 @@ try {
       ExtensionPort,
       MediaCaps,
       Operator,
+      OutputCancelledError,
+      OutputGeneration,
       PortSpec,
       RouteSettings,
       Session,
@@ -85,6 +88,16 @@ try {
     if (typeof permission !== 'string') throw new Error('permission observation is not typed');
     const lifecycle = new CapturePermissionLifecycle(permission);
     if (lifecycle.permissionEpoch !== 1n) throw new Error('invalid permission epoch');
+    const concise = new Capture({
+      application: 'PocketStation missing application',
+      streamAudio: false,
+    });
+    if (!(concise.session instanceof Session)) {
+      throw new Error('concise capture did not compose the public Session');
+    }
+    if (concise.microphone !== undefined || concise.stems.length !== 1) {
+      throw new Error('concise capture opened an implicit microphone');
+    }
     Source.applicationName('PocketStation missing application');
     Source.applicationId('io.pocketstation.missing');
     Source.applicationProcessId(42);
@@ -100,17 +113,41 @@ try {
     const input = inputSession.audioInput('packed PCM');
     input.output.send(inputSession.audio());
     const inputSamples = new Float32Array(480).fill(0.25);
-    input.tryWrite(inputSamples, { discontinuity: true });
+    const oldOutput = input.beginOutput();
+    if (!(oldOutput instanceof OutputGeneration)) {
+      throw new Error('packed output did not use the public output type');
+    }
+    input.tryWrite(inputSamples, { discontinuity: true, output: oldOutput });
+    const currentOutput = input.beginOutput();
+    if (oldOutput.active || !currentOutput.active) {
+      throw new Error('starting new output did not deactivate the previous output');
+    }
+    try {
+      input.tryWrite(inputSamples, { output: oldOutput });
+      throw new Error('inactive output unexpectedly accepted PCM');
+    } catch (error) {
+      if (!(error instanceof OutputCancelledError)) throw error;
+    }
     inputSamples.fill(0.75);
+    input.tryWrite(inputSamples, { output: currentOutput });
     input.close();
-    const runningInput = await inputSession.start();
-    const inputFrame = await runningInput.audio.read({ timeoutMs: 1000 });
-    if (inputFrame?.samples[0] !== 0.25) throw new Error('packed PCM was not copied by Core');
-    if (inputFrame.sourceId !== input.sourceId) throw new Error('packed PCM lost Source identity');
-    if (inputFrame.streamId !== input.streamId) throw new Error('packed PCM lost stream identity');
-    if (inputFrame.discontinuityEpoch !== 1n) throw new Error('packed PCM lost discontinuity');
-    await runningInput.stop();
-    if (await runningInput.audio.read({ timeoutMs: 0 }) !== END_OF_STREAM) {
+    let inputAudio;
+    const inputStop = await inputSession.run(async (running) => {
+      inputAudio = running.audio;
+      const inputFrame = await running.audio.read({ timeoutMs: 1000 });
+      if (inputFrame?.samples[0] !== 0.75) throw new Error('packed PCM was not copied by Core');
+      if (inputFrame.sourceId !== input.sourceId) throw new Error('packed PCM lost Source identity');
+      if (inputFrame.streamId !== input.streamId) throw new Error('packed PCM lost stream identity');
+      if (inputFrame.outputGenerationId !== currentOutput.id) {
+        throw new Error('packed PCM lost output identity');
+      }
+      const inputMetrics = await running.metrics();
+      if (inputMetrics.routes[0]?.delivery.discardedOutputFramesTotal !== 1n) {
+        throw new Error('packed Session did not report discarded obsolete output');
+      }
+    });
+    if (!inputStop.success) throw new Error('scoped packed Session did not stop cleanly');
+    if (await inputAudio.read({ timeoutMs: 0 }) !== END_OF_STREAM) {
       throw new Error('packed audio stream did not report end-of-stream');
     }
     const providerSession = new Session({ frameDurationMs: 10 });

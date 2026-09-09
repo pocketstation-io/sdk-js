@@ -6,6 +6,7 @@ import { nativeCallSync } from './errors.js';
 import type {
   NativeAudioInputHandle,
   NativeAudioInputObservations,
+  NativeOutputGenerationHandle,
 } from './native.js';
 import { SourceOutput, type Session } from './session.js';
 
@@ -39,6 +40,8 @@ export interface AudioInputConfig {
 export interface AudioInputTryWriteOptions {
   /** Mark this frame as the first frame after missing or intentionally skipped media. */
   discontinuity?: boolean;
+  /** Attach this frame to replaceable output created by this AudioInput. */
+  output?: OutputGeneration;
 }
 
 /** Options for one finite wait for Core capacity. */
@@ -63,6 +66,8 @@ export interface AudioInputObservations {
   readonly fullTotal: bigint;
   /** Writes rejected because their frame shape was invalid. */
   readonly invalidTotal: bigint;
+  /** Writes rejected because their output was no longer active. */
+  readonly cancelledOutputWritesTotal: bigint;
   /** Whether the owning Session was cancelled. */
   readonly cancelled: boolean;
   /** Whether this input no longer accepts writes. */
@@ -140,6 +145,33 @@ export class AudioInputTimeoutError extends AudioInputError {
   }
 }
 
+/** A write was rejected because its replaceable output is no longer active. */
+export class OutputCancelledError extends AudioInputError {
+  /** Create an inactive-output failure. */
+  public constructor(message = 'output is no longer active', options?: { cause?: unknown }) {
+    super('audio_input.output_cancelled', message, options);
+    this.name = 'OutputCancelledError';
+  }
+}
+
+/** Replaceable output was created by a different AudioInput. */
+export class OutputOwnershipError extends AudioInputError {
+  /** Create an output-ownership failure. */
+  public constructor(message: string, options?: { cause?: unknown }) {
+    super('audio_input.wrong_output_input', message, options);
+    this.name = 'OutputOwnershipError';
+  }
+}
+
+/** Core cannot assign another output identity to this AudioInput. */
+export class OutputGenerationLimitError extends AudioInputError {
+  /** Create an output-identity exhaustion failure. */
+  public constructor(message: string, options?: { cause?: unknown }) {
+    super('audio_input.output_generation_limit', message, options);
+    this.name = 'OutputGenerationLimitError';
+  }
+}
+
 /** An AbortSignal stopped a pending write. */
 export class AudioInputAbortError extends AudioInputError {
   /** Reason supplied to AbortController.abort(), when present. */
@@ -155,6 +187,43 @@ export class AudioInputAbortError extends AudioInputError {
 
 /** Float32 PCM samples accepted by AudioInput. */
 export type AudioInputSamples = Float32Array | Buffer;
+
+/** One replaceable output produced through an AudioInput. */
+export class OutputGeneration {
+  readonly #native: NativeOutputGenerationHandle;
+
+  private constructor(native: NativeOutputGenerationHandle) {
+    this.#native = native;
+  }
+
+  /** @internal */
+  public static _create(native: NativeOutputGenerationHandle): OutputGeneration {
+    return new OutputGeneration(native);
+  }
+
+  /** Identity retained on every accepted frame from this output. */
+  public get id(): bigint {
+    return BigInt(this.#native.id);
+  }
+
+  /** Whether this output still accepts frames. */
+  public get active(): boolean {
+    return this.#native.active;
+  }
+
+  /**
+   * Stop this output without closing its AudioInput or Session.
+   * Returns true when this call deactivates it.
+   */
+  public cancel(): boolean {
+    return nativeCallSync(() => this.#native.cancel());
+  }
+
+  /** @internal */
+  public _handle(): NativeOutputGenerationHandle {
+    return this.#native;
+  }
+}
 
 /** Supplies application-owned PCM to one native Session Source. */
 export class AudioInput implements Disposable {
@@ -201,6 +270,17 @@ export class AudioInput implements Disposable {
     return this.#output;
   }
 
+  /** Start a replaceable output while keeping this AudioInput and Session alive. */
+  public beginOutput(): OutputGeneration {
+    try {
+      return OutputGeneration._create(
+        nativeCallSync(() => this.#native.beginOutput()),
+      );
+    } catch (failure) {
+      throw typedFailure(failure);
+    }
+  }
+
   /**
    * Attempt one immediate write.
    *
@@ -214,7 +294,11 @@ export class AudioInput implements Disposable {
     try {
       if (Buffer.isBuffer(samples)) {
         nativeCallSync(() =>
-          this.#native.tryWriteF32Le(samples, options.discontinuity ?? false),
+          this.#native.tryWriteF32Le(
+            samples,
+            options.discontinuity ?? false,
+            options.output?._handle(),
+          ),
         );
         return;
       }
@@ -224,7 +308,11 @@ export class AudioInput implements Disposable {
         );
       }
       nativeCallSync(() =>
-        this.#native.tryWriteF32(samples, options.discontinuity ?? false),
+        this.#native.tryWriteF32(
+          samples,
+          options.discontinuity ?? false,
+          options.output?._handle(),
+        ),
       );
     } catch (failure) {
       throw typedFailure(failure);
@@ -306,6 +394,7 @@ export class AudioInput implements Disposable {
       acceptedTotal: BigInt(value.acceptedTotal),
       fullTotal: BigInt(value.fullTotal),
       invalidTotal: BigInt(value.invalidTotal),
+      cancelledOutputWritesTotal: BigInt(value.cancelledOutputWritesTotal),
       cancelled: value.cancelled,
       closed: value.closed,
     });
@@ -336,6 +425,12 @@ function typedFailure(failure: unknown): Error {
       return new AudioInputCancelledError(failure.message, options);
     case 'audio_input.invalid_buffer':
       return new AudioInputBufferError(failure.message, options);
+    case 'audio_input.output_cancelled':
+      return new OutputCancelledError(failure.message, options);
+    case 'audio_input.wrong_output_input':
+      return new OutputOwnershipError(failure.message, options);
+    case 'audio_input.output_generation_limit':
+      return new OutputGenerationLimitError(failure.message, options);
     default:
       return failure;
   }

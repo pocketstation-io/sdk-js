@@ -1,5 +1,50 @@
 # JavaScript SDK progress
 
+## W21 JavaScript API and developer experience
+
+`W21-JAVASCRIPT-API-PARITY-DEVELOPER-EXPERIENCE` is complete in the current
+source candidate and ready for its final execution-state check.
+
+The normal application-capture workflow is now:
+
+```ts
+const audio = await capture("Spotify");
+
+for await (const frame of audio) {
+  consume(frame);
+}
+```
+
+This calls the same Core-backed `Session` used by the explicit API. Microphone
+capture and recording remain opt-in. Leaving the iterator finishes the Session;
+an aborted iterator cancels it. Applications that add their own Sources,
+Operators, Connectors, or Endpoints can use `Session.run()` for scoped startup
+and shutdown or retain `start()`, `stop()`, and `cancel()` for direct control.
+
+Application-owned PCM now supports selected-output cancellation. Each output
+has an identity assigned by Core. Starting a newer output deactivates the older
+one, and cancelling one output discards its later writes without closing its
+`AudioInput`, stopping capture, or stopping the Session. Tests verify the
+discard through Core route metrics and reject cross-input output identities.
+
+The public documentation now starts with concise capture, then introduces
+Sources and permissions, Session lifecycle, source identity and timing,
+application-owned PCM, provider authoring, observations, platform support, and
+troubleshooting. Copied maintainer architecture, ADR, and standards files were
+removed from public SDK documentation. Documentation links and code blocks have
+an automated check, and the runnable examples execute through Core.
+
+The npm tarball includes generated JavaScript, declarations, source maps,
+matching TypeScript source, the native addon for the current target, README,
+and license. It excludes tests, execution records, and copied maintainer files.
+Package exports and a clean tarball installation pass.
+
+Current evidence is component and installed-package evidence on macOS arm64.
+It does not establish npm publication, Windows or Linux packages, a deployed
+Relay, a real browser session, a provider call, WAN behavior, or voice parity.
+The browser Relay export remains `PARTIAL` with mocked network tests and was not
+implemented by this task.
+
 ## Completed work
 
 `W21-JAVASCRIPT-APPLICATION-AUDIO-INGRESS` is complete under the recorded

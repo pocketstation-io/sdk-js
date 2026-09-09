@@ -11,7 +11,7 @@ shutdown. JavaScript receives audio after it leaves the realtime capture code,
 so model calls and application work do not run on an audio callback.
 
 > The Node SDK is under active development and is not published to npm yet.
-> The current candidate has a real macOS selected-application capture proof.
+> The current code has a real macOS selected-application capture proof.
 > Windows and Linux packages, Relay publication, and the remaining Rust/Python
 > features still require implementation or target-specific proof.
 
@@ -20,19 +20,15 @@ so model calls and application work do not run on an audio callback.
 Choose the running application by its exact display name or application ID:
 
 ```ts
-import { Session, Source } from "pocketstation/node";
+import { capture } from "pocketstation/node";
 
-const session = new Session({ frameDurationMs: 10 });
-const application = session.capture(Source.application("Spotify"));
-application.send(session.audio());
+const audio = await capture("Spotify");
 ```
 
-Start the Session and read source-aware PCM frames:
+Read source-aware PCM frames. Leaving the loop finishes this concise Capture:
 
 ```ts
-await using running = await session.start();
-
-for await (const frame of running.audio) {
+for await (const frame of audio) {
   console.log(frame.sourceId, frame.timestampStartNs, frame.samples);
 }
 ```
@@ -46,18 +42,25 @@ values.
 PocketStation never opens a microphone unless your code asks for one:
 
 ```ts
-const microphone = session.capture(Source.defaultMicrophone());
-microphone.send(session.audio());
+const audio = await capture("Zoom", { microphone: true });
 ```
 
 Application and microphone frames share the iterator but keep different
 `sourceId` and `stemId` values. A slow reader can therefore be diagnosed without
 guessing which source produced a frame.
 
-To capture all desktop output instead of one application, choose it explicitly:
+The concise object exposes `audio.session`, `audio.application`, and the optional
+`audio.microphone` Stem. Advanced routing therefore extends the same Session;
+there is no smaller second engine behind `capture()`.
+
+To capture all desktop output instead of one application, declare it explicitly:
 
 ```ts
+import { Session, Source } from "pocketstation/node";
+
+const session = new Session();
 const desktop = session.capture(Source.systemAudio());
+desktop.send(session.audio());
 ```
 
 ## Record or process the same Stem
@@ -88,13 +91,15 @@ Use a Connector for a socket, encoder, provider client, or another destination
 that consumes source-aware PCM:
 
 ```ts
-import { connector } from "pocketstation/node";
+import { Capture, connector } from "pocketstation/node";
 
 const destination = connector((frame) => {
   console.log(frame.sourceId, frame.sequenceNumber, frame.samples);
 });
 
-application.sendTo(destination);
+const declaration = new Capture({ application: "Zoom", streamAudio: false });
+declaration.application.sendTo(destination);
+await using live = await declaration.start();
 ```
 
 The class form adds `start()`, `send()`, and `stop()` for destinations that own
@@ -166,10 +171,16 @@ Use an `AudioInput` when a provider, network connection, decoder, or voice
 model already gives your application PCM:
 
 ```ts
+import { Session } from "pocketstation/node";
+
+const session = new Session({ frameDurationMs: 10 });
 const input = session.audioInput("agent audio");
 input.output.send(session.audio());
-await input.write(samples);
-input.close();
+
+await session.run(async () => {
+  await input.write(samples);
+  input.close();
+});
 ```
 
 `samples` is normally a `Float32Array` containing one complete interleaved
@@ -183,7 +194,7 @@ accepts an `AbortSignal`; timing out or aborting that wait does not close the
 input or stop the Session.
 
 Read [Feed application-owned PCM](docs/guides/application-audio.md) for format,
-capacity, discontinuity, cancellation, and shutdown behavior.
+capacity, discontinuity, selected-output cancellation, and shutdown behavior.
 
 ## Add compiled or process-isolated implementations
 
@@ -332,7 +343,9 @@ native ownership, frame copying, cancellation, and browser separation.
 
 Browser Relay receiving is exposed from `pocketstation/browser`. It is kept
 separate so browser builds never try to load a native addon. Its current tests
-use a simulated service and are not evidence of a deployed Relay session.
+use simulated services and are not evidence of a deployed Relay session. Read
+the [browser Relay status](docs/reference/browser-relay.md) before using that
+export.
 
 ## Develop from source
 

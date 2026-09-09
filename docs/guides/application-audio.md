@@ -109,6 +109,39 @@ Core advances the discontinuity epoch only when it accepts that frame. A write
 rejected because the input is full does not advance sequence, timestamp, or
 discontinuity state.
 
+## Replace generated output without stopping capture
+
+Use an output identity for audio that may become irrelevant while it is still
+waiting for delivery. Voice responses are the common example:
+
+```ts
+const response = input.beginOutput();
+
+await input.write(firstFrame, { output: response });
+await input.write(secondFrame, { output: response });
+
+response.cancel();
+```
+
+Cancellation makes later writes for that output fail with
+`OutputCancelledError`. Core also removes its pending frames from Session
+routes. Other audio inputs, captured Sources, and the Session remain active.
+
+Starting a new output also deactivates the previous one:
+
+```ts
+const previous = input.beginOutput();
+const current = input.beginOutput();
+
+console.log(previous.active); // false
+console.log(current.active);  // true
+```
+
+Each delivered frame retains `outputGenerationId`. Route metrics report how
+many pending frames Core discarded. This proves what Core removed; it does not
+claim that a remote player or physical speaker stopped unless that receiver
+reports its own playout result.
+
 ## Observe and close the input
 
 Capacity and lifecycle state come directly from Core:

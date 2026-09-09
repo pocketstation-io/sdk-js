@@ -1,13 +1,16 @@
 {
   "name": "pocketstation",
   "version": "0.1.0",
-  "description": "Native desktop audio Sessions for Node and Relay receiving for browsers",
+  "description": "Native desktop audio Sessions for Node.js",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "files": [
     "dist",
     "native-dist/*.node",
+    "src/*.ts",
+    "src/node/*.ts",
+    "src/browser/*.ts",
     "README.md",
     "LICENSE"
   ],
@@ -31,6 +34,8 @@
     "build:test-native": "node tools/clean-native-output.mjs && napi build --platform --release --features conformance-fixtures --manifest-path native/Cargo.toml --output-dir native-dist",
     "build:typescript": "node tools/clean-typescript-output.mjs && tsc",
     "example:capture": "npm run build && node examples/capture-application.mjs",
+    "docs:check": "node tools/check-docs.mjs",
+    "examples:check": "npm run build && node tools/check-examples.mjs",
     "api:check": "npm run build:typescript && api-extractor run && api-extractor run --config api-extractor.browser.json && api-extractor run --config api-extractor.root.json",
     "api:update": "npm run build:typescript && api-extractor run --local && api-extractor run --local --config api-extractor.browser.json && api-extractor run --local --config api-extractor.root.json",
     "native:check": "cargo fmt --manifest-path native/Cargo.toml --all -- --check && cargo clippy --manifest-path native/Cargo.toml --all-targets --all-features -- -D warnings && cargo test --manifest-path native/Cargo.toml --all-features",
