@@ -271,7 +271,11 @@ try {
       if (error.diagnostic?.code !== 'compile.unknown_async_operator') throw error;
     }
     const browser = await import('pocketstation/browser');
-    if (typeof browser.RelaySession !== 'function') {
+    if (
+      typeof browser.RelayReceiver !== 'function' ||
+      typeof browser.resolveRelayInvitation !== 'function' ||
+      typeof browser.PocketStationError !== 'function'
+    ) {
       throw new Error('browser export did not resolve');
     }
     console.log('packed consumer: PASS');

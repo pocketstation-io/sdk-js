@@ -32,6 +32,7 @@ describe('native Source lifecycle', () => {
     ).not.toThrow();
     expect(() => Source.systemAudio()).not.toThrow();
     expect(() => Source.defaultMicrophone()).not.toThrow();
+    expect(() => Source.microphone()).not.toThrow();
     expect(() => Source.microphone('device-1')).not.toThrow();
   });
 

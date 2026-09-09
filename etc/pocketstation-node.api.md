@@ -1814,7 +1814,7 @@ export class Source {
     static applicationStableId(stableId: StableSourceId): Source;
     static defaultMicrophone(): Source;
     static fromDiscovered(source: DiscoveredSource): Source;
-    static microphone(deviceId: string): Source;
+    static microphone(deviceId?: string): Source;
     static systemAudio(): Source;
 }
 

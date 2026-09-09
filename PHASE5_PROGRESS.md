@@ -164,10 +164,15 @@ callback and does not implement another media engine.
   outcomes; JavaScript preparation failures clean up their instance.
 - npm package: not published.
 
-The browser entry now uses `RelaySession`, shares `PocketStationError` with the
-Node entry, and never supplies a hardcoded ICE server when the control service
-does not return one. The old unpublished `RoomClient` API and its generated
-files are removed rather than retained as aliases.
+The browser entry now uses `RelayReceiver`, shares `PocketStationError` with
+the Node entry, resolves one-time invitations, and never supplies a hardcoded
+ICE server when the control service does not return one. Signaling, ICE,
+connection, observation, and shutdown waits have finite limits. The old
+unpublished `RoomClient` and `RelaySession` APIs are removed rather than
+retained as aliases. Real Chromium has received the independent application
+and microphone AudioBuses. Its shutdown run exposed a Relay server close
+handshake defect; Firefox and WebKit promotion waits for that server fix and a
+complete installed-package rerun.
 
 The physical 10 ms run exposed variable CoreAudio process-tap callback sizes.
 Core commit `a2bb0e12e3d38aca6bf72eee02773e6830d58ccb` now assembles those native

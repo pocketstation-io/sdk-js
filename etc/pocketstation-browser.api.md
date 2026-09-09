@@ -14,95 +14,141 @@ export class PocketStationError extends Error {
 }
 
 // @public
-export interface RelayClientMessage {
-    candidate?: string;
-    sdp_offer?: string;
-    sframe_key?: string;
-    token?: string;
-    type: RelayMessageType;
+export type RelayClientMessage = {
+    readonly type: 'SUBSCRIBE';
+    readonly session_id: string;
+    readonly bus_id: string;
+    readonly token: string;
+    readonly sdp_offer: string;
+} | {
+    readonly type: 'ICE';
+    readonly candidate: string;
+};
+
+// @public
+export interface RelayInvitation {
+    readonly controlUrl: string;
+    readonly joinCode: string;
 }
 
 // @public
-export interface RelayConfig {
-    controlUrl: string;
-    relayUrl: string;
+export interface RelayPlayoutObservation {
+    readonly acousticOutput: 'unavailable';
+    readonly busId: string;
+    // (undocumented)
+    readonly bytesReceived: number | null;
+    // (undocumented)
+    readonly estimatedPlayoutTimestampMs: number | null;
+    // (undocumented)
+    readonly jitterBufferDelayMs: number | null;
+    // (undocumented)
+    readonly jitterBufferEmittedCount: number | null;
+    // (undocumented)
+    readonly jitterMs: number | null;
+    readonly observedAtMs: number;
+    // (undocumented)
+    readonly packetsLost: number | null;
+    // (undocumented)
+    readonly packetsReceived: number | null;
+    readonly revision: number;
+    readonly sessionId: string;
+    readonly statsTimestampMs: number | null;
+    // (undocumented)
+    readonly totalSamplesDurationSeconds: number | null;
+    // (undocumented)
+    readonly totalSamplesReceived: number | null;
+    readonly trackState: MediaStreamTrackState | null;
 }
 
 // @public
-export type RelayConnectOptions = RelayPublishOptions | RelayReceiveOptions;
-
-// @public
-export interface RelayCredentials {
-    iceServers?: RTCIceServer[];
-    publisherToken: string;
-    receiverToken: string;
-    sessionId: string;
+export class RelayReceiver {
+    constructor(access: RelayReceiverAccess | RelayInvitation, options?: RelayReceiverOptions);
+    // (undocumented)
+    get access(): RelayReceiverAccess | null;
+    // Warning: (ae-forgotten-export) The symbol "ConnectOptions" needs to be exported by the entry point index.d.ts
+    connect(options?: ConnectOptions): Promise<MediaStream>;
+    disconnect(): Promise<void>;
+    // (undocumented)
+    get lastError(): PocketStationError | null;
+    observe(): Promise<RelayPlayoutObservation>;
+    reconnect(options?: ConnectOptions): Promise<MediaStream>;
+    // (undocumented)
+    get sessionState(): RelaySessionState | null;
+    // (undocumented)
+    get state(): RelayReceiverState;
+    // (undocumented)
+    get stream(): MediaStream | null;
 }
 
 // @public
-export type RelayMessageType = 'PUBLISH' | 'SUBSCRIBE' | 'ICE' | 'LEAVE' | 'SDP_ANSWER' | 'ROOM_STATE' | 'ERROR' | 'KEY_EXCHANGE' | 'CODEC_HINT';
-
-// @public
-export interface RelayPublishOptions {
-    credentials?: RelayCredentials;
-    role: 'publisher';
-    track: MediaStreamTrack;
+export interface RelayReceiverAccess {
+    readonly busId: string;
+    readonly iceServers?: readonly RTCIceServer[];
+    readonly sessionId: string;
+    readonly signalUrl: string;
+    readonly subscriberToken: string;
 }
 
 // @public
-export interface RelayReceiveOptions {
-    credentials?: RelayCredentials;
-    role: 'receiver';
+export interface RelayReceiverOptions {
+    readonly connectTimeoutMs?: number;
+    readonly disconnectTimeoutMs?: number;
+    readonly onError?: (error: Error) => void;
+    readonly onSessionState?: (state: RelaySessionState) => void;
+    readonly onStateChange?: (state: RelayReceiverState) => void;
 }
 
 // @public
-export interface RelayServerMessage {
-    candidate?: string;
-    code?: string;
-    codec?: string;
-    codec_hint?: {
-        bitrate_kbps: number;
-        complexity: number;
-        fec: boolean;
-        dtx: boolean;
-    };
-    listener_count?: number;
-    message?: string;
-    sdp_answer?: string;
-    sframe_key?: string;
-    source_active?: boolean;
-    type: RelayMessageType;
+export type RelayReceiverState = 'idle' | 'resolving-invitation' | 'signaling' | 'connecting' | 'connected' | 'disconnected' | 'failed' | 'closed';
+
+// @public
+export type RelayServerMessage = {
+    readonly type: 'SDP_ANSWER';
+    readonly sdp_answer: string;
+} | {
+    readonly type: 'ICE';
+    readonly candidate: string;
+} | {
+    readonly type: 'SESSION_STATE';
+    readonly session_id?: string;
+    readonly bus_id?: string;
+    readonly source_active: boolean;
+    readonly subscription_count: number;
+    readonly codec?: string;
+} | {
+    readonly type: 'ERROR';
+    readonly code?: string;
+    readonly message?: string;
+} | {
+    readonly type: 'KEY_EXCHANGE';
+    readonly sframe_key: string;
+} | {
+    readonly type: 'CODEC_HINT';
+} | {
+    readonly type: 'ICE_RESTART';
+    readonly use_turn?: boolean;
+} | {
+    readonly type: 'LATENCY_REPORT';
+};
+
+// @public
+export interface RelaySessionState {
+    // (undocumented)
+    readonly busId: string;
+    // (undocumented)
+    readonly codec: string | null;
+    // (undocumented)
+    readonly sessionId: string;
+    // (undocumented)
+    readonly sourceActive: boolean;
+    // (undocumented)
+    readonly subscriptionCount: number;
 }
 
 // @public
-export class RelaySession {
-    constructor(config: RelayConfig);
-    connect(options: RelayPublishOptions): Promise<null>;
-    connect(options: RelayReceiveOptions): Promise<MediaStream>;
-    disconnect(): void;
-    getStats(): Promise<RelayStats | null>;
-    get remoteStream(): MediaStream | null;
-    get sessionId(): string | null;
-}
-
-// @public
-export interface RelayStats {
-    bytesReceived: number;
-    jitterMs: number;
-    packetsLost: number;
-    packetsReceived: number;
-    roundTripTimeMs: number | null;
-}
-
-// @public
-export class SignalingTransport {
-    constructor(relayUrl: string);
-    close(): void;
-    get isOpen(): boolean;
-    // Warning: (ae-forgotten-export) The symbol "MessageHandler" needs to be exported by the entry point index.d.ts
-    // Warning: (ae-forgotten-export) The symbol "ErrorHandler" needs to be exported by the entry point index.d.ts
-    open(onMessage: MessageHandler, onError: ErrorHandler): Promise<void>;
-    send(message: RelayClientMessage): void;
-}
+export function resolveRelayInvitation(invitation: RelayInvitation, options?: {
+    readonly signal?: AbortSignal;
+    readonly timeoutMs?: number;
+}): Promise<RelayReceiverAccess>;
 
 ```

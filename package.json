@@ -41,6 +41,8 @@
     "native:check": "cargo fmt --manifest-path native/Cargo.toml --all -- --check && cargo clippy --manifest-path native/Cargo.toml --all-targets --all-features -- -D warnings && cargo test --manifest-path native/Cargo.toml --all-features",
     "test:exports": "npm run build && node tests/package-resolution.mjs",
     "test:packed": "npm run build && node tools/test-packed-consumer.mjs",
+    "test:relay": "npm run build:test-native && npm run build:typescript && node --experimental-vm-modules node_modules/.bin/jest src/__tests__/node-relay.test.ts src/__tests__/relay-session.test.ts --runInBand",
+    "test:e2e:browsers": "node tests/relay-browsers.mjs",
     "typecheck": "tsc --noEmit",
     "test": "npm run build && npm run build:test-native && node --experimental-vm-modules node_modules/.bin/jest"
   },
@@ -55,6 +57,7 @@
   "devDependencies": {
     "@microsoft/api-extractor": "7.59.0",
     "@napi-rs/cli": "3.9.0",
+    "@playwright/test": "1.60.0",
     "@types/jest": "^29.5.12",
     "@types/node": "^22.0.0",
     "jest": "^29.7.0",
