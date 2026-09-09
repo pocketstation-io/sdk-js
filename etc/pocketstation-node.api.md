@@ -411,6 +411,7 @@ export interface ConnectorContext {
 
 // @public
 export interface ConnectorOptions {
+    readonly capacityFrames?: number;
     readonly deadlineMs?: number;
 }
 

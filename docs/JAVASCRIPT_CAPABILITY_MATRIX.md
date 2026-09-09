@@ -14,7 +14,7 @@ cases visible. Browser tests that replace the service with mocked fetch remain
 | Session declaration and start | `REAL` | `REAL` | `PARTIAL`; native start and typed failure pass on macOS |
 | Concise application capture | `REAL` | `REAL` | `REAL`; `capture()` uses the same Session, while microphone and recording remain opt-in |
 | Application Source, including exact smart string selection | `REAL` | `REAL` | `PARTIAL`; declaration and physical macOS capture pass |
-| Explicit microphone Source | `REAL` | `REAL` | `PARTIAL`; default and stable device declarations work, physical proof pending |
+| Explicit microphone Source | `REAL` | `REAL` | `REAL-DEVICE-PROVEN` on the recorded macOS host; default and stable device declarations work, other targets remain pending |
 | Explicit system-audio Source | `REAL` | `REAL` | `PARTIAL`; declaration and a local Session start pass, audio proof pending |
 | Source discovery and permission observations | `REAL` | `REAL` | `REAL` on the local macOS host; other targets remain unproven |
 | Stable Source identity and process-instance selection | `REAL` | `REAL` | `REAL`; exact 64-bit identity and all Core selection forms pass |
@@ -34,8 +34,8 @@ cases visible. Browser tests that replace the service with mocked fetch remain
 | Events, metrics, traces, and final outcomes | `REAL` | `REAL` | `REAL` for component tests; live and final metrics, closed event types, retained failures, checksummed trace validation, and explicit unavailable results pass |
 | Native extension libraries | `REAL` | `REAL` | `REAL` for macOS component tests; ABI validation, trusted-library loading, transactional registration, generic Source execution, lifetime retention, and packed exports pass |
 | Managed sidecars | `REAL` | `REAL` | `REAL` for macOS component tests; copied buffers, fixed capacity, immediate saturation errors, finite reads, Session ownership, protocol failure, close/cancel, forced kill, and process reaping pass |
-| Shared Relay publication | `REAL` | `REAL` | `PARTIAL`; Node declares grouped named buses through released `pocketstation-relay 0.1.5`, while real service/browser proof remains active |
-| Browser Relay receiver | `REAL` in shared services | `REAL` through shared Relay | `PARTIAL` implementation with `MOCKED` network tests |
+| Shared Relay publication | `REAL` | `REAL` | `REAL-DEVICE-PROVEN` for independent application and physical-microphone buses on the recorded same-host macOS run; WAN and TURN remain pending |
+| Browser Relay receiver | `REAL` in shared services | `REAL` through shared Relay | `REAL` for same-host Chromium, Firefox, and WebKit receipt, observations, reconnect, connection cancellation, and clean close; acoustic hearing is unavailable |
 | Provider-neutral voice composition | Not part of Core | `PARTIAL`; real orchestration, no bundled provider and no continuous-duplex proof | Not available |
 | Installed target packages | crates.io | PyPI wheels and source package | `PARTIAL`; a local macOS tarball passes component use, while npm and other targets remain unavailable |
 

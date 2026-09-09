@@ -12,8 +12,9 @@ so model calls and application work do not run on an audio callback.
 
 > The Node SDK is under active development and is not published to npm yet.
 > The current code has a real macOS selected-application capture proof.
-> Windows and Linux packages, real Relay/browser execution, and the remaining
-> Rust/Python features still require target-specific proof.
+> The installed macOS package also has same-host Relay receipt evidence in
+> Chromium, Firefox, and WebKit. Windows and Linux packages, WAN/TURN behavior,
+> and the remaining Rust/Python features still require their own proof.
 
 ## Capture an application
 
@@ -375,7 +376,8 @@ audio.srcObject = await receiver.connect();
 
 Read [Receive Relay audio in a browser](docs/reference/browser-relay.md) for
 direct subscriber access, lifecycle handling, receiver observations, and the
-current proof level.
+current proof level. To inspect the complete workflow interactively, use the
+[PocketStation notebook](docs/guides/notebooks.md).
 
 ## Develop from source
 

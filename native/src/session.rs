@@ -445,11 +445,21 @@ impl NativeSession {
         &self,
         dispatch: Function<'_, NativeProviderCall, Promise<NativeProviderResult>>,
         deadline_ms: Option<u32>,
+        route: Option<&NativeRouteSettings>,
     ) -> Result<NativeEndpoint> {
         let connector = crate::provider::audio_connector(dispatch, deadline_ms)?;
         self.with_session(|session| {
-            session
-                .destination(connector)
+            let registered = session
+                .register_connector(connector)
+                .map_err(|failure| error("connector.registration_failed", failure.to_string()))?;
+            registered
+                .declare_with_route_settings(
+                    session,
+                    pocketstation::connector::ConnectorConfiguration::new(),
+                    route.map_or_else(pocketstation::RouteSettings::realtime_audio, |settings| {
+                        settings.value
+                    }),
+                )
                 .map(|handle| NativeEndpoint {
                     session_id: self.session_id,
                     handle,

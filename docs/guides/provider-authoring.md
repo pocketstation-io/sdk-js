@@ -82,6 +82,20 @@ const destination = connector((frame) => {
 });
 ```
 
+Each Source route normally holds up to eight frames while JavaScript handles a
+previous frame. Choose a larger finite queue when the destination has measured
+short scheduling pauses:
+
+```ts
+const destination = connector(sendToProvider, { capacityFrames: 32 });
+```
+
+At a 20 ms frame duration, 32 frames can retain up to 640 ms of media. At 10
+ms, the same setting retains up to 320 ms. Core rejects the arriving frame and
+records a discontinuity when the queue is full. Read route metrics to confirm
+that the selected capacity absorbs expected pauses without hiding a destination
+that is persistently too slow.
+
 ## Produce typed data with a Source
 
 JavaScript Sources are intended for data that is not PCM: provider events,

@@ -1,5 +1,32 @@
 # JavaScript SDK progress
 
+## W21 JavaScript notebook proof
+
+The notebook task is active. Deno 2.9.6 is the qualified kernel/runtime for
+this proof. Its first-party Jupyter kernel executes JavaScript and TypeScript,
+loads npm packages, and runs with the native-code permission required by a
+Node-API addon. A temporary `.ipynb` installed the packed PocketStation package,
+loaded its native addon, wrote PCM through Core, read the routed frame, and
+stopped the Session. The temporary kernelspec was removed after the check.
+
+The remaining artifact must use the installed package to capture a selected
+desktop application and an explicitly requested physical microphone as
+independent Stems. The same Session must send both to a small application
+Connector, publish named Relay AudioBuses, and record separate WAV files while
+Chromium, Firefox, and WebKit receive them. Notebook cells must use finite
+deadlines, contain no credentials, and render source identity, delivery state,
+recording results, and unavailable measurements without claiming WAN, TURN, or
+physical hearing.
+
+The first complete run passed capture, Relay, every browser, and both
+recordings, then failed the zero-loss gate because the Deno kernel paused the
+JavaScript Connector for about 177 ms. Connector routes previously always used
+Core's eight-frame default. `ConnectorOptions.capacityFrames` now selects a
+finite per-Source queue from 1 through 63 frames; a full queue rejects the
+arriving frame and records the discontinuity. The notebook selects 32 frames
+for its observation-only Connector and leaves Relay and recording settings
+unchanged.
+
 ## W21 JavaScript Relay and browser workflow
 
 The Node publisher slice now uses the released `pocketstation-relay 0.1.5`

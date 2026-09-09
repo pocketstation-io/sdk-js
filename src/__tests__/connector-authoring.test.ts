@@ -67,6 +67,33 @@ describe('Connector authoring', () => {
     expect(samples).toEqual([0.75]);
   });
 
+  it('applies the configured capacity to every Source route', async () => {
+    let delivered = 0;
+    const session = new Session({ frameDurationMs: 10 });
+    const application = session.audioInput('capacity application');
+    const microphone = session.audioInput('capacity microphone');
+    const destination = connector(() => {
+      delivered += 1;
+    }, { capacityFrames: 32 });
+    application.output.sendTo(destination);
+    microphone.output.sendTo(destination);
+    application.tryWrite(new Float32Array(480));
+    microphone.tryWrite(new Float32Array(480));
+    application.close();
+    microphone.close();
+
+    const running = await session.start();
+    await waitFor(() => delivered === 2);
+    const metrics = await running.metrics();
+    await running.stop();
+
+    const connectorRoutes = metrics.routes;
+    expect(connectorRoutes).toHaveLength(2);
+    expect(
+      connectorRoutes.every((route) => route.delivery.queueCapacityFrames === 32n),
+    ).toBe(true);
+  });
+
   it('propagates Session cancellation through AbortSignal', async () => {
     let observedAbort = false;
     let deliveryStarted!: () => void;
@@ -125,6 +152,8 @@ describe('Connector authoring', () => {
 
   it('rejects invalid deadlines and cross-Session reuse before capture starts', async () => {
     expect(() => connector(() => {}, { deadlineMs: 0 })).toThrow(RangeError);
+    expect(() => connector(() => {}, { capacityFrames: 0 })).toThrow(RangeError);
+    expect(() => connector(() => {}, { capacityFrames: 64 })).toThrow(RangeError);
 
     const destination = connector(() => {});
     const first = new Session();

@@ -8,6 +8,7 @@ does not load native code.
 
 - [Capture an application](getting-started/capture.md)
 - [Run the examples](../examples/README.md)
+- [Run PocketStation from a notebook](guides/notebooks.md)
 - [Feed PCM from a provider, decoder, or network connection](guides/application-audio.md)
 
 ## Build a Session
@@ -32,6 +33,5 @@ does not load native code.
 - [Browser Relay status](reference/browser-relay.md)
 - [Public API report](../etc/pocketstation-node.api.md)
 
-The Node package is not published to npm yet. Examples in this repository run
-against the local package build and do not establish Windows, Linux, WAN,
-or performance support.
+The Node package is not published to npm yet. Examples use a packed local
+archive and do not establish Windows, Linux, WAN, or performance support.

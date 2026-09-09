@@ -242,7 +242,9 @@ from the macOS result.
 
 ## Later work
 
-Remaining work includes Relay publication, voice composition, target-specific
-packages, and cross-platform execution evidence.
+Relay publication and same-host receipt now pass in Chromium, Firefox, and
+WebKit for independent application and physical-microphone AudioBuses. Remaining
+work includes voice composition, target-specific packages, WAN/TURN evidence,
+and cross-platform execution evidence.
 Those modules are added only with working behavior and tests; empty parity
 files are not created.
