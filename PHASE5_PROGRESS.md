@@ -16,10 +16,16 @@ shared publication, distinct bus destinations, input validation, and the
 unsupported TURN case. The complete SDK suite, strict TypeScript, API report,
 documentation, examples, package exports, and a clean tarball consumer pass.
 
-This is component and installed-package evidence. A live Relay publication and
-browser receipt have not passed yet. The browser export still uses the retired
-room API at this checkpoint and remains `PARTIAL` until the next slice replaces
-it and the real-browser gate succeeds.
+The installed package now passes the same-host Relay workflow with a controlled
+macOS application process and a physical microphone. Chromium, Firefox, and
+WebKit each receive both named buses, reconnect both receivers, cancel an
+in-flight connection, and close signaling cleanly. Core reports no active
+capture error, route loss, discontinuity, or recording loss. Both independent
+WAV stems finalize successfully.
+
+This is `REAL-DEVICE-PROVEN` for the named same-host workflow at the 20 ms media
+profile. It does not prove WAN or TURN behavior, physical loudspeaker output,
+Windows or Linux packages, or the loaded 10 ms voice profile.
 
 ## W21 JavaScript API and developer experience
 
@@ -110,8 +116,11 @@ callback and does not implement another media engine.
 
 ## Capability status
 
-- Browser Relay client: `PARTIAL`; current tests use mocked fetch and do not
-  prove a deployed Relay or browser receiver.
+- Browser Relay client: `REAL-DEVICE-PROVEN` for same-host receipt of independent
+  application and physical-microphone buses in Chromium, Firefox, and WebKit.
+  Invitation authorization, reconnection, connection cancellation, receiver
+  statistics, signaling shutdown, and source isolation pass. WAN, TURN, and
+  acoustic output remain unproven.
 - Node native capture: `PARTIAL`; a clean macOS ARM64 tarball consumer loads the
   addon, and physical selected-application capture delivered twenty consecutive
   10 ms stereo frames with source and Stem identity.
@@ -164,21 +173,21 @@ callback and does not implement another media engine.
   outcomes; JavaScript preparation failures clean up their instance.
 - npm package: not published.
 
-The browser entry now uses `RelayReceiver`, shares `PocketStationError` with
-the Node entry, resolves one-time invitations, and never supplies a hardcoded
-ICE server when the control service does not return one. Signaling, ICE,
-connection, observation, and shutdown waits have finite limits. The old
-unpublished `RoomClient` and `RelaySession` APIs are removed rather than
-retained as aliases. Real Chromium has received the independent application
-and microphone AudioBuses. Its shutdown run exposed a Relay server close
-handshake defect; Firefox and WebKit promotion waits for that server fix and a
-complete installed-package rerun.
+The browser entry uses `RelayReceiver`, shares `PocketStationError` with the
+Node entry, resolves one-time invitations, and never supplies a hardcoded ICE
+server when the control service does not return one. Signaling, ICE, connection,
+observation, and shutdown waits have finite limits. The old unpublished
+`RoomClient` and `RelaySession` APIs are removed rather than retained as aliases.
+The real-browser workflow passes after Relay closes completed signaling peers
+and the test starts each independent receiver in a known order. Both receivers
+remain live together after startup.
 
 The physical 10 ms run exposed variable CoreAudio process-tap callback sizes.
-Core commit `a2bb0e12e3d38aca6bf72eee02773e6830d58ccb` now assembles those native
-batches into the selected Session frame size and passes the complete Core test
-and clippy gates. The SDK manifest has returned to released Core `1.1.10`;
-publication waits for an approved Core `1.1.x` release containing that fix.
+Core commit `a2bb0e12e3d38aca6bf72eee02773e6830d58ccb` assembles those native batches
+into the selected Session frame size. A later loaded 10 ms application,
+microphone, Relay, browser, and recording run triggered a CoreAudio IO overload
+at microphone startup. This step therefore qualifies the 20 ms media profile
+and leaves loaded 10 ms startup as a separate Core performance gate.
 
 ## Acceptance for this step
 
