@@ -1,93 +1,131 @@
+import { jest } from '@jest/globals';
+
 import { PocketStationError } from '../errors.js';
 import {
-  RelaySession,
-  requestRelayCredentials,
+  RelayReceiver,
+  resolveRelayInvitation,
 } from '../browser/relay-session.js';
 
-const CONFIG = {
-  controlUrl: 'http://localhost:8090',
-  relayUrl: 'ws://localhost:8080',
-};
+const resolution = {
+  session_id: 'session-001',
+  bus_id: 'application',
+  subscriber_token: 'subscriber-token',
+  signal_url: 'ws://127.0.0.1:4800/v1/signal',
+  ice_servers: [
+    { urls: ['stun:relay.example:3478'] },
+    {
+      urls: 'turn:relay.example:3478',
+      username: 'user',
+      credential: 'secret',
+    },
+  ],
+} as const;
 
-function mockFetch(body: unknown, ok = true, status = 201): void {
-  globalThis.fetch = async () =>
-    ({
-      ok,
+function mockFetch(body: unknown, status = 200): jest.Mock {
+  const call = jest.fn(async () =>
+    new Response(JSON.stringify(body), {
       status,
-      json: async () => body,
-    }) as Response;
+      headers: { 'Content-Type': 'application/json' },
+    }),
+  );
+  globalThis.fetch = call;
+  return call;
 }
 
 afterEach(() => {
   Reflect.deleteProperty(globalThis, 'fetch');
 });
 
-describe('Relay session creation with a simulated control service', () => {
-  it('Given a valid response When requested Then public credentials are mapped', async () => {
-    mockFetch({
-      room_id: 'session-001',
-      source_token: 'publisher',
-      listener_token: 'receiver',
+describe('Relay invitation resolution', () => {
+  it('maps current Session, AudioBus, subscriber, signal, and ICE fields', async () => {
+    const fetch = mockFetch(resolution);
+
+    await expect(
+      resolveRelayInvitation({
+        controlUrl: 'https://control.example.com',
+        joinCode: 'one-time-code',
+      }),
+    ).resolves.toEqual({
+      signalUrl: resolution.signal_url,
+      sessionId: resolution.session_id,
+      busId: resolution.bus_id,
+      subscriberToken: resolution.subscriber_token,
+      iceServers: resolution.ice_servers,
     });
 
-    await expect(requestRelayCredentials(CONFIG)).resolves.toEqual({
-      sessionId: 'session-001',
-      publisherToken: 'publisher',
-      receiverToken: 'receiver',
-      iceServers: undefined,
-    });
+    expect(fetch).toHaveBeenCalledWith(
+      new URL('https://control.example.com/v1/invitations/one-time-code'),
+      expect.objectContaining({
+        cache: 'no-store',
+        credentials: 'omit',
+        signal: expect.any(AbortSignal),
+      }),
+    );
   });
 
-  it('Given ICE servers When requested Then no hardcoded fallback replaces them', async () => {
-    const iceServers = [
-      { urls: ['stun:relay.example:3478'] },
-      {
-        urls: ['turn:relay.example:3478'],
-        username: 'user',
-        credential: 'secret',
-      },
-    ];
-    mockFetch({
-      room_id: 'session-001',
-      source_token: 'publisher',
-      listener_token: 'receiver',
-      ice_servers: iceServers,
-    });
+  it('keeps HTTP rejection distinct from malformed response data', async () => {
+    mockFetch({ error: 'invitation_not_found' }, 404);
+    await expect(
+      resolveRelayInvitation({
+        controlUrl: 'https://control.example.com',
+        joinCode: 'expired',
+      }),
+    ).rejects.toMatchObject({ code: 'relay.invitation_rejected' });
 
-    await expect(requestRelayCredentials(CONFIG)).resolves.toMatchObject({
-      iceServers,
-    });
+    mockFetch({ session_id: 'session-001' });
+    await expect(
+      resolveRelayInvitation({
+        controlUrl: 'https://control.example.com',
+        joinCode: 'invalid',
+      }),
+    ).rejects.toMatchObject({ code: 'relay.invalid_invitation_response' });
   });
 
-  it('Given an HTTP failure When requested Then the error has a stable code', async () => {
-    mockFetch({}, false, 500);
-
-    await expect(requestRelayCredentials(CONFIG)).rejects.toMatchObject({
-      code: 'relay.session_create_failed',
-    });
-  });
-
-  it('Given an invalid response When requested Then it fails before WebRTC starts', async () => {
-    mockFetch({ room_id: 'session-001' });
-
-    await expect(requestRelayCredentials(CONFIG)).rejects.toMatchObject({
-      code: 'relay.invalid_session_response',
-    });
+  it('rejects oversized control-plane responses', async () => {
+    mockFetch({ value: 'x'.repeat(17_000) });
+    await expect(
+      resolveRelayInvitation({
+        controlUrl: 'https://control.example.com',
+        joinCode: 'large',
+      }),
+    ).rejects.toMatchObject({ code: 'relay.invitation_response_too_large' });
   });
 });
 
-describe('RelaySession before connect', () => {
-  it('has no session identity or remote stream', async () => {
-    const session = new RelaySession(CONFIG);
+describe('RelayReceiver before connection', () => {
+  it('accepts direct access and reports unavailable live values explicitly', () => {
+    const receiver = new RelayReceiver({
+      signalUrl: resolution.signal_url,
+      sessionId: resolution.session_id,
+      busId: resolution.bus_id,
+      subscriberToken: resolution.subscriber_token,
+    });
 
-    expect(session.sessionId).toBeNull();
-    expect(session.remoteStream).toBeNull();
-    await expect(session.getStats()).resolves.toBeNull();
+    expect(receiver.state).toBe('idle');
+    expect(receiver.stream).toBeNull();
+    expect(receiver.sessionState).toBeNull();
+    expect(receiver.lastError).toBeNull();
+    expect(receiver.access?.busId).toBe('application');
+  });
+
+  it('rejects invalid origins and unbounded deadlines during construction', () => {
+    expect(
+      () =>
+        new RelayReceiver({ controlUrl: 'file:///tmp/control', joinCode: 'code' }),
+    ).toThrow(PocketStationError);
+    expect(
+      () =>
+        new RelayReceiver(
+          { controlUrl: 'https://control.example.com', joinCode: 'code' },
+          {
+            connectTimeoutMs: 0,
+          },
+        ),
+    ).toThrow(RangeError);
   });
 
   it('uses the shared PocketStation error type', () => {
     const failure = new PocketStationError('test.code', 'test message');
-
     expect(failure).toBeInstanceOf(Error);
     expect(failure.code).toBe('test.code');
   });

@@ -364,9 +364,18 @@ today and what remains. The [SDK design](docs/JAVASCRIPT_SDK_DESIGN.md) explains
 native ownership, frame copying, cancellation, and browser separation.
 
 Browser Relay receiving is exposed from `pocketstation/browser`. It stays
-separate so browser builds never load a native addon. Read the
-[browser Relay status](docs/reference/browser-relay.md) for the current proof
-level.
+separate so browser builds never load a native addon:
+
+```ts
+import { RelayReceiver } from "pocketstation/browser";
+
+const receiver = new RelayReceiver({ controlUrl, joinCode });
+audio.srcObject = await receiver.connect();
+```
+
+Read [Receive Relay audio in a browser](docs/reference/browser-relay.md) for
+direct subscriber access, lifecycle handling, receiver observations, and the
+current proof level.
 
 ## Develop from source
 

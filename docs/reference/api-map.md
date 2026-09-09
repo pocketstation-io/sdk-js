@@ -1,8 +1,8 @@
 # JavaScript API map
 
-Import native desktop features from `pocketstation/node`. The experimental
-Relay client is available from `pocketstation/browser`; that import never loads
-the native addon.
+Import native desktop features from `pocketstation/node`. Receive authorized
+Relay audio from `pocketstation/browser`; that import never loads the native
+addon.
 
 | Task | Start here | Advanced API |
 |---|---|---|
@@ -21,7 +21,7 @@ the native addon.
 | Load trusted native code | `session.loadNativeExtensionLibrary()` | Extension descriptor and port types |
 | Run an isolated process | `session.registerSidecar()` | `SidecarProcess`, `SidecarConnection` |
 | Publish named audio buses | `session.relay()` / `relay.audio()` | `RelayPublisherOptions` |
-| Evaluate browser Relay publishing or receiving | `RelaySession` from `pocketstation/browser` | [Current limits](browser-relay.md) |
+| Receive one Relay AudioBus in a browser | `RelayReceiver` | direct subscriber access and [receiver observations](browser-relay.md) |
 
 The checked-in [Node API report](../../etc/pocketstation-node.api.md) records
 every exported signature. It is generated from the TypeScript declarations and

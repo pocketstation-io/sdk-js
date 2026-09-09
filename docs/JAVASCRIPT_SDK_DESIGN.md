@@ -3,11 +3,38 @@
 PocketStation for JavaScript has two separate exports:
 
 - Node captures and processes desktop audio through the native Rust engine.
-- Browsers can evaluate publishing or receiving one WebRTC audio track through
-  PocketStation Relay. This export is not production-qualified yet.
+- Browsers receive one authorized Relay AudioBus as a WebRTC audio track. This
+  export is qualified separately from native Node capture.
 
 Browser code never loads the native addon. Node code never starts a Relay or
 opens a microphone unless the application asks for it.
+
+## Relay publishing and receiving
+
+Node publishes named audio buses through one native Relay connection:
+
+```ts
+const relay = session.relay({ url, sessionId, sourceToken });
+
+application.send(relay.audio("application"));
+microphone.send(relay.audio("microphone"));
+```
+
+Each Source keeps its identity and independent delivery state. Reusing one
+`RelayPublisher` shares the provider lifecycle without combining the buses.
+
+The browser uses a separate export because it receives WebRTC audio and does
+not need the native addon:
+
+```ts
+const receiver = new RelayReceiver({ controlUrl, joinCode });
+audio.srcObject = await receiver.connect();
+```
+
+Invitation redemption supplies subscriber access for one named bus. Direct
+subscriber credentials are also accepted. Startup and shutdown have finite
+deadlines, signaling errors stay observable after `connect()` returns, and
+receiver statistics leave unsupported values unavailable.
 
 ## Node lifecycle
 

@@ -323,8 +323,9 @@ export class Source {
     );
   }
 
-  /** Select a microphone by the stable device identifier returned by discovery. */
-  public static microphone(deviceId: string): Source {
+  /** Capture the default microphone, or select one by its stable device identifier. */
+  public static microphone(deviceId?: string): Source {
+    if (deviceId === undefined) return Source.defaultMicrophone();
     return new Source(
       nativeCallSync(() => nativeAddon().NativeSource.microphoneId(deviceId)),
     );

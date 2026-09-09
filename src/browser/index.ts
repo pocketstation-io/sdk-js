@@ -1,21 +1,17 @@
 /**
- * Publish or receive browser audio through PocketStation Relay.
+ * Receive one selected PocketStation Relay AudioBus in a web browser.
  *
  * @packageDocumentation
  */
 export { PocketStationError } from '../errors.js';
-export { RelaySession } from './relay-session.js';
-export { SignalingTransport } from './signaling.js';
-export type {
-  RelayConnectOptions,
-  RelayPublishOptions,
-  RelayReceiveOptions,
-} from './relay-session.js';
+export { RelayReceiver, resolveRelayInvitation } from './relay-session.js';
 export type {
   RelayClientMessage,
-  RelayConfig,
-  RelayCredentials,
-  RelayMessageType,
+  RelayInvitation,
+  RelayPlayoutObservation,
+  RelayReceiverAccess,
+  RelayReceiverOptions,
+  RelayReceiverState,
   RelayServerMessage,
-  RelayStats,
+  RelaySessionState,
 } from './types.js';
