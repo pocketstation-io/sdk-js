@@ -298,6 +298,16 @@ async function consumeFrames(
         sourceId,
         (observations.framesBySource.get(sourceId) ?? 0) + 1,
       );
+      observeValue(
+        observations.frameSamplesBySource,
+        sourceId,
+        frame.samples.length / frame.channelCount,
+      );
+      observeValue(
+        observations.frameDurationNsBySource,
+        sourceId,
+        frame.durationNs.toString(),
+      );
       const priorObservedAtMs = observations.lastObservedAtMsBySource.get(sourceId);
       if (priorObservedAtMs !== undefined) {
         observations.javascriptInterarrivalMs.push(observedAtMs - priorObservedAtMs);
@@ -372,12 +382,23 @@ function summarizeScenario(
   const sourceFrameRates = Object.values(framesPerSecondBySource);
   const framesPerSecondPerSource =
     sourceFrameRates.length === 0 ? 0 : Math.min(...sourceFrameRates);
+  const expectedFrameSamples =
+    (48_000 * configuration.frameDurationMs) / 1_000;
+  const unexpectedFrameSizesTotal = [...observations.frameSamplesBySource.values()]
+    .flatMap((counts) => [...counts])
+    .filter(([frameSamples]) => frameSamples !== expectedFrameSamples)
+    .reduce((total, [, count]) => total + count, 0);
 
   return {
     ...details,
     sourceIds: [...observations.framesBySource.keys()],
     framesBySource: Object.fromEntries(observations.framesBySource),
     framesPerSecondBySource,
+    frameSamplesBySource: nestedCounts(observations.frameSamplesBySource),
+    frameDurationNsBySource: nestedCounts(
+      observations.frameDurationNsBySource,
+    ),
+    unexpectedFrameSizesTotal,
     framesTotal: observations.framesTotal,
     framesPerSecondPerSource,
     javascriptInterarrivalMs: summarize(observations.javascriptInterarrivalMs),
@@ -386,6 +407,7 @@ function summarizeScenario(
     endpointQueueMs: summarize(observations.endpointQueueMs),
     writeToReadMs: summarize(observations.writeToReadMs),
     routes,
+    sources: outcome.metrics?.sources ?? [],
     captureFailuresTotal,
     shutdownMs,
     outcome: {
@@ -395,6 +417,7 @@ function summarizeScenario(
       runtimeWorkerPanicked: outcome.runtimeWorkerPanicked,
       runtimeFailuresTotal: outcome.runtimeFailuresTotal,
       sourceSendRejectionsTotal: outcome.sourceSendRejectionsTotal,
+      terminalEvent: outcome.terminalEvent,
       finalizationFailuresTotal:
         outcome.captureFinalizationFailuresTotal +
         outcome.operatorFinalizationFailuresTotal +
@@ -419,6 +442,12 @@ function qualify(configuration, limits, scenario, processMetrics, eventLoop) {
       scenario.sourceIds.length,
       expectedSourcesTotal,
       'sources',
+    ),
+    exact(
+      'unexpected-frame-sizes',
+      scenario.unexpectedFrameSizesTotal,
+      0,
+      'frames',
     ),
     minimum(
       'frames-per-second-per-source',
@@ -545,6 +574,8 @@ function createFrameObservations() {
   return {
     framesTotal: 0,
     framesBySource: new Map(),
+    frameSamplesBySource: new Map(),
+    frameDurationNsBySource: new Map(),
     lastSequenceNumber: -1n,
     lastObservedAtMsBySource: new Map(),
     javascriptInterarrivalMs: [],
@@ -553,6 +584,24 @@ function createFrameObservations() {
     endpointQueueMs: [],
     writeToReadMs: [],
   };
+}
+
+function observeValue(collection, sourceId, value) {
+  let counts = collection.get(sourceId);
+  if (counts === undefined) {
+    counts = new Map();
+    collection.set(sourceId, counts);
+  }
+  counts.set(value, (counts.get(value) ?? 0) + 1);
+}
+
+function nestedCounts(collection) {
+  return Object.fromEntries(
+    [...collection].map(([sourceId, counts]) => [
+      sourceId,
+      Object.fromEntries(counts),
+    ]),
+  );
 }
 
 function summarize(values) {
