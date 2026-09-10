@@ -1,9 +1,31 @@
 import {
   Endpoint,
   PocketStationError,
+  RunningSession,
   Session,
   Source,
 } from '../node/index.js';
+import type {
+  NativeRunningSessionHandle,
+  NativeStopResult,
+} from '../node/native.js';
+
+const STOP_RESULT: NativeStopResult = {
+  success: true,
+  alreadyStopped: false,
+  disposition: 'stopped',
+  sessionState: 'stopped',
+  runtimeWorkerPanicked: false,
+  captureFinalizationFailuresTotal: '0',
+  operatorFinalizationFailuresTotal: '0',
+  endpointFinalizationFailuresTotal: '0',
+  runtimeFailuresTotal: '0',
+  lineageFailuresTotal: '0',
+  sourceSendRejectionsTotal: '0',
+  runtimeEventsTotal: '0',
+  sidecarOutcomes: [],
+  remainingEvents: [],
+};
 
 describe('native Node Session', () => {
   it('Given a selected application When composed Then Core assigns exact identities', () => {
@@ -104,5 +126,30 @@ describe('native Node Session', () => {
     await expect(runningSession?.stop()).resolves.toMatchObject({
       disposition: 'cancelled',
     });
+  });
+
+  it('Given a temporary native shutdown refusal When retried Then the Session can still stop', async () => {
+    let attempts = 0;
+    const native = {
+      sessionId: '1',
+      readAudio: async () => ({ frames: [], sessionState: 'running' }),
+      monotonicTimestampNs: () => '0',
+      readEvent: async () => ({ sessionState: 'running' }),
+      stop: async () => {
+        attempts += 1;
+        if (attempts === 1) {
+          throw new Error('native Session command queue is full; retry shutdown');
+        }
+        return STOP_RESULT;
+      },
+      cancel: async () => STOP_RESULT,
+    } as NativeRunningSessionHandle;
+    const running = RunningSession._create(native);
+
+    await expect(running.stop()).rejects.toThrow('retry shutdown');
+    await expect(running.stop()).resolves.toMatchObject({
+      disposition: 'stopped',
+    });
+    expect(attempts).toBe(2);
   });
 });

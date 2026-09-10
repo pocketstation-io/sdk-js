@@ -958,6 +958,7 @@ export interface NativeStopResult {
 export interface NativeRunningSessionHandle {
   readonly sessionId: string;
   readAudio(timeoutMs: number): Promise<NativeAudioRead>;
+  monotonicTimestampNs(): string;
   readEvent(timeoutMs: number): Promise<NativeEventRead>;
   readSignal(
     subscription: NativeBusSubscriptionHandle,

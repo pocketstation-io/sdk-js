@@ -33,13 +33,19 @@ try {
       `route-to-Node p95 ${result.scenarioResult.routeToNodeMs.p95Ms.toFixed(3)} ms`,
     );
   }
+  await run([join(toolDirectory, 'concurrent-sessions.mjs')], {
+    env: { ...process.env, UV_THREADPOOL_SIZE: '4' },
+  });
 } finally {
   await rm(artifactRoot, { recursive: true, force: true });
 }
 
-function run(arguments_) {
+function run(arguments_, options = {}) {
   return new Promise((resolvePromise, rejectPromise) => {
-    const child = spawn(process.execPath, arguments_, { stdio: 'inherit' });
+    const child = spawn(process.execPath, arguments_, {
+      stdio: 'inherit',
+      ...options,
+    });
     child.once('error', rejectPromise);
     child.once('exit', (code, signal) => {
       if (code === 0) {

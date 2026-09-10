@@ -45,5 +45,14 @@
       "maximumRssGrowthBytes": 33554432,
       "maximumShutdownMs": 2000
     }
+  },
+  "concurrentSessions": {
+    "sessionCount": 12,
+    "readTimeoutMs": 20,
+    "maximumStartMs": 500,
+    "maximumReadMs": 100,
+    "maximumCancelMs": 1000,
+    "maximumCompletionSpreadMs": 30,
+    "maximumUnrelatedFileReadMs": 20
   }
 }

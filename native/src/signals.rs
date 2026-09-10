@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::thread;
 use std::time::{Duration, Instant};
 
-use napi::bindgen_prelude::{AsyncTask, Buffer};
-use napi::{Env, Result, Task};
+use futures_timer::Delay;
+use napi::bindgen_prelude::Buffer;
+use napi::Result;
 use napi_derive::napi;
 use pocketstation::graph::NodeConfig;
 use pocketstation::{
@@ -625,22 +625,27 @@ fn receipt(
         })
 }
 
-pub(crate) fn read_signal_task(
+pub(crate) async fn read_signal(
     receipts: &SignalReceipts,
     session_id: u64,
     subscription: &NativeBusSubscription,
     timeout_ms: u32,
-) -> Result<AsyncTask<ReadSignalTask>> {
+) -> Result<NativeSignalRead> {
     if timeout_ms > MAXIMUM_WAIT_MS {
         return Err(error(
             "stream.invalid_timeout",
             "timeoutMs must be between 0 and 1000",
         ));
     }
-    Ok(AsyncTask::new(ReadSignalTask {
-        receipt: receipt(receipts, session_id, subscription)?,
-        timeout: Duration::from_millis(u64::from(timeout_ms)),
-    }))
+    let receipt = receipt(receipts, session_id, subscription)?;
+    let deadline = Instant::now() + Duration::from_millis(u64::from(timeout_ms));
+    loop {
+        let read = receipt.poll();
+        if !matches!(read, SignalRead::Empty) || Instant::now() >= deadline {
+            return Ok(project_read(read));
+        }
+        Delay::new(Duration::from_millis(1)).await;
+    }
 }
 
 pub(crate) fn close_signal(
@@ -658,31 +663,6 @@ pub(crate) fn validate_subscription(
     subscription: &NativeBusSubscription,
 ) -> Result<()> {
     receipt(receipts, session_id, subscription).map(|_| ())
-}
-
-pub struct ReadSignalTask {
-    receipt: Arc<SignalReceipt>,
-    timeout: Duration,
-}
-
-impl Task for ReadSignalTask {
-    type Output = NativeSignalRead;
-    type JsValue = NativeSignalRead;
-
-    fn compute(&mut self) -> Result<Self::Output> {
-        let deadline = Instant::now() + self.timeout;
-        loop {
-            let read = self.receipt.poll();
-            if !matches!(read, SignalRead::Empty) || Instant::now() >= deadline {
-                return Ok(project_read(read));
-            }
-            thread::sleep(Duration::from_millis(1));
-        }
-    }
-
-    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
-        Ok(output)
-    }
 }
 
 fn project_read(read: SignalRead) -> NativeSignalRead {

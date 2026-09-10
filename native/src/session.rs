@@ -4,8 +4,8 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use napi::bindgen_prelude::AsyncTask;
-use napi::bindgen_prelude::{ClassInstance, Function, Promise};
+use futures::channel::oneshot;
+use napi::bindgen_prelude::{spawn_blocking, AsyncTask, ClassInstance, Function, Promise};
 use napi::{Env, Result, Task};
 use napi_derive::napi;
 use pocketstation::connector::ConnectorSecret;
@@ -32,9 +32,9 @@ use crate::sidecar::{
     NativeSidecarProcessSpec, NativeSidecarRead, NativeSidecarSnapshot, MAXIMUM_WAIT_MS,
 };
 use crate::signals::{
-    close_signal, copy_signal_metrics, new_signal_receipts, read_signal_task, subscribe_derived,
+    close_signal, copy_signal_metrics, new_signal_receipts, read_signal, subscribe_derived,
     subscribe_source_output, validate_subscription, NativeBusSubscription, NativeSignalMetrics,
-    ReadSignalTask, SignalReceipts,
+    NativeSignalRead, SignalReceipts,
 };
 use crate::sources::{platform_name, source_kind_name, NativeSource};
 use crate::streams::{copy_audio, NativeAudioRead};
@@ -761,21 +761,36 @@ impl NativeSession {
     }
 
     #[napi]
-    pub fn start(&self) -> Result<AsyncTask<StartTask>> {
-        {
-            let guard = self
-                .session
-                .lock()
-                .map_err(|_| state_unavailable("Session"))?;
-            if guard.is_none() {
-                return Err(error("session.draft_frozen", "Session has already started"));
+    pub async fn start(&self) -> Result<NativeStartResult> {
+        let session = self
+            .session
+            .lock()
+            .map_err(|_| state_unavailable("Session"))?
+            .take()
+            .ok_or_else(|| error("session.draft_frozen", "Session has already started"))?;
+        let session_id = self.session_id;
+        let signal_receipts = Arc::clone(&self.signal_receipts);
+        spawn_blocking(move || match session.start() {
+            Ok(running) => {
+                NativeRunningSession::spawn(running, session_id, signal_receipts).map(|running| {
+                    NativeStartResult {
+                        running: Some(running),
+                        failure: None,
+                    }
+                })
             }
-        }
-        Ok(AsyncTask::new(StartTask {
-            session: Arc::clone(&self.session),
-            session_id: self.session_id,
-            signal_receipts: Arc::clone(&self.signal_receipts),
-        }))
+            Err(failure) => Ok(NativeStartResult {
+                running: None,
+                failure: Some(project_start_failure(&failure)),
+            }),
+        })
+        .await
+        .map_err(|failure| {
+            error(
+                "session.start_worker_failed",
+                format!("native Session startup worker failed: {failure}"),
+            )
+        })?
     }
 }
 
@@ -861,45 +876,6 @@ impl NativeSession {
     }
 }
 
-pub struct StartTask {
-    session: Arc<Mutex<Option<pocketstation::Session>>>,
-    session_id: u64,
-    signal_receipts: SignalReceipts,
-}
-
-impl Task for StartTask {
-    type Output = NativeStartResult;
-    type JsValue = NativeStartResult;
-
-    fn compute(&mut self) -> Result<Self::Output> {
-        let session = self
-            .session
-            .lock()
-            .map_err(|_| state_unavailable("Session"))?
-            .take()
-            .ok_or_else(|| error("session.draft_frozen", "Session has already started"))?;
-        match session.start() {
-            Ok(running) => NativeRunningSession::spawn(
-                running,
-                self.session_id,
-                Arc::clone(&self.signal_receipts),
-            )
-            .map(|running| NativeStartResult {
-                running: Some(running),
-                failure: None,
-            }),
-            Err(failure) => Ok(NativeStartResult {
-                running: None,
-                failure: Some(project_start_failure(&failure)),
-            }),
-        }
-    }
-
-    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
-        Ok(output)
-    }
-}
-
 fn project_start_failure(failure: &pocketstation::SessionStartError) -> NativeStartFailure {
     NativeStartFailure {
         code: failure.code().as_str().to_owned(),
@@ -927,40 +903,53 @@ fn project_start_failure(failure: &pocketstation::SessionStartError) -> NativeSt
 enum SessionCommand {
     ReadAudio {
         timeout: Duration,
-        response: SyncSender<Result<NativeAudioRead>>,
+        response: oneshot::Sender<Result<NativeAudioRead>>,
     },
     ReadEvent {
         timeout: Duration,
-        response: SyncSender<Result<NativeEventRead>>,
+        response: oneshot::Sender<Result<NativeEventRead>>,
     },
     SignalMetrics {
         route_id: u64,
-        response: SyncSender<std::result::Result<NativeSignalMetrics, String>>,
+        response: oneshot::Sender<std::result::Result<NativeSignalMetrics, String>>,
     },
     SessionMetrics {
-        response: SyncSender<std::result::Result<NativeSessionMetrics, String>>,
+        response: oneshot::Sender<std::result::Result<NativeSessionMetrics, String>>,
     },
     SendSidecar {
         sidecar_id: u64,
         message: pocketstation::SidecarMessage,
-        response: SyncSender<std::result::Result<(), String>>,
+        response: oneshot::Sender<std::result::Result<(), String>>,
     },
     ReadSidecar {
         sidecar_id: u64,
         timeout: Option<Duration>,
-        response: SyncSender<std::result::Result<crate::sidecar::SidecarRead, String>>,
+        response: oneshot::Sender<std::result::Result<crate::sidecar::SidecarRead, String>>,
     },
     SidecarSnapshot {
         sidecar_id: u64,
-        response: SyncSender<std::result::Result<pocketstation::SessionSidecarMetrics, String>>,
+        response:
+            oneshot::Sender<std::result::Result<pocketstation::SessionSidecarMetrics, String>>,
     },
     Stop {
-        response: SyncSender<NativeStopResult>,
+        response: oneshot::Sender<NativeStopResult>,
     },
     Cancel {
-        response: SyncSender<NativeStopResult>,
+        response: oneshot::Sender<NativeStopResult>,
     },
     Shutdown,
+}
+
+fn command_send_error(failure: std::sync::mpsc::TrySendError<SessionCommand>) -> napi::Error {
+    match failure {
+        std::sync::mpsc::TrySendError::Full(_) => error(
+            "session.command_queue_full",
+            "native Session command queue is full",
+        ),
+        std::sync::mpsc::TrySendError::Disconnected(_) => {
+            error("session.stopped", "native Session worker has stopped")
+        }
+    }
 }
 
 struct SessionWorker {
@@ -983,7 +972,7 @@ impl NativeRunningSession {
     }
 
     #[napi]
-    pub fn read_audio(&self, timeout_ms: u32) -> Result<AsyncTask<ReadAudioTask>> {
+    pub async fn read_audio(&self, timeout_ms: u32) -> Result<NativeAudioRead> {
         if timeout_ms > MAXIMUM_AUDIO_WAIT_MS {
             return Err(error(
                 "stream.invalid_timeout",
@@ -991,38 +980,62 @@ impl NativeRunningSession {
             ));
         }
         let commands = self.commands()?;
-        Ok(AsyncTask::new(ReadAudioTask {
-            commands,
-            timeout: Duration::from_millis(u64::from(timeout_ms)),
-        }))
+        let (response, receiver) = oneshot::channel();
+        commands
+            .try_send(SessionCommand::ReadAudio {
+                timeout: Duration::from_millis(u64::from(timeout_ms)),
+                response,
+            })
+            .map_err(command_send_error)?;
+        receiver.await.map_err(|_| {
+            error(
+                "session.worker_stopped",
+                "native Session worker did not return audio",
+            )
+        })?
     }
 
     #[napi]
-    pub fn read_event(&self, timeout_ms: u32) -> Result<AsyncTask<ReadEventTask>> {
+    pub fn monotonic_timestamp_ns(&self) -> String {
+        pocketstation::timing::monotonic_timestamp_ns().to_string()
+    }
+
+    #[napi]
+    pub async fn read_event(&self, timeout_ms: u32) -> Result<NativeEventRead> {
         if timeout_ms > MAXIMUM_AUDIO_WAIT_MS {
             return Err(error(
                 "stream.invalid_timeout",
                 "timeoutMs must be between 0 and 1000",
             ));
         }
-        Ok(AsyncTask::new(ReadEventTask {
-            commands: self.commands()?,
-            timeout: Duration::from_millis(u64::from(timeout_ms)),
-        }))
+        let (response, receiver) = oneshot::channel();
+        self.commands()?
+            .try_send(SessionCommand::ReadEvent {
+                timeout: Duration::from_millis(u64::from(timeout_ms)),
+                response,
+            })
+            .map_err(command_send_error)?;
+        receiver.await.map_err(|_| {
+            error(
+                "session.worker_stopped",
+                "native Session worker did not return an event",
+            )
+        })?
     }
 
     #[napi]
-    pub fn read_signal(
+    pub async fn read_signal(
         &self,
         subscription: &NativeBusSubscription,
         timeout_ms: u32,
-    ) -> Result<AsyncTask<ReadSignalTask>> {
-        read_signal_task(
+    ) -> Result<NativeSignalRead> {
+        read_signal(
             &self.signal_receipts,
             self.session_id,
             subscription,
             timeout_ms,
         )
+        .await
     }
 
     #[napi]
@@ -1031,78 +1044,132 @@ impl NativeRunningSession {
     }
 
     #[napi]
-    pub fn signal_metrics(
+    pub async fn signal_metrics(
         &self,
         subscription: &NativeBusSubscription,
-    ) -> Result<AsyncTask<SignalMetricsTask>> {
+    ) -> Result<NativeSignalMetrics> {
         validate_subscription(&self.signal_receipts, self.session_id, subscription)?;
-        Ok(AsyncTask::new(SignalMetricsTask {
-            commands: self.commands()?,
-            route_id: subscription.route_id,
-        }))
+        let (response, receiver) = oneshot::channel();
+        self.commands()?
+            .try_send(SessionCommand::SignalMetrics {
+                route_id: subscription.route_id,
+                response,
+            })
+            .map_err(command_send_error)?;
+        receiver
+            .await
+            .map_err(|_| {
+                error(
+                    "session.worker_stopped",
+                    "native Session worker did not return signal metrics",
+                )
+            })?
+            .map_err(|failure| error("stream.metrics_unavailable", failure))
     }
 
     #[napi]
-    pub fn metrics(&self) -> Result<AsyncTask<SessionMetricsTask>> {
-        Ok(AsyncTask::new(SessionMetricsTask {
-            commands: self.commands()?,
-        }))
+    pub async fn metrics(&self) -> Result<NativeSessionMetrics> {
+        let (response, receiver) = oneshot::channel();
+        self.commands()?
+            .try_send(SessionCommand::SessionMetrics { response })
+            .map_err(command_send_error)?;
+        receiver
+            .await
+            .map_err(|_| {
+                error(
+                    "session.worker_stopped",
+                    "native Session worker did not return Session metrics",
+                )
+            })?
+            .map_err(|failure| error("session.metrics_unavailable", failure))
     }
 
     #[napi]
-    pub fn send_sidecar(
+    pub async fn send_sidecar(
         &self,
         sidecar_id: String,
         message: NativeSidecarMessage,
-    ) -> Result<AsyncTask<SendSidecarTask>> {
-        Ok(AsyncTask::new(SendSidecarTask {
-            commands: self.commands()?,
-            sidecar_id: parse_sidecar_id(&sidecar_id)?,
-            message: message.to_core()?,
-        }))
+    ) -> Result<()> {
+        let (response, receiver) = oneshot::channel();
+        self.commands()?
+            .try_send(SessionCommand::SendSidecar {
+                sidecar_id: parse_sidecar_id(&sidecar_id)?,
+                message: message.to_core()?,
+                response,
+            })
+            .map_err(command_send_error)?;
+        receiver
+            .await
+            .map_err(|_| {
+                error(
+                    "session.worker_stopped",
+                    "native Session worker did not send the sidecar message",
+                )
+            })?
+            .map_err(sidecar_error)
     }
 
     #[napi]
-    pub fn read_sidecar(
+    pub async fn read_sidecar(
         &self,
         sidecar_id: String,
         timeout_ms: u32,
-    ) -> Result<AsyncTask<ReadSidecarTask>> {
+    ) -> Result<NativeSidecarRead> {
         if timeout_ms > MAXIMUM_WAIT_MS {
             return Err(error(
                 "sidecar.invalid_timeout",
                 "timeoutMs must be between 0 and 1000",
             ));
         }
-        Ok(AsyncTask::new(ReadSidecarTask {
-            commands: self.commands()?,
-            sidecar_id: parse_sidecar_id(&sidecar_id)?,
-            timeout: (timeout_ms > 0).then(|| Duration::from_millis(u64::from(timeout_ms))),
-        }))
+        let (response, receiver) = oneshot::channel();
+        self.commands()?
+            .try_send(SessionCommand::ReadSidecar {
+                sidecar_id: parse_sidecar_id(&sidecar_id)?,
+                timeout: (timeout_ms > 0).then(|| Duration::from_millis(u64::from(timeout_ms))),
+                response,
+            })
+            .map_err(command_send_error)?;
+        receiver
+            .await
+            .map_err(|_| {
+                error(
+                    "session.worker_stopped",
+                    "native Session worker did not return a sidecar message",
+                )
+            })?
+            .map(NativeSidecarRead::from)
+            .map_err(sidecar_error)
     }
 
     #[napi]
-    pub fn sidecar_snapshot(&self, sidecar_id: String) -> Result<AsyncTask<SidecarSnapshotTask>> {
-        Ok(AsyncTask::new(SidecarSnapshotTask {
-            commands: self.commands()?,
-            sidecar_id: parse_sidecar_id(&sidecar_id)?,
-        }))
+    pub async fn sidecar_snapshot(&self, sidecar_id: String) -> Result<NativeSidecarSnapshot> {
+        let (response, receiver) = oneshot::channel();
+        self.commands()?
+            .try_send(SessionCommand::SidecarSnapshot {
+                sidecar_id: parse_sidecar_id(&sidecar_id)?,
+                response,
+            })
+            .map_err(command_send_error)?;
+        receiver
+            .await
+            .map_err(|_| {
+                error(
+                    "session.worker_stopped",
+                    "native Session worker did not return sidecar observations",
+                )
+            })?
+            .map(NativeSidecarSnapshot::from)
+            .map_err(sidecar_error)
     }
 
     #[napi]
-    pub fn stop(&self) -> Result<AsyncTask<FinishTask>> {
-        Ok(AsyncTask::new(FinishTask {
-            worker: Some(self.take_worker()?),
-            disposition: FinishDisposition::Stop,
-        }))
+    pub async fn stop(&self) -> Result<NativeStopResult> {
+        self.finish(FinishDisposition::Stop).await
     }
 
     #[napi]
-    pub fn cancel(&self) -> Result<AsyncTask<FinishTask>> {
-        Ok(AsyncTask::new(FinishTask {
-            worker: Some(self.take_worker()?),
-            disposition: FinishDisposition::Cancel,
-        }))
+    pub async fn cancel(&self) -> Result<NativeStopResult> {
+        self.finish(FinishDisposition::Cancel).await
     }
 }
 
@@ -1148,35 +1215,65 @@ impl NativeRunningSession {
             .take()
             .ok_or_else(|| error("session.stopped", "Session has stopped"))
     }
-}
 
-pub struct ReadEventTask {
-    commands: SyncSender<SessionCommand>,
-    timeout: Duration,
-}
-
-impl Task for ReadEventTask {
-    type Output = NativeEventRead;
-    type JsValue = NativeEventRead;
-
-    fn compute(&mut self) -> Result<Self::Output> {
-        let (response, receiver) = sync_channel(1);
-        self.commands
-            .send(SessionCommand::ReadEvent {
-                timeout: self.timeout,
-                response,
-            })
-            .map_err(|_| error("session.stopped", "native Session worker has stopped"))?;
-        receiver.recv().map_err(|_| {
-            error(
-                "session.worker_stopped",
-                "native Session worker did not return an event",
-            )
-        })?
+    fn restore_worker(&self, worker: SessionWorker) -> Result<()> {
+        let mut slot = self
+            .worker
+            .lock()
+            .map_err(|_| state_unavailable("running Session"))?;
+        if slot.is_some() {
+            return Err(state_unavailable("running Session"));
+        }
+        *slot = Some(worker);
+        Ok(())
     }
 
-    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
-        Ok(output)
+    async fn finish(&self, disposition: FinishDisposition) -> Result<NativeStopResult> {
+        let mut worker = self.take_worker()?;
+        let (response, receiver) = oneshot::channel();
+        let command = match disposition {
+            FinishDisposition::Stop => SessionCommand::Stop { response },
+            FinishDisposition::Cancel => SessionCommand::Cancel { response },
+        };
+        match worker.commands.try_send(command) {
+            Ok(()) => {}
+            Err(std::sync::mpsc::TrySendError::Full(_)) => {
+                self.restore_worker(worker)?;
+                return Err(error(
+                    "session.command_queue_full",
+                    "native Session command queue is full; retry shutdown",
+                ));
+            }
+            Err(std::sync::mpsc::TrySendError::Disconnected(_)) => {
+                return Err(error(
+                    "session.stopped",
+                    "native Session worker has stopped",
+                ));
+            }
+        }
+        let result = receiver.await;
+        if let Some(join) = worker.join.take() {
+            spawn_blocking(move || join.join())
+                .await
+                .map_err(|failure| {
+                    error(
+                        "session.worker_join_failed",
+                        format!("failed to join native Session worker: {failure}"),
+                    )
+                })?
+                .map_err(|_| {
+                    error(
+                        "session.worker_panicked",
+                        "native Session worker panicked during shutdown",
+                    )
+                })?;
+        }
+        result.map_err(|_| {
+            error(
+                "session.worker_stopped",
+                "native Session worker did not return a final result",
+            )
+        })
     }
 }
 
@@ -1193,256 +1290,10 @@ impl Drop for NativeRunningSession {
     }
 }
 
-pub struct ReadAudioTask {
-    commands: SyncSender<SessionCommand>,
-    timeout: Duration,
-}
-
-pub struct SignalMetricsTask {
-    commands: SyncSender<SessionCommand>,
-    route_id: u64,
-}
-
-pub struct SessionMetricsTask {
-    commands: SyncSender<SessionCommand>,
-}
-
-pub struct SendSidecarTask {
-    commands: SyncSender<SessionCommand>,
-    sidecar_id: u64,
-    message: pocketstation::SidecarMessage,
-}
-
-impl Task for SendSidecarTask {
-    type Output = ();
-    type JsValue = ();
-
-    fn compute(&mut self) -> Result<Self::Output> {
-        let (response, receiver) = sync_channel(1);
-        self.commands
-            .send(SessionCommand::SendSidecar {
-                sidecar_id: self.sidecar_id,
-                message: self.message.clone(),
-                response,
-            })
-            .map_err(|_| error("session.stopped", "native Session worker has stopped"))?;
-        receiver
-            .recv()
-            .map_err(|_| {
-                error(
-                    "session.worker_stopped",
-                    "native Session worker did not send the sidecar message",
-                )
-            })?
-            .map_err(sidecar_error)
-    }
-
-    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
-        Ok(output)
-    }
-}
-
-pub struct ReadSidecarTask {
-    commands: SyncSender<SessionCommand>,
-    sidecar_id: u64,
-    timeout: Option<Duration>,
-}
-
-impl Task for ReadSidecarTask {
-    type Output = NativeSidecarRead;
-    type JsValue = NativeSidecarRead;
-
-    fn compute(&mut self) -> Result<Self::Output> {
-        let (response, receiver) = sync_channel(1);
-        self.commands
-            .send(SessionCommand::ReadSidecar {
-                sidecar_id: self.sidecar_id,
-                timeout: self.timeout,
-                response,
-            })
-            .map_err(|_| error("session.stopped", "native Session worker has stopped"))?;
-        receiver
-            .recv()
-            .map_err(|_| {
-                error(
-                    "session.worker_stopped",
-                    "native Session worker did not return a sidecar message",
-                )
-            })?
-            .map(NativeSidecarRead::from)
-            .map_err(sidecar_error)
-    }
-
-    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
-        Ok(output)
-    }
-}
-
-pub struct SidecarSnapshotTask {
-    commands: SyncSender<SessionCommand>,
-    sidecar_id: u64,
-}
-
-impl Task for SidecarSnapshotTask {
-    type Output = NativeSidecarSnapshot;
-    type JsValue = NativeSidecarSnapshot;
-
-    fn compute(&mut self) -> Result<Self::Output> {
-        let (response, receiver) = sync_channel(1);
-        self.commands
-            .send(SessionCommand::SidecarSnapshot {
-                sidecar_id: self.sidecar_id,
-                response,
-            })
-            .map_err(|_| error("session.stopped", "native Session worker has stopped"))?;
-        receiver
-            .recv()
-            .map_err(|_| {
-                error(
-                    "session.worker_stopped",
-                    "native Session worker did not return sidecar observations",
-                )
-            })?
-            .map(NativeSidecarSnapshot::from)
-            .map_err(sidecar_error)
-    }
-
-    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
-        Ok(output)
-    }
-}
-
-impl Task for SignalMetricsTask {
-    type Output = NativeSignalMetrics;
-    type JsValue = NativeSignalMetrics;
-
-    fn compute(&mut self) -> Result<Self::Output> {
-        let (response, receiver) = sync_channel(1);
-        self.commands
-            .send(SessionCommand::SignalMetrics {
-                route_id: self.route_id,
-                response,
-            })
-            .map_err(|_| error("session.stopped", "native Session worker has stopped"))?;
-        receiver
-            .recv()
-            .map_err(|_| {
-                error(
-                    "session.worker_stopped",
-                    "native Session worker did not return signal metrics",
-                )
-            })?
-            .map_err(|failure| error("stream.metrics_unavailable", failure))
-    }
-
-    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
-        Ok(output)
-    }
-}
-
-impl Task for SessionMetricsTask {
-    type Output = NativeSessionMetrics;
-    type JsValue = NativeSessionMetrics;
-
-    fn compute(&mut self) -> Result<Self::Output> {
-        let (response, receiver) = sync_channel(1);
-        self.commands
-            .send(SessionCommand::SessionMetrics { response })
-            .map_err(|_| error("session.stopped", "native Session worker has stopped"))?;
-        receiver
-            .recv()
-            .map_err(|_| {
-                error(
-                    "session.worker_stopped",
-                    "native Session worker did not return Session metrics",
-                )
-            })?
-            .map_err(|failure| error("session.metrics_unavailable", failure))
-    }
-
-    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
-        Ok(output)
-    }
-}
-
-impl Task for ReadAudioTask {
-    type Output = NativeAudioRead;
-    type JsValue = NativeAudioRead;
-
-    fn compute(&mut self) -> Result<Self::Output> {
-        let (response, receiver) = sync_channel(1);
-        self.commands
-            .send(SessionCommand::ReadAudio {
-                timeout: self.timeout,
-                response,
-            })
-            .map_err(|_| error("session.stopped", "native Session worker has stopped"))?;
-        receiver.recv().map_err(|_| {
-            error(
-                "session.worker_stopped",
-                "native Session worker did not return audio",
-            )
-        })?
-    }
-
-    fn resolve(&mut self, _env: Env, mut output: Self::Output) -> Result<Self::JsValue> {
-        let resolved_at_ns = pocketstation::timing::monotonic_timestamp_ns().to_string();
-        for frame in &mut output.frames {
-            frame.native_read_resolved_at_ns = resolved_at_ns.clone();
-        }
-        Ok(output)
-    }
-}
-
 #[derive(Clone, Copy)]
 enum FinishDisposition {
     Stop,
     Cancel,
-}
-
-pub struct FinishTask {
-    worker: Option<SessionWorker>,
-    disposition: FinishDisposition,
-}
-
-impl Task for FinishTask {
-    type Output = NativeStopResult;
-    type JsValue = NativeStopResult;
-
-    fn compute(&mut self) -> Result<Self::Output> {
-        let mut worker = self
-            .worker
-            .take()
-            .ok_or_else(|| error("session.stopped", "Session has stopped"))?;
-        let (response, receiver) = sync_channel(1);
-        let command = match self.disposition {
-            FinishDisposition::Stop => SessionCommand::Stop { response },
-            FinishDisposition::Cancel => SessionCommand::Cancel { response },
-        };
-        worker
-            .commands
-            .send(command)
-            .map_err(|_| error("session.stopped", "native Session worker has stopped"))?;
-        let result = receiver.recv().map_err(|_| {
-            error(
-                "session.worker_stopped",
-                "native Session worker did not return a final result",
-            )
-        })?;
-        if let Some(join) = worker.join.take() {
-            join.join().map_err(|_| {
-                error(
-                    "session.worker_panicked",
-                    "native Session worker panicked during shutdown",
-                )
-            })?;
-        }
-        Ok(result)
-    }
-
-    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
-        Ok(output)
-    }
 }
 
 fn session_worker(mut running: pocketstation::RunningSession, receiver: Receiver<SessionCommand>) {

@@ -26,6 +26,7 @@ function nativeReader(reads: NativeEventRead[]): NativeRunningSessionHandle {
   return {
     sessionId: '1',
     readAudio: async () => ({ frames: [], sessionState: 'running' }),
+    monotonicTimestampNs: () => '0',
     readEvent: async () => reads.shift() ?? { sessionState: 'stopped' },
     stop: async () => STOP_RESULT,
     cancel: async () => STOP_RESULT,
