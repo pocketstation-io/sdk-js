@@ -25,6 +25,24 @@ sample timestamp to route receipt in the 10 ms run, so the physical latency
 gate remains open. Node delivery is not the cause; its measured p95 was
 0.099 ms in the same run.
 
+The measurement record now identifies the Core package Cargo actually built
+into the native addon. It records the package version and registry source for a
+release build, or the exact Core commit for a workspace diagnostic. A nearby
+Core checkout can no longer be mistaken for the code inside a crates.io build.
+
+A later diagnostic against Core `ce96e08` confirms correct frame sizes for both
+profiles: 480 samples at 10 ms and 960 samples at 20 ms. The 20 ms application
+and microphone run completed without loss or runtime failure. Its selected-app
+source age remained in the 67.108864 ms p95 histogram bucket, above the declared
+45 ms gate. The 10 ms run also encountered one physical microphone stream error;
+that result remains failed and requires a clean rerun rather than being ignored.
+
+The performance gate now calculates exact source-to-route percentiles from each
+frame's source timestamp and Core route-receipt timestamp. Core's compact
+power-of-two histogram remains in the artifact for runtime observation, but it
+is no longer used to judge a millisecond threshold that falls inside one broad
+histogram bucket.
+
 The component run uses application-owned PCM. It does not establish physical
 capture latency, browser playout, WAN or TURN behavior, provider performance,
 acoustic hearing, or Windows and Linux package performance. The physical
