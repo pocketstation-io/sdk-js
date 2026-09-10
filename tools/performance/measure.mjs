@@ -131,7 +131,14 @@ async function measure(pks, packageMetadata, configuration, limits) {
       packageVersion: packageMetadata.version,
       packageRoot: configuration.packageRoot,
       nativeAddonPath: await resolveNativeAddon(configuration.packageRoot),
-      coreCommit: configuration.coreCommit,
+      nativeCore: {
+        version: configuration.coreVersion,
+        source: configuration.coreSource,
+        commit:
+          configuration.coreCommit === 'unavailable'
+            ? null
+            : configuration.coreCommit,
+      },
       sdkCommit: configuration.sdkCommit,
       hardware: configuration.hardware,
     },
@@ -318,6 +325,15 @@ async function consumeFrames(
           frame.nodeReadResolvedAtNs - frame.routeReceivedAtNs,
         ),
       );
+      if (frame.routeReceivedAtNs >= frame.timestampStartNs) {
+        observeMeasurement(
+          observations.sourceToRouteMsBySource,
+          sourceId,
+          nanosecondsToMilliseconds(
+            frame.routeReceivedAtNs - frame.timestampStartNs,
+          ),
+        );
+      }
       observations.nativeReadResolveMs.push(
         nanosecondsToMilliseconds(
           frame.nodeReadResolvedAtNs - frame.polledAtNs,
@@ -398,6 +414,9 @@ function summarizeScenario(
     frameDurationNsBySource: nestedCounts(
       observations.frameDurationNsBySource,
     ),
+    sourceToRouteMsBySource: summarizedMeasurements(
+      observations.sourceToRouteMsBySource,
+    ),
     unexpectedFrameSizesTotal,
     framesTotal: observations.framesTotal,
     framesPerSecondPerSource,
@@ -430,7 +449,9 @@ function qualify(configuration, limits, scenario, processMetrics, eventLoop) {
   const routes = scenario.routes;
   const largestSourceToRouteP95Ms = Math.max(
     0,
-    ...routes.map((route) => route.sourceToRoute.p95Ms),
+    ...Object.values(scenario.sourceToRouteMsBySource).map(
+      (measurement) => measurement.p95Ms,
+    ),
   );
   const retainedActiveResourcesTotal = Object.values(
     processMetrics.retainedActiveResources,
@@ -576,6 +597,7 @@ function createFrameObservations() {
     framesBySource: new Map(),
     frameSamplesBySource: new Map(),
     frameDurationNsBySource: new Map(),
+    sourceToRouteMsBySource: new Map(),
     lastSequenceNumber: -1n,
     lastObservedAtMsBySource: new Map(),
     javascriptInterarrivalMs: [],
@@ -601,6 +623,21 @@ function nestedCounts(collection) {
       sourceId,
       Object.fromEntries(counts),
     ]),
+  );
+}
+
+function observeMeasurement(collection, sourceId, value) {
+  let values = collection.get(sourceId);
+  if (values === undefined) {
+    values = [];
+    collection.set(sourceId, values);
+  }
+  values.push(value);
+}
+
+function summarizedMeasurements(collection) {
+  return Object.fromEntries(
+    [...collection].map(([sourceId, values]) => [sourceId, summarize(values)]),
   );
 }
 
@@ -741,6 +778,8 @@ function parseArguments(values) {
     packageRoot: process.cwd(),
     thresholds: resolve(toolDirectory, 'thresholds.json'),
     output: '',
+    coreVersion: 'unavailable',
+    coreSource: 'unavailable',
     coreCommit: 'unavailable',
     sdkCommit: 'unavailable',
     hardware: 'unavailable',
@@ -784,6 +823,12 @@ function parseArguments(values) {
         break;
       case '--core-commit':
         parsed.coreCommit = value;
+        break;
+      case '--core-version':
+        parsed.coreVersion = value;
+        break;
+      case '--core-source':
+        parsed.coreSource = value;
         break;
       case '--sdk-commit':
         parsed.sdkCommit = value;
