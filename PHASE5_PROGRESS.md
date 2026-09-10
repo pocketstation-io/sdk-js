@@ -13,6 +13,18 @@ case delivers 50 frames per second with no route loss, discontinuity, retained
 process resource, or unsuccessful shutdown. The complete TypeScript, Jest,
 native Rust, API-report, package-export, and packed-consumer gates pass.
 
+The first physical run found that the deployed Core `1.1.10` still forwards
+the 32-frame remainder of a 512-frame CoreAudio callback after each complete
+480-frame voice frame. The performance tool now records the sample count and
+duration of every frame and rejects any frame that does not match the selected
+10 ms or 20 ms profile. A diagnostic build against local Core commit `720c050`
+confirms the existing Core correction: application and microphone Sources both
+deliver only 480-sample frames at approximately 100 frames per second with no
+delivery loss. The application Source still measures 34–45 ms from its first
+sample timestamp to route receipt in the 10 ms run, so the physical latency
+gate remains open. Node delivery is not the cause; its measured p95 was
+0.099 ms in the same run.
+
 The component run uses application-owned PCM. It does not establish physical
 capture latency, browser playout, WAN or TURN behavior, provider performance,
 acoustic hearing, or Windows and Linux package performance. The physical
