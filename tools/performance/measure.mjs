@@ -220,7 +220,15 @@ async function measureApplicationAudio(pks, configuration) {
     outcome,
     [routeId],
     shutdownMs,
-    { writesTotal },
+    {
+      writesTotal,
+      sourceRoles: {
+        generated: {
+          routeId,
+          sourceId: input.sourceId,
+        },
+      },
+    },
   );
 }
 
@@ -280,6 +288,16 @@ async function measurePhysicalCapture(pks, configuration) {
       application: configuration.application,
       applicationProcessId: configuration.applicationProcessId || undefined,
       microphone: configuration.microphone,
+      sourceRoles: {
+        application: {
+          routeId: routeIds[0],
+          sourceId: observations.sourceIdByRoute.get(routeIds[0].toString()),
+        },
+        microphone: {
+          routeId: routeIds[1],
+          sourceId: observations.sourceIdByRoute.get(routeIds[1].toString()),
+        },
+      },
     },
   );
 }
@@ -300,6 +318,7 @@ async function consumeFrames(
         continue;
       }
       const sourceId = frame.sourceId.toString();
+      observations.sourceIdByRoute.set(frame.routeId.toString(), sourceId);
       observations.framesTotal += 1;
       observations.framesBySource.set(
         sourceId,
@@ -598,6 +617,7 @@ function createFrameObservations() {
     frameSamplesBySource: new Map(),
     frameDurationNsBySource: new Map(),
     sourceToRouteMsBySource: new Map(),
+    sourceIdByRoute: new Map(),
     lastSequenceNumber: -1n,
     lastObservedAtMsBySource: new Map(),
     javascriptInterarrivalMs: [],
