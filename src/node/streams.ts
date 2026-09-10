@@ -50,6 +50,8 @@ export interface AudioFrame {
   readonly endpointEnqueuedAtNs: bigint;
   /** Time the Node reader received the frame, in monotonic nanoseconds. */
   readonly polledAtNs: bigint;
+  /** Time the Node main thread completed the native read, in monotonic nanoseconds. */
+  readonly nodeReadResolvedAtNs: bigint;
 }
 
 /** Controls one direct read or one async-iterator reader. */
@@ -124,6 +126,7 @@ function frameFromNative(frame: NativeAudioFrame): AudioFrame {
     routeReceivedAtNs: BigInt(frame.routeReceivedAtNs),
     endpointEnqueuedAtNs: BigInt(frame.endpointEnqueuedAtNs),
     polledAtNs: BigInt(frame.polledAtNs),
+    nodeReadResolvedAtNs: BigInt(frame.nativeReadResolvedAtNs),
   };
 }
 

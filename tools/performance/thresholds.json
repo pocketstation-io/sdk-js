@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "component": {
+    "10": {
+      "minimumFramesPerSecondPerSource": 98,
+      "maximumRouteToNodeP95Ms": 12,
+      "maximumNativeReadResolveP95Ms": 8,
+      "maximumEventLoopDelayP99Ms": 15,
+      "maximumEventLoopDelayMs": 50,
+      "maximumCpuPct": 150,
+      "maximumRssGrowthBytes": 33554432,
+      "maximumShutdownMs": 2000
+    },
+    "20": {
+      "minimumFramesPerSecondPerSource": 49,
+      "maximumRouteToNodeP95Ms": 15,
+      "maximumNativeReadResolveP95Ms": 8,
+      "maximumEventLoopDelayP99Ms": 20,
+      "maximumEventLoopDelayMs": 60,
+      "maximumCpuPct": 150,
+      "maximumRssGrowthBytes": 33554432,
+      "maximumShutdownMs": 2000
+    }
+  },
+  "physical": {
+    "10": {
+      "minimumFramesPerSecondPerSource": 95,
+      "maximumSourceToRouteP95Ms": 30,
+      "maximumRouteToNodeP95Ms": 12,
+      "maximumNativeReadResolveP95Ms": 8,
+      "maximumEventLoopDelayP99Ms": 15,
+      "maximumEventLoopDelayMs": 50,
+      "maximumCpuPct": 200,
+      "maximumRssGrowthBytes": 33554432,
+      "maximumShutdownMs": 2000
+    },
+    "20": {
+      "minimumFramesPerSecondPerSource": 47.5,
+      "maximumSourceToRouteP95Ms": 45,
+      "maximumRouteToNodeP95Ms": 15,
+      "maximumNativeReadResolveP95Ms": 8,
+      "maximumEventLoopDelayP99Ms": 20,
+      "maximumEventLoopDelayMs": 60,
+      "maximumCpuPct": 200,
+      "maximumRssGrowthBytes": 33554432,
+      "maximumShutdownMs": 2000
+    }
+  }
+}

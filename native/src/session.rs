@@ -1385,7 +1385,11 @@ impl Task for ReadAudioTask {
         })?
     }
 
-    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+    fn resolve(&mut self, _env: Env, mut output: Self::Output) -> Result<Self::JsValue> {
+        let resolved_at_ns = pocketstation::timing::monotonic_timestamp_ns().to_string();
+        for frame in &mut output.frames {
+            frame.native_read_resolved_at_ns = resolved_at_ns.clone();
+        }
         Ok(output)
     }
 }

@@ -545,6 +545,7 @@ export interface NativeAudioFrame {
   routeReceivedAtNs: string;
   endpointEnqueuedAtNs: string;
   polledAtNs: string;
+  nativeReadResolvedAtNs: string;
 }
 
 export interface NativeAudioRead {

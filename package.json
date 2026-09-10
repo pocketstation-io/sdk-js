@@ -43,6 +43,7 @@
     "test:packed": "npm run build && node tools/test-packed-consumer.mjs",
     "test:relay": "npm run build:test-native && npm run build:typescript && node --experimental-vm-modules node_modules/.bin/jest src/__tests__/node-relay.test.ts src/__tests__/relay-session.test.ts --runInBand",
     "test:e2e:browsers": "node tests/relay-browsers.mjs",
+    "test:performance": "npm run build && node tools/performance/run-component.mjs",
     "typecheck": "tsc --noEmit",
     "test": "npm run build && npm run build:test-native && node --experimental-vm-modules node_modules/.bin/jest"
   },

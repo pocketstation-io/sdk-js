@@ -31,6 +31,7 @@ export interface AudioFrame {
     readonly durationNs: bigint;
     readonly endpointEnqueuedAtNs: bigint;
     readonly endpointId: bigint;
+    readonly nodeReadResolvedAtNs: bigint;
     readonly outputGenerationId: bigint | undefined;
     readonly permissionEpoch: bigint;
     readonly polledAtNs: bigint;
