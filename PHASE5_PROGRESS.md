@@ -28,7 +28,9 @@ together and leaves unrelated Node work responsive. With
 This check uses twelve application-owned PCM Sessions and idle 20 ms reads. It
 proves that waiting Sessions do not consume Node's shared worker pool. It does
 not establish a twelve-device capture limit, physical-device latency, or Relay
-capacity.
+capacity. The physical measurement also records which Source ID belongs to the
+selected application and which belongs to the microphone, so their capture age
+cannot be confused in the result.
 
 Fresh Node processes pass the declared component thresholds at both supported
 media profiles. The 10 ms case delivers 100 frames per second and the 20 ms
