@@ -32,6 +32,7 @@ function nativeReader(reads: NativeAudioRead[]): NativeRunningSessionHandle {
     sessionId: '1',
     readAudio: async () =>
       reads.shift() ?? { frames: [], sessionState: 'stopped' },
+    monotonicTimestampNs: () => '13',
     readEvent: async () => ({ sessionState: 'stopped' }),
     stop: async () => STOP_RESULT,
     cancel: async () => STOP_RESULT,

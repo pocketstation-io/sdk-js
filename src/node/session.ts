@@ -796,17 +796,22 @@ export class RunningSession implements AsyncDisposable {
 
   #finishSession(disposition: 'stop' | 'cancel'): Promise<StopResult> {
     if (this.#finish === undefined) {
-      this.#finish = nativeCall(() => this.#native[disposition]()).then((result) => {
-        this.audio._close();
-        this.events._finish(result.remainingEvents);
-        for (const stream of this.#signalStreams.values()) {
-          stream._finish();
-        }
-        for (const sidecar of this.#sidecars.values()) {
-          sidecar._close();
-        }
-        return stopResultFromNative(result);
-      });
+      this.#finish = nativeCall(() => this.#native[disposition]())
+        .then((result) => {
+          this.audio._close();
+          this.events._finish(result.remainingEvents);
+          for (const stream of this.#signalStreams.values()) {
+            stream._finish();
+          }
+          for (const sidecar of this.#sidecars.values()) {
+            sidecar._close();
+          }
+          return stopResultFromNative(result);
+        })
+        .catch((failure: unknown) => {
+          this.#finish = undefined;
+          throw failure;
+        });
     }
     return this.#finish;
   }

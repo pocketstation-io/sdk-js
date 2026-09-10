@@ -7,6 +7,29 @@ Core already captured and routed. Each frame now records when the Node main
 thread completes its native read, so Core route time and Node delivery time can
 be reported separately.
 
+The first concurrency check found a native integration problem that single-
+Session tests could not expose. Each pending audio read used Node's shared
+worker pool while it waited for Core. Twelve simultaneous Sessions exhausted
+that pool in groups of four and delayed an unrelated file read by about 74 ms.
+The public Promise API was not the cause; the native work behind each Promise
+was blocking the wrong threads.
+
+Session startup, audio reads, events, signals, observations, sidecar calls, and
+shutdown now await a one-shot response from the Session worker. Signal waits
+use an asynchronous timer, and joining a finished Session runs outside Node's
+shared worker pool. The same twelve-Session test now resolves all audio reads
+together and leaves unrelated Node work responsive. With
+`UV_THREADPOOL_SIZE=4`, the accepted run measured:
+
+- startup completion spread: 0.134 ms; unrelated file read: 0.343 ms;
+- audio-read completion spread: 0.604 ms; unrelated file read: 0.090 ms;
+- cancellation completion spread: 5.361 ms; unrelated file read: 0.137 ms.
+
+This check uses twelve application-owned PCM Sessions and idle 20 ms reads. It
+proves that waiting Sessions do not consume Node's shared worker pool. It does
+not establish a twelve-device capture limit, physical-device latency, or Relay
+capacity.
+
 Fresh Node processes pass the declared component thresholds at both supported
 media profiles. The 10 ms case delivers 100 frames per second and the 20 ms
 case delivers 50 frames per second with no route loss, discontinuity, retained

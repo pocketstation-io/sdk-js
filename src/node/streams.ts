@@ -247,6 +247,10 @@ export class AudioStream implements AsyncIterable<AudioFrame> {
           ? 0
           : Math.min(ABORT_CHECK_INTERVAL_MS, remainingMs);
       const result = await nativeCall(() => this.#running.readAudio(nativeWaitMs));
+      const resolvedAtNs = this.#running.monotonicTimestampNs();
+      for (const frame of result.frames) {
+        frame.nativeReadResolvedAtNs = resolvedAtNs;
+      }
       const frames = result.frames.map(frameFromNative);
       this.#pending.push(...frames);
       if (result.sessionState === 'stopped' || result.sessionState === 'failed') {
