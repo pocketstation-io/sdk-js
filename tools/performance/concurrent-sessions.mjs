@@ -1,17 +1,17 @@
 #!/usr/bin/env node
 
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const toolDirectory = dirname(fileURLToPath(import.meta.url));
-const packageRoot = resolve(toolDirectory, '../..');
+const options = parseArguments(process.argv.slice(2));
+const packageRoot = options.packageRoot;
 const packageJsonPath = resolve(packageRoot, 'package.json');
-const thresholdsPath = resolve(toolDirectory, 'thresholds.json');
 const [{ Session }, thresholdsDocument] = await Promise.all([
   import(pathToFileURL(resolve(packageRoot, 'dist/node/index.js')).href),
-  readFile(thresholdsPath, 'utf8').then(JSON.parse),
+  readFile(options.thresholds, 'utf8').then(JSON.parse),
 ]);
 const limits = thresholdsDocument.concurrentSessions;
 const configuredSessions = [];
@@ -76,7 +76,9 @@ const result = {
   checks,
 };
 
-console.log(JSON.stringify(result, null, 2));
+const serialized = `${JSON.stringify(result, null, 2)}\n`;
+if (options.output !== undefined) await writeFile(options.output, serialized);
+console.log(serialized.trimEnd());
 if (result.status !== 'passed') process.exitCode = 1;
 
 async function observe(operations, filePath) {
@@ -119,5 +121,27 @@ function check(name, actualMs, maximumMs) {
     actualMs,
     maximumMs,
     passed: actualMs <= maximumMs,
+  };
+}
+
+function parseArguments(arguments_) {
+  const values = new Map();
+  for (let index = 0; index < arguments_.length; index += 2) {
+    const name = arguments_[index];
+    const value = arguments_[index + 1];
+    if (!name?.startsWith('--') || value === undefined) {
+      throw new Error(`Invalid argument near ${name ?? '<end>'}`);
+    }
+    values.set(name, value);
+  }
+  return {
+    packageRoot: resolve(values.get('--package-root') ?? resolve(toolDirectory, '../..')),
+    thresholds: resolve(
+      values.get('--thresholds') ?? resolve(toolDirectory, 'thresholds.json'),
+    ),
+    output:
+      values.get('--output') === undefined
+        ? undefined
+        : resolve(values.get('--output')),
   };
 }
