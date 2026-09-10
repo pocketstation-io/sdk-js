@@ -183,7 +183,7 @@ describe('Session observations', () => {
       const input = session.audioInput('application');
       input.output.record('application');
       const running = await session.start();
-      await input.write(new Float32Array(480));
+      await input.write(new Float32Array(960));
       await wait(25);
       input.close();
 

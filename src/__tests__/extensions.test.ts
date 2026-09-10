@@ -8,6 +8,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { setTimeout as wait } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 
 import {
@@ -119,6 +120,7 @@ describe('native extensions', () => {
       'hello from native extension',
     );
     expect(received.lineage?.sourceId).toBe(source.sourceId);
+    await waitFor(() => existsSync(MARKER));
     expect((await running.stop()).success).toBe(true);
     expect(existsSync(MARKER)).toBe(true);
     expect(readFileSync(MARKER, 'utf8')).toContain(
@@ -136,3 +138,13 @@ describe('native extensions', () => {
     });
   });
 });
+
+async function waitFor(predicate: () => boolean): Promise<void> {
+  const timeoutAt = Date.now() + 1_000;
+  while (!predicate()) {
+    if (Date.now() >= timeoutAt) {
+      throw new Error('native extension Endpoint did not receive its signal');
+    }
+    await wait(5);
+  }
+}

@@ -14,6 +14,19 @@ import {
 } from '../node/index.js';
 
 describe('application-owned PCM', () => {
+  it('uses the Session frame duration for the default input frame size', () => {
+    const tenMillisecondInput = new Session({ frameDurationMs: 10 }).audioInput(
+      'ten millisecond audio',
+    );
+    const twentyMillisecondInput = new Session({ frameDurationMs: 20 }).audioInput(
+      'twenty millisecond audio',
+    );
+
+    expect(tenMillisecondInput.config.frameSamplesPerChannel).toBe(480);
+    expect(twentyMillisecondInput.config.frameSamplesPerChannel).toBe(960);
+    expect(() => twentyMillisecondInput.tryWrite(new Float32Array(960))).not.toThrow();
+  });
+
   it('copies Float32Array samples into Core and preserves source identity and timing', async () => {
     const session = new Session({ frameDurationMs: 10 });
     const input = session.audioInput('agent audio');

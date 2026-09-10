@@ -198,7 +198,7 @@ describe('Node audio stream', () => {
     const iterator = stream.frames();
 
     await expect(iterator.next()).resolves.toMatchObject({
-      value: { sequenceNumber: 1n },
+      value: { sequenceNumber: 1n, nodeReadResolvedAtNs: 13n },
     });
     await iterator.return(undefined);
 
@@ -265,5 +265,6 @@ function nativeFrame(sequenceNumber: string): NativeAudioRead['frames'][number] 
     routeReceivedAtNs: '10',
     endpointEnqueuedAtNs: '11',
     polledAtNs: '12',
+    nativeReadResolvedAtNs: '13',
   };
 }

@@ -26,6 +26,7 @@ pub struct NativeAudioFrame {
     pub route_received_at_ns: String,
     pub endpoint_enqueued_at_ns: String,
     pub polled_at_ns: String,
+    pub native_read_resolved_at_ns: String,
 }
 
 #[napi(object)]
@@ -81,6 +82,7 @@ pub(crate) fn copy_audio(
             route_received_at_ns: frame.route_received_at_ns().to_string(),
             endpoint_enqueued_at_ns: frame.endpoint_enqueued_at_ns().to_string(),
             polled_at_ns: frame.polled_at_ns().to_string(),
+            native_read_resolved_at_ns: "0".to_owned(),
         });
     }
     Ok(frames)

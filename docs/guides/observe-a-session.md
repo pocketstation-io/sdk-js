@@ -51,6 +51,26 @@ route.sourceLatencyUnit;
 Endpoint cannot report selected-output cancellation; it does not mean zero
 frames were discarded.
 
+## Measure delivery to Node
+
+Each `AudioFrame` keeps the native times needed to distinguish capture and
+routing work from delivery to Node:
+
+```ts
+const routeToNodeMs = Number(
+  frame.nodeReadResolvedAtNs - frame.routeReceivedAtNs,
+) / 1_000_000;
+```
+
+`routeReceivedAtNs` records when Core received the frame for this route.
+`polledAtNs` records when the native audio Endpoint returned it.
+`nodeReadResolvedAtNs` records when the Node main thread completed the native
+read. These values use the same monotonic clock.
+
+This measurement does not include later JavaScript work, a provider request,
+Relay delivery, browser playout, or sound from a speaker. Measure those stages
+where they run and report them separately.
+
 ## React to failures
 
 The event stream separates lifecycle changes from Source, Endpoint, startup,

@@ -1,22 +1,35 @@
 # JavaScript SDK progress
 
+## W21 JavaScript performance and resource qualification
+
+The active task measures the JavaScript work required to consume media that
+Core already captured and routed. Each frame now records when the Node main
+thread completes its native read, so Core route time and Node delivery time can
+be reported separately.
+
+Fresh Node processes pass the declared component thresholds at both supported
+media profiles. The 10 ms case delivers 100 frames per second and the 20 ms
+case delivers 50 frames per second with no route loss, discontinuity, retained
+process resource, or unsuccessful shutdown. The complete TypeScript, Jest,
+native Rust, API-report, package-export, and packed-consumer gates pass.
+
+The component run uses application-owned PCM. It does not establish physical
+capture latency, browser playout, WAN or TURN behavior, provider performance,
+acoustic hearing, or Windows and Linux package performance. The physical
+selected-application and microphone measurements remain the next acceptance
+step.
+
 ## W21 JavaScript notebook proof
 
-The notebook task is active. Deno 2.9.6 is the qualified kernel/runtime for
-this proof. Its first-party Jupyter kernel executes JavaScript and TypeScript,
-loads npm packages, and runs with the native-code permission required by a
-Node-API addon. A temporary `.ipynb` installed the packed PocketStation package,
-loaded its native addon, wrote PCM through Core, read the routed frame, and
-stopped the Session. The temporary kernelspec was removed after the check.
+The notebook and real-path tasks are complete. Deno 2.9.6 is the qualified
+kernel/runtime for this proof. Its first-party Jupyter kernel executed the
+packed PocketStation package with the native-code permission required by the
+Node-API addon.
 
-The remaining artifact must use the installed package to capture a selected
-desktop application and an explicitly requested physical microphone as
-independent Stems. The same Session must send both to a small application
-Connector, publish named Relay AudioBuses, and record separate WAV files while
-Chromium, Firefox, and WebKit receive them. Notebook cells must use finite
-deadlines, contain no credentials, and render source identity, delivery state,
-recording results, and unavailable measurements without claiming WAN, TURN, or
-physical hearing.
+The accepted artifact captures a controlled desktop application and an
+explicitly selected physical microphone as independent Stems. The same Session
+sends both to an application Connector, publishes named Relay AudioBuses, and
+records separate WAV files while Chromium, Firefox, and WebKit receive them.
 
 The first complete run passed capture, Relay, every browser, and both
 recordings, then failed the zero-loss gate because the Deno kernel paused the

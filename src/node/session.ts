@@ -933,12 +933,15 @@ export class Session {
     if (name.trim().length === 0) {
       throw new AudioInputConfigurationError('audio input name cannot be empty');
     }
+    const sampleRateHz = options.sampleRateHz ?? this.#sampleRateHz;
     const config = {
       name,
-      sampleRateHz: options.sampleRateHz ?? this.#sampleRateHz,
+      sampleRateHz,
       channels: options.channels ?? this.#channels,
       capacityFrames: options.capacityFrames ?? 8,
-      frameSamplesPerChannel: options.frameSamplesPerChannel ?? 480,
+      frameSamplesPerChannel:
+        options.frameSamplesPerChannel ??
+        (sampleRateHz * this.#frameDurationMs) / 1_000,
     } as const;
     let native: NativeAudioInputHandle;
     try {
