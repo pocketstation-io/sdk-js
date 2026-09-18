@@ -1,0 +1,278 @@
+import { jest } from '@jest/globals';
+
+import { PocketStationError } from '../errors.js';
+import { RelayPublisher } from '../browser/relay-publisher.js';
+
+const access = {
+  signalUrl: 'ws://127.0.0.1:4800/v1/signal',
+  sessionId: 'session-001',
+  busId: 'user-microphone',
+  sourceToken: 'source-token',
+  iceServers: [{ urls: ['stun:relay.example:3478'] }],
+} as const;
+
+class FakeTrack extends EventTarget {
+  public readonly kind = 'audio';
+  public readonly id = 'track-001';
+  public readonly label = 'test microphone';
+  public readonly enabled = true;
+  public readonly muted = false;
+  public readonly readyState = 'live';
+  public readonly stop = jest.fn();
+}
+
+class FakeStream {
+  readonly #tracks: FakeTrack[];
+
+  public constructor(tracks: FakeTrack[]) {
+    this.#tracks = tracks;
+  }
+
+  public getAudioTracks(): FakeTrack[] {
+    return [...this.#tracks];
+  }
+}
+
+class FakePeerConnection {
+  public static instances: FakePeerConnection[] = [];
+  public readonly configuration: RTCConfiguration;
+  public connectionState: RTCPeerConnectionState = 'new';
+  public remoteDescription: RTCSessionDescription | null = null;
+  public onicecandidate: ((event: RTCPeerConnectionIceEvent) => void) | null = null;
+  public onconnectionstatechange: (() => void) | null = null;
+  public readonly addTrack = jest.fn();
+  public readonly close = jest.fn(() => {
+    this.connectionState = 'closed';
+    this.onconnectionstatechange?.();
+  });
+  public packetsSent = 1;
+
+  public constructor(configuration: RTCConfiguration) {
+    this.configuration = configuration;
+    FakePeerConnection.instances.push(this);
+  }
+
+  public async createOffer(): Promise<RTCSessionDescriptionInit> {
+    return { type: 'offer', sdp: 'v=0\r\n' };
+  }
+
+  public async setLocalDescription(): Promise<void> {}
+
+  public async setRemoteDescription(
+    description: RTCSessionDescriptionInit,
+  ): Promise<void> {
+    this.remoteDescription = description as RTCSessionDescription;
+    this.connectionState = 'connected';
+    queueMicrotask(() => this.onconnectionstatechange?.());
+  }
+
+  public async addIceCandidate(): Promise<void> {}
+
+  public async getStats(): Promise<RTCStatsReport> {
+    const report = {
+      type: 'outbound-rtp',
+      kind: 'audio',
+      timestamp: 1234,
+      packetsSent: this.packetsSent,
+      bytesSent: 960,
+      headerBytesSent: 48,
+      totalSamplesSent: 960,
+      totalSamplesDuration: 0.02,
+      audioLevel: 0.25,
+      totalAudioEnergy: 0.5,
+    };
+    return {
+      forEach(callback: (value: RTCStats) => void): void {
+        callback(report as unknown as RTCStats);
+      },
+    } as RTCStatsReport;
+  }
+}
+
+type SocketListener = (event: Event) => void;
+
+class FakeWebSocket {
+  public static readonly OPEN = 1;
+  public static readonly CLOSED = 3;
+  public static instances: FakeWebSocket[] = [];
+  public static rejectPublish = false;
+  public readyState = 0;
+  public onmessage: ((event: MessageEvent) => void) | null = null;
+  public onclose: (() => void) | null = null;
+  public onerror: (() => void) | null = null;
+  public readonly sent: unknown[] = [];
+  readonly #listeners = new Map<string, Set<SocketListener>>();
+
+  public constructor(public readonly url: string) {
+    FakeWebSocket.instances.push(this);
+    queueMicrotask(() => {
+      this.readyState = FakeWebSocket.OPEN;
+      this.#emit('open');
+    });
+  }
+
+  public addEventListener(type: string, listener: SocketListener): void {
+    const listeners = this.#listeners.get(type) ?? new Set<SocketListener>();
+    listeners.add(listener);
+    this.#listeners.set(type, listeners);
+  }
+
+  public removeEventListener(type: string, listener: SocketListener): void {
+    this.#listeners.get(type)?.delete(listener);
+  }
+
+  public send(value: string): void {
+    const message = JSON.parse(value) as Record<string, unknown>;
+    this.sent.push(message);
+    if (message.type !== 'PUBLISH') return;
+    const response = FakeWebSocket.rejectPublish
+      ? { type: 'ERROR', code: 'bad_token', message: 'invalid capability' }
+      : { type: 'SDP_ANSWER', sdp_answer: 'v=0\r\n' };
+    queueMicrotask(() => {
+      this.onmessage?.(
+        { data: JSON.stringify(response) } as MessageEvent<string>,
+      );
+    });
+  }
+
+  public close(): void {
+    if (this.readyState === FakeWebSocket.CLOSED) return;
+    this.readyState = FakeWebSocket.CLOSED;
+    this.onclose?.();
+    this.#emit('close');
+  }
+
+  #emit(type: string): void {
+    const event = new Event(type);
+    for (const listener of this.#listeners.get(type) ?? []) listener(event);
+  }
+}
+
+function streamWith(track: FakeTrack): MediaStream {
+  return new FakeStream([track]) as unknown as MediaStream;
+}
+
+beforeEach(() => {
+  FakePeerConnection.instances = [];
+  FakeWebSocket.instances = [];
+  FakeWebSocket.rejectPublish = false;
+  Object.defineProperty(globalThis, 'RTCPeerConnection', {
+    configurable: true,
+    value: FakePeerConnection,
+  });
+  Object.defineProperty(globalThis, 'WebSocket', {
+    configurable: true,
+    value: FakeWebSocket,
+  });
+});
+
+afterEach(() => {
+  Reflect.deleteProperty(globalThis, 'RTCPeerConnection');
+  Reflect.deleteProperty(globalThis, 'WebSocket');
+});
+
+describe('RelayPublisher', () => {
+  it('publishes one exact bus only after media packets exist and preserves track ownership', async () => {
+    const states: string[] = [];
+    const track = new FakeTrack();
+    const stream = streamWith(track);
+    const publisher = new RelayPublisher(access, {
+      onStateChange: (state) => states.push(state),
+    });
+
+    await publisher.publish(stream);
+
+    expect(publisher.state).toBe('publishing');
+    expect(publisher.stream).toBe(stream);
+    expect(states).toEqual(['signaling', 'connecting', 'publishing']);
+    expect(FakeWebSocket.instances[0]?.sent).toContainEqual({
+      type: 'PUBLISH',
+      session_id: access.sessionId,
+      bus_id: access.busId,
+      token: access.sourceToken,
+      sdp_offer: 'v=0\r\n',
+    });
+    await expect(publisher.observe()).resolves.toMatchObject({
+      sessionId: access.sessionId,
+      busId: access.busId,
+      packetsSent: 1,
+      bytesSent: 960,
+      trackState: 'live',
+      trackMuted: false,
+    });
+
+    await publisher.disconnect();
+    await publisher.disconnect();
+
+    expect(publisher.state).toBe('closed');
+    expect(track.stop).not.toHaveBeenCalled();
+    expect(FakePeerConnection.instances[0]?.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not report publishing while outbound packet delivery remains absent', async () => {
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const track = new FakeTrack();
+      const publisher = new RelayPublisher(access, { connectTimeoutMs: 30 });
+      const publication = publisher.publish(streamWith(track));
+      await Promise.resolve();
+      const connection = FakePeerConnection.instances[attempt];
+      if (connection === undefined) throw new Error('missing fake PeerConnection');
+      connection.packetsSent = 0;
+
+      await expect(publication).rejects.toMatchObject({
+        code: 'relay.publisher_connect_timeout',
+      });
+      expect(publisher.state).toBe('failed');
+      expect(track.stop).not.toHaveBeenCalled();
+    }
+  });
+
+  it('fails closed when Relay rejects the source capability', async () => {
+    FakeWebSocket.rejectPublish = true;
+    const publisher = new RelayPublisher(access);
+
+    await expect(publisher.publish(streamWith(new FakeTrack()))).rejects.toMatchObject({
+      code: 'relay.bad_token',
+    });
+
+    expect(publisher.state).toBe('failed');
+    expect(FakePeerConnection.instances[0]?.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('reattaches without stopping the caller track after an explicit reconnect', async () => {
+    const track = new FakeTrack();
+    const stream = streamWith(track);
+    const publisher = new RelayPublisher(access);
+    await publisher.publish(stream);
+    const first = FakePeerConnection.instances[0];
+    if (first === undefined) throw new Error('missing first fake PeerConnection');
+    first.connectionState = 'disconnected';
+    first.onconnectionstatechange?.();
+    expect(publisher.state).toBe('disconnected');
+
+    await publisher.reconnect();
+
+    expect(publisher.state).toBe('publishing');
+    expect(FakePeerConnection.instances).toHaveLength(2);
+    expect(first.close).toHaveBeenCalledTimes(1);
+    expect(track.stop).not.toHaveBeenCalled();
+    await publisher.disconnect();
+  });
+
+  it('rejects invalid bus identity and streams without exactly one live audio track', async () => {
+    expect(
+      () => new RelayPublisher({ ...access, busId: 'not portable!' }),
+    ).toThrow(TypeError);
+    const publisher = new RelayPublisher(access);
+    const empty = new FakeStream([]) as unknown as MediaStream;
+
+    await expect(publisher.publish(empty)).rejects.toMatchObject({
+      code: 'relay.publisher_audio_track_count',
+    });
+  });
+});
+
+it('uses the shared PocketStation error type for publisher failures', () => {
+  const failure = new PocketStationError('relay.test', 'test message');
+  expect(failure).toBeInstanceOf(Error);
+});

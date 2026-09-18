@@ -12,6 +12,20 @@ export interface RelayReceiverAccess {
   readonly iceServers?: readonly RTCIceServer[];
 }
 
+/** Direct publisher access issued for one RelaySession AudioBus. */
+export interface RelayPublisherAccess {
+  /** Relay WebSocket endpoint, normally ending in `/v1/signal`. */
+  readonly signalUrl: string;
+  /** RelaySession identity. */
+  readonly sessionId: string;
+  /** AudioBus selected for this publisher. */
+  readonly busId: string;
+  /** Source credential whose bus scope includes the selected AudioBus. */
+  readonly sourceToken: string;
+  /** STUN or TURN servers issued for this RelaySession. */
+  readonly iceServers?: readonly RTCIceServer[];
+}
+
 /** A one-time invitation issued by the PocketStation control plane. */
 export interface RelayInvitation {
   /** PocketStation control-plane HTTP or HTTPS origin. */
@@ -34,6 +48,20 @@ export interface RelayReceiverOptions {
   readonly onError?: (error: Error) => void;
 }
 
+/** Publisher startup, observation, and shutdown settings. */
+export interface RelayPublisherOptions {
+  /** Complete signaling, SDP, ICE, and first-packet deadline. Defaults to 20 seconds. */
+  readonly connectTimeoutMs?: number;
+  /** WebSocket close deadline. Defaults to two seconds. */
+  readonly disconnectTimeoutMs?: number;
+  /** Called after each lifecycle transition. */
+  readonly onStateChange?: (state: RelayPublisherState) => void;
+  /** Called when Relay reports a transport-facing Session snapshot. */
+  readonly onSessionState?: (state: RelaySessionState) => void;
+  /** Called for asynchronous signaling, WebRTC, or source-track failures. */
+  readonly onError?: (error: Error) => void;
+}
+
 /** Observable lifecycle of one browser receiver. */
 export type RelayReceiverState =
   | 'idle'
@@ -45,8 +73,25 @@ export type RelayReceiverState =
   | 'failed'
   | 'closed';
 
+/** Observable lifecycle of one browser publisher. */
+export type RelayPublisherState =
+  | 'idle'
+  | 'signaling'
+  | 'connecting'
+  | 'publishing'
+  | 'disconnected'
+  | 'failed'
+  | 'closed';
+
 /** Client-to-Relay signaling messages used by the browser receiver. */
 export type RelayClientMessage =
+  | {
+      readonly type: 'PUBLISH';
+      readonly session_id: string;
+      readonly bus_id: string;
+      readonly token: string;
+      readonly sdp_offer: string;
+    }
   | {
       readonly type: 'SUBSCRIBE';
       readonly session_id: string;
@@ -108,4 +153,28 @@ export interface RelayPlayoutObservation {
   readonly trackState: MediaStreamTrackState | null;
   /** Acoustic output cannot be observed through WebRTC statistics. */
   readonly acousticOutput: 'unavailable';
+}
+
+/** Point-in-time WebRTC publisher observations for one caller-owned audio stream. */
+export interface RelayPublishObservation {
+  /** Monotonic observation revision within this RelayPublisher. */
+  readonly revision: number;
+  /** RelaySession identity. */
+  readonly sessionId: string;
+  /** Selected AudioBus. */
+  readonly busId: string;
+  /** Wall-clock observation time in milliseconds since Unix epoch. */
+  readonly observedAtMs: number;
+  /** Browser statistics timestamp in milliseconds, when reported. */
+  readonly statsTimestampMs: number | null;
+  readonly packetsSent: number | null;
+  readonly bytesSent: number | null;
+  readonly headerBytesSent: number | null;
+  readonly totalSamplesSent: number | null;
+  readonly totalSamplesDurationSeconds: number | null;
+  readonly audioLevel: number | null;
+  readonly totalAudioEnergy: number | null;
+  readonly connectionState: RTCPeerConnectionState;
+  readonly trackState: MediaStreamTrackState;
+  readonly trackMuted: boolean;
 }
