@@ -1,5 +1,42 @@
 # JavaScript SDK progress
 
+## W21 browser AudioBus publisher to Core Source
+
+The active bounded task adds a browser-only `RelayPublisher`. The application
+supplies exactly one live audio `MediaStream` track and retains permission,
+selection, and track ownership. The publisher owns only capability-scoped
+WebSocket/WebRTC publication, finite startup, real outbound-packet readiness,
+observations, explicit reconnect, and bounded teardown. It never stops the
+caller track and does not add another PCM queue or media engine.
+
+The public state distinguishes signaling, connecting, actual publication,
+disconnection, failure, and closure. `publish()` cannot resolve from signaling
+or ICE alone: browser `outbound-rtp.packetsSent` must be positive. Unsupported
+or unavailable WebRTC statistics remain `null`; an ended caller track is a
+typed failure. Reconnecting is an explicit new Relay source attachment rather
+than invented continuity.
+
+Component tests cover exact Session/AudioBus signaling, first-packet
+readiness, no-packet timeout, capability rejection, explicit reconnect,
+observations, one-live-track validation, caller track ownership, and idempotent
+disconnect. The product gate remains the Lab browser→Relay→accepted
+connector→Core recording proof.
+
+An acceptance rerun exposed an intermittent Node failure in the no-packet
+deadline: a composite made with `AbortSignal.any()` could remain pending after
+its timeout source should have fired. The original test reproduced both pass
+and five-second hang outcomes. Publisher, receiver, and invitation startup now
+share one explicit operation controller with a strongly referenced timer and
+deterministic listener/timer disposal. The publisher regression test runs eight
+consecutive absent-packet deadlines so this failure cannot hide behind one
+passing timeout.
+
+No scaffold or mock is added to product code. Test doubles cover component
+state transitions, and the real proof will be labeled `LOOPBACK-ONLY`. This
+task does not claim a physical phone, microphone permission UX, iOS/Android
+backgrounding, WAN/TURN, Wi-Fi/cellular handoff, remote-device clock lineage,
+speech, physical hearing, coding-agent integration, or production scale.
+
 ## W21 JavaScript performance and resource qualification
 
 The active task measures the JavaScript work required to consume media that

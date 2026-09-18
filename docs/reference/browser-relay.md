@@ -1,10 +1,73 @@
-# Receive Relay audio in a browser
+# Publish and receive Relay audio in a browser
 
-Use `pocketstation/browser` when a web page needs to play or process one named
-audio bus from PocketStation Relay. The browser package contains no native
-addon and cannot capture another desktop application. A Node process publishes
-desktop audio; a browser receives only the bus named by its subscriber
-credential.
+Use `pocketstation/browser` when a web page needs to publish or receive one
+named audio bus through PocketStation Relay. The browser package contains no
+native addon and cannot capture another desktop application. It operates on a
+caller-owned browser `MediaStream` or receives only the bus named by a
+subscriber credential.
+
+## Publish one browser audio stream
+
+Obtain microphone permission in your application, then pass the resulting
+stream to a capability-scoped publisher:
+
+```ts
+import { RelayPublisher } from "pocketstation/browser";
+
+const microphone = await navigator.mediaDevices.getUserMedia({
+  audio: true,
+  video: false,
+});
+
+const publisher = new RelayPublisher({
+  signalUrl: "wss://relay.example.com/v1/signal",
+  sessionId,
+  busId: "user-microphone",
+  sourceToken,
+  iceServers,
+});
+
+await publisher.publish(microphone);
+```
+
+`publish()` requires exactly one live audio track. It resolves only after
+WebRTC statistics report at least one outbound audio packet, rather than after
+signaling or ICE alone. A packet is delivery evidence, not proof of speech,
+audibility, or non-silence.
+
+The application owns permission UX, source selection, and the `MediaStream`.
+`disconnect()` is bounded and idempotent but never calls `stop()` on the
+caller's track. Stop the microphone separately when your product policy says
+its ownership ends:
+
+```ts
+await publisher.disconnect();
+for (const track of microphone.getTracks()) track.stop();
+```
+
+Use `observe()` to read fields the browser actually exposes:
+
+```ts
+const observation = await publisher.observe();
+
+console.log({
+  packetsSent: observation.packetsSent,
+  bytesSent: observation.bytesSent,
+  trackState: observation.trackState,
+  trackMuted: observation.trackMuted,
+});
+```
+
+Unavailable statistics remain `null`. An ended source track is a typed
+publisher failure. A disconnected PeerConnection becomes `disconnected`; the
+application may call `reconnect()` with the same still-live stream or an
+explicit replacement. Relay treats that attachment as a new source generation,
+so applications must not invent continuity across the boundary.
+
+Source capabilities are bearer credentials. Deliver them through your trusted
+pairing/application boundary, restrict them to the required bus, keep them out
+of URLs and persistent browser storage, and give them finite expiry. The SDK
+does not implement authentication UI or agent authorization policy.
 
 ## Join with an invitation
 
@@ -115,11 +178,11 @@ they cannot prove that a loudspeaker emitted sound or that a person heard it.
 
 ## Why these methods are asynchronous
 
-Invitation exchange, WebSocket and WebRTC setup, browser statistics, and joined
-shutdown may wait for network or browser work. Their methods return Promises so
-applications can cancel, time out, and handle failure normally. Desktop audio
-capture remains in the native Node package; no JavaScript function runs inside
-a native capture callback.
+Invitation exchange, WebSocket and WebRTC setup, first-packet readiness,
+browser statistics, and joined shutdown may wait for network or browser work.
+Their methods return Promises so applications can cancel, time out, and handle
+failure normally. Desktop application capture remains in the native Node
+package; no JavaScript function runs inside a native capture callback.
 
 ## Current qualification
 
@@ -130,6 +193,12 @@ separate connection attempt, read WebRTC statistics, and closed signaling. The
 20 ms run reported no active capture error, route loss, discontinuity, browser
 packet loss, or recording loss.
 
-That result proves the same-host workflow. It does not prove WAN or TURN
-connectivity, Windows or Linux packages, physical loudspeaker output, or that a
+The public publisher API has component coverage for exact-bus signaling,
+first-packet readiness, failed authorization, reconnection, observations,
+caller stream ownership, and idempotent teardown. Until the retained
+browser→Relay→Core artifact is accepted, it is not a product-path claim.
+
+Existing receiver evidence proves the same-host workflow. It does not prove a
+physical phone, WAN or TURN connectivity, mobile backgrounding, network
+handoff, Windows or Linux packages, physical loudspeaker output, or that a
 person heard the audio.

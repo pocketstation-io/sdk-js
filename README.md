@@ -108,6 +108,33 @@ The microphone remains opt-in. A selected application can be the only
 published source when that is all the receiver needs. See the
 [runnable Relay example](examples/publish-to-relay.mjs) for configuration.
 
+## Publish caller-owned browser audio
+
+The browser-only entry can publish one live `MediaStream` audio track to one
+capability-scoped `AudioBus`. Your application obtains microphone permission
+and retains track ownership:
+
+```ts
+import { RelayPublisher } from "pocketstation/browser";
+
+const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+const publisher = new RelayPublisher({
+  signalUrl,
+  sessionId,
+  busId: "user-microphone",
+  sourceToken,
+  iceServers,
+});
+
+await publisher.publish(stream);
+```
+
+`publish()` resolves only after browser WebRTC statistics contain an outbound
+audio packet. This proves media delivery started; it does not prove speech or
+non-silence. `disconnect()` closes PocketStation resources but deliberately
+does not stop the caller-owned track. Keep source credentials out of URLs and
+browser storage. See [Publish and receive Relay audio in a browser](docs/reference/browser-relay.md).
+
 ## Send audio to application code
 
 Use a Connector for a socket, encoder, provider client, or another destination

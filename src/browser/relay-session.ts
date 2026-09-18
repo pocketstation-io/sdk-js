@@ -1,4 +1,5 @@
 import { PocketStationError } from '../errors.js';
+import { operationSignal } from './operation-signal.js';
 import { SignalingTransport } from './signaling.js';
 import type {
   RelayInvitation,
@@ -30,43 +31,51 @@ export async function resolveRelayInvitation(
   );
   const control = parseControlUrl(invitation.controlUrl);
   const joinCode = requiredText(invitation.joinCode, 'invitation joinCode');
-  const signal = combineSignals(options.signal, AbortSignal.timeout(timeoutMs));
-  let response: Response;
+  const operation = operationSignal(timeoutMs, options.signal);
   try {
-    response = await fetch(
-      new URL(`/v1/invitations/${encodeURIComponent(joinCode)}`, control),
-      { cache: 'no-store', credentials: 'omit', signal },
-    );
-  } catch (cause) {
-    throw requestFailure('relay.invitation_request_failed', 'Invitation could not be resolved', cause);
+    let response: Response;
+    try {
+      response = await fetch(
+        new URL(`/v1/invitations/${encodeURIComponent(joinCode)}`, control),
+        { cache: 'no-store', credentials: 'omit', signal: operation.signal },
+      );
+    } catch (cause) {
+      throw requestFailure(
+        'relay.invitation_request_failed',
+        'Invitation could not be resolved',
+        cause,
+      );
+    }
+    let body: string;
+    try {
+      body = await readLimitedText(response, MAX_CONTROL_RESPONSE_BYTES);
+    } catch (cause) {
+      throw requestFailure(
+        'relay.invitation_response_failed',
+        'Invitation response could not be read',
+        cause,
+      );
+    }
+    if (!response.ok) {
+      throw new PocketStationError(
+        'relay.invitation_rejected',
+        `PocketStation control plane rejected the invitation with HTTP ${response.status}`,
+      );
+    }
+    let value: unknown;
+    try {
+      value = JSON.parse(body);
+    } catch (cause) {
+      throw new PocketStationError(
+        'relay.invalid_invitation_response',
+        'PocketStation control plane returned malformed invitation JSON',
+        { cause },
+      );
+    }
+    return invitationAccess(value);
+  } finally {
+    operation.dispose();
   }
-  let body: string;
-  try {
-    body = await readLimitedText(response, MAX_CONTROL_RESPONSE_BYTES);
-  } catch (cause) {
-    throw requestFailure(
-      'relay.invitation_response_failed',
-      'Invitation response could not be read',
-      cause,
-    );
-  }
-  if (!response.ok) {
-    throw new PocketStationError(
-      'relay.invitation_rejected',
-      `PocketStation control plane rejected the invitation with HTTP ${response.status}`,
-    );
-  }
-  let value: unknown;
-  try {
-    value = JSON.parse(body);
-  } catch (cause) {
-    throw new PocketStationError(
-      'relay.invalid_invitation_response',
-      'PocketStation control plane returned malformed invitation JSON',
-      { cause },
-    );
-  }
-  return invitationAccess(value);
 }
 
 /** Receive one selected Relay AudioBus as a browser MediaStream. */
@@ -122,10 +131,12 @@ export class RelayReceiver {
     }
     if (this.#connectOperation !== null) return this.#connectOperation;
     this.#controller = new AbortController();
-    const timeout = AbortSignal.timeout(
+    const operation = operationSignal(
       this.#options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS,
+      options.signal,
+      this.#controller.signal,
     );
-    const signal = combineSignals(options.signal, this.#controller.signal, timeout);
+    const signal = operation.signal;
     this.#connectOperation = this.#connect(signal).catch(async (cause: unknown) => {
       const failure = receiverFailure(cause, signal);
       if (!this.#closing) this.#reportFailure(failure);
@@ -138,7 +149,7 @@ export class RelayReceiver {
         );
       }
       throw failure;
-    });
+    }).finally(operation.dispose);
     return this.#connectOperation;
   }
 
@@ -531,10 +542,6 @@ function waitWithSignal<T>(operation: Promise<T>, signal: AbortSignal): Promise<
       },
     );
   });
-}
-
-function combineSignals(...signals: Array<AbortSignal | undefined>): AbortSignal {
-  return AbortSignal.any(signals.filter((signal): signal is AbortSignal => signal !== undefined));
 }
 
 function isInvitation(

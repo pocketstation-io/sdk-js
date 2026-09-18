@@ -15,6 +15,12 @@ export class PocketStationError extends Error {
 
 // @public
 export type RelayClientMessage = {
+    readonly type: 'PUBLISH';
+    readonly session_id: string;
+    readonly bus_id: string;
+    readonly token: string;
+    readonly sdp_offer: string;
+} | {
     readonly type: 'SUBSCRIBE';
     readonly session_id: string;
     readonly bus_id: string;
@@ -58,6 +64,76 @@ export interface RelayPlayoutObservation {
     // (undocumented)
     readonly totalSamplesReceived: number | null;
     readonly trackState: MediaStreamTrackState | null;
+}
+
+// @public
+export class RelayPublisher {
+    constructor(access: RelayPublisherAccess, options?: RelayPublisherOptions);
+    // (undocumented)
+    get access(): RelayPublisherAccess;
+    disconnect(): Promise<void>;
+    // (undocumented)
+    get lastError(): PocketStationError | null;
+    observe(): Promise<RelayPublishObservation>;
+    // Warning: (ae-forgotten-export) The symbol "PublishOptions" needs to be exported by the entry point index.d.ts
+    publish(stream: MediaStream, options?: PublishOptions): Promise<void>;
+    reconnect(stream?: MediaStream, options?: PublishOptions): Promise<void>;
+    // (undocumented)
+    get sessionState(): RelaySessionState | null;
+    // (undocumented)
+    get state(): RelayPublisherState;
+    // (undocumented)
+    get stream(): MediaStream | null;
+}
+
+// @public
+export interface RelayPublisherAccess {
+    readonly busId: string;
+    readonly iceServers?: readonly RTCIceServer[];
+    readonly sessionId: string;
+    readonly signalUrl: string;
+    readonly sourceToken: string;
+}
+
+// @public
+export interface RelayPublisherOptions {
+    readonly connectTimeoutMs?: number;
+    readonly disconnectTimeoutMs?: number;
+    readonly onError?: (error: Error) => void;
+    readonly onSessionState?: (state: RelaySessionState) => void;
+    readonly onStateChange?: (state: RelayPublisherState) => void;
+}
+
+// @public
+export type RelayPublisherState = 'idle' | 'signaling' | 'connecting' | 'publishing' | 'disconnected' | 'failed' | 'closed';
+
+// @public
+export interface RelayPublishObservation {
+    // (undocumented)
+    readonly audioLevel: number | null;
+    readonly busId: string;
+    // (undocumented)
+    readonly bytesSent: number | null;
+    // (undocumented)
+    readonly connectionState: RTCPeerConnectionState;
+    // (undocumented)
+    readonly headerBytesSent: number | null;
+    readonly observedAtMs: number;
+    // (undocumented)
+    readonly packetsSent: number | null;
+    readonly revision: number;
+    readonly sessionId: string;
+    readonly statsTimestampMs: number | null;
+    // (undocumented)
+    readonly totalAudioEnergy: number | null;
+    // (undocumented)
+    readonly totalSamplesDurationSeconds: number | null;
+    // (undocumented)
+    readonly totalSamplesSent: number | null;
+    // (undocumented)
+    readonly trackMuted: boolean;
+    // (undocumented)
+    readonly trackState: MediaStreamTrackState;
 }
 
 // @public
