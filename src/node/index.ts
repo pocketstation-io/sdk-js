@@ -47,6 +47,8 @@ export {
 export {
   Capture,
   capture,
+  type CaptureAudioBatchOptions,
+  type CaptureAudioWaitOptions,
   type CaptureOptions,
   type CaptureSettings,
 } from './capture.js';

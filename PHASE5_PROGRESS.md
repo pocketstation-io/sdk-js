@@ -565,6 +565,21 @@ the normal native addon and is not physical-device or provider evidence.
   introduced. This closes only the application-owned PCM family; it is not an
   all-SDK Python-parity claim.
 
+## Python/JavaScript parity slice — concise Capture
+
+- `Capture` now exposes direct bounded `pollAudio()`, `waitAudio()`,
+  `audioBatches()`, `pollEvent()`, and `waitEvent()` composition over the same
+  Core-owned `AudioStream` and `EventStream`; no extra JavaScript media queue
+  exists.
+- `recordingOutcome`, `applicationStem`, and `microphoneStem` provide the
+  cross-SDK names while existing concise names remain compatible.
+- `close()` is idempotent and powers `Symbol.asyncDispose`; application and
+  microphone selectors are rejected before Session declaration when their
+  runtime shape is invalid.
+- This is component and API evidence. It does not add physical-device,
+  Windows/Linux, deployment, release, or provider claims, and introduces no
+  scaffold, mock, or loopback-only path.
+
 ## Staff Bar Self-Check — JavaScript Session observations
 
 - Smallest correct design: yes — Core remains the source of events, metrics,

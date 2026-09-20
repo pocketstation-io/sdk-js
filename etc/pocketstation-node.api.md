@@ -266,21 +266,30 @@ export class Capture implements AsyncDisposable, AsyncIterable<AudioFrame> {
     constructor(options: CaptureOptions);
     readonly application: Stem;
     readonly applicationRouteId: bigint | undefined;
+    get applicationStem(): Stem;
     get audio(): AudioStream;
+    audioBatches(options?: CaptureAudioBatchOptions): AsyncGenerator<AudioFrame>;
     cancel(): Promise<StopResult>;
+    close(): Promise<void>;
     get events(): EventStream;
     frames(options?: StreamReadOptions): AsyncGenerator<AudioFrame>;
     get isRunning(): boolean;
     metrics(): Promise<SessionMetrics>;
     readonly microphone: Stem | undefined;
     readonly microphoneRouteId: bigint | undefined;
+    get microphoneStem(): Stem | undefined;
+    pollAudio(): Promise<AudioFrame | undefined>;
+    pollEvent(): Promise<SessionEvent | undefined>;
     get recording(): RecordingOutcome | undefined;
+    get recordingOutcome(): RecordingOutcome | undefined;
     readonly session: Session;
     signals(subscription: BusSubscription): SignalStream;
     start(): Promise<this>;
     readonly stems: readonly Stem[];
     stop(): Promise<StopResult>;
     get stopResult(): StopResult | undefined;
+    waitAudio(options?: CaptureAudioWaitOptions): Promise<AudioFrame | undefined>;
+    waitEvent(options?: EventReadOptions): Promise<SessionEvent | undefined>;
 }
 
 // @public
@@ -288,6 +297,18 @@ export function capture(application: ApplicationSelection, settings?: CaptureSet
 
 // @public
 export function capture(options: CaptureOptions): Promise<Capture>;
+
+// @public
+export interface CaptureAudioBatchOptions {
+    readonly signal?: AbortSignal;
+    readonly waitTimeoutMs?: number;
+}
+
+// @public
+export interface CaptureAudioWaitOptions {
+    readonly signal?: AbortSignal;
+    readonly timeoutMs?: number;
+}
 
 // @public
 export interface CaptureAuthorizationSnapshot {

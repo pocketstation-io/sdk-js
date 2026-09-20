@@ -6,10 +6,31 @@ import {
   type StopResult,
   type Stem,
 } from './session.js';
-import type { EventStream } from './events.js';
+import type { EventReadOptions, EventStream, SessionEvent } from './events.js';
 import type { BusSubscription, SignalStream } from './signals.js';
 import { Source, type ApplicationSelection } from './sources.js';
-import type { AudioFrame, AudioStream, StreamReadOptions } from './streams.js';
+import {
+  EndOfStream,
+  type AudioFrame,
+  type AudioStream,
+  type StreamReadOptions,
+} from './streams.js';
+
+/** Options for a finite concise audio wait. */
+export interface CaptureAudioWaitOptions {
+  /** Maximum wait in milliseconds. Defaults to 100. */
+  readonly timeoutMs?: number;
+  /** Stops this read without stopping the Capture. */
+  readonly signal?: AbortSignal;
+}
+
+/** Options for the concise audio iterator. */
+export interface CaptureAudioBatchOptions {
+  /** Maximum wait per native read in milliseconds. Defaults to 100. */
+  readonly waitTimeoutMs?: number;
+  /** Stops this iterator without stopping the Capture. */
+  readonly signal?: AbortSignal;
+}
 
 /** Options for the concise application-capture workflow. */
 export interface CaptureOptions
@@ -57,6 +78,7 @@ export class Capture implements AsyncDisposable, AsyncIterable<AudioFrame> {
     if (typeof microphone === 'string' && microphone.trim().length === 0) {
       throw new RangeError('microphone device ID cannot be empty');
     }
+    validateApplicationSelection(options.application);
 
     this.session = new Session({
       sampleRateHz: options.sampleRateHz,
@@ -106,6 +128,21 @@ export class Capture implements AsyncDisposable, AsyncIterable<AudioFrame> {
     return this.#stopResult?.recording;
   }
 
+  /** Final recording result using the shared cross-SDK property name. */
+  public get recordingOutcome(): RecordingOutcome | undefined {
+    return this.recording;
+  }
+
+  /** Application Stem using the shared cross-SDK property name. */
+  public get applicationStem(): Stem {
+    return this.application;
+  }
+
+  /** Optional microphone Stem using the shared cross-SDK property name. */
+  public get microphoneStem(): Stem | undefined {
+    return this.microphone;
+  }
+
   /** Source-aware PCM from the running Session. */
   public get audio(): AudioStream {
     if (!this.#streamAudio) {
@@ -136,6 +173,52 @@ export class Capture implements AsyncDisposable, AsyncIterable<AudioFrame> {
   /** Open one typed subscription declared through the underlying Session. */
   public signals(subscription: BusSubscription): SignalStream {
     return this.#requireRunning().signals(subscription);
+  }
+
+  /** Poll one source-aware audio frame without waiting. */
+  public async pollAudio(): Promise<AudioFrame | undefined> {
+    const result = await this.audio.read({ timeoutMs: 0 });
+    return result === undefined || result instanceof EndOfStream
+      ? undefined
+      : result;
+  }
+
+  /** Wait finitely for one source-aware audio frame. */
+  public async waitAudio(
+    options: CaptureAudioWaitOptions = {},
+  ): Promise<AudioFrame | undefined> {
+    const result = await this.audio.read({
+      timeoutMs: options.timeoutMs ?? 100,
+      signal: options.signal,
+    });
+    return result === undefined || result instanceof EndOfStream
+      ? undefined
+      : result;
+  }
+
+  /** Iterate source-aware audio with a finite native read deadline. */
+  public audioBatches(
+    options: CaptureAudioBatchOptions = {},
+  ): AsyncGenerator<AudioFrame> {
+    return this.audio.frames({
+      timeoutMs: options.waitTimeoutMs ?? 100,
+      signal: options.signal,
+    });
+  }
+
+  /** Poll one lifecycle or failure event without waiting. */
+  public async pollEvent(): Promise<SessionEvent | undefined> {
+    return await this.events.read({ timeoutMs: 0 });
+  }
+
+  /** Wait finitely for one lifecycle or failure event. */
+  public async waitEvent(
+    options: EventReadOptions = {},
+  ): Promise<SessionEvent | undefined> {
+    return await this.events.read({
+      timeoutMs: options.timeoutMs ?? 100,
+      signal: options.signal,
+    });
   }
 
   /**
@@ -175,11 +258,16 @@ export class Capture implements AsyncDisposable, AsyncIterable<AudioFrame> {
     return this.#finish('cancel');
   }
 
-  /** Finish accepted work when used with `await using`. */
-  public async [Symbol.asyncDispose](): Promise<void> {
+  /** Finish accepted work when started; otherwise leave the declaration closed. */
+  public async close(): Promise<void> {
     if (this.#running !== undefined && this.#stopResult === undefined) {
       await this.stop();
     }
+  }
+
+  /** Finish accepted work when used with `await using`. */
+  public async [Symbol.asyncDispose](): Promise<void> {
+    await this.close();
   }
 
   async #finish(operation: 'stop' | 'cancel'): Promise<StopResult> {
@@ -223,4 +311,26 @@ function isCaptureOptions(
   value: ApplicationSelection | CaptureOptions,
 ): value is CaptureOptions {
   return typeof value === 'object' && value !== null && 'application' in value;
+}
+
+function validateApplicationSelection(selection: ApplicationSelection): void {
+  if (typeof selection === 'string') {
+    if (selection.trim().length === 0) {
+      throw new RangeError('application cannot be empty');
+    }
+    return;
+  }
+  if (typeof selection === 'number') {
+    if (!Number.isInteger(selection) || selection <= 0 || selection > 0xffff_ffff) {
+      throw new RangeError(
+        'application process ID must be an integer from 1 through 4294967295',
+      );
+    }
+    return;
+  }
+  if (typeof selection !== 'object' || selection === null) {
+    throw new TypeError(
+      'application must be a display name, process ID, or discovered identity',
+    );
+  }
 }

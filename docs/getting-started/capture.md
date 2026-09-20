@@ -37,6 +37,24 @@ for await (const frame of audio) {
 }
 ```
 
+The concise object also exposes direct bounded reads without bypassing its
+normal `AudioStream` and `EventStream` queues:
+
+```ts
+const immediate = await audio.pollAudio();
+const next = await audio.waitAudio({ timeoutMs: 250 });
+const event = await audio.waitEvent({ timeoutMs: 100 });
+
+for await (const frame of audio.audioBatches({ waitTimeoutMs: 100 })) {
+  consume(frame);
+}
+```
+
+The `audioBatches()` cross-SDK name remains frame-first in JavaScript: every
+iteration yields one `AudioFrame`, preserving source and timing identity.
+`close()` is idempotent, and `recordingOutcome` exposes the final independent
+Stem files after shutdown.
+
 Use `await using` when the project enables explicit resource management:
 
 ```ts
