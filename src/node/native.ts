@@ -532,6 +532,9 @@ export interface NativeAudioFrame {
   sourceId: string;
   stemId: string;
   clockId: number;
+  clockKind: string;
+  clockOrigin: string;
+  clockTickRateHz?: string;
   sequenceNumber: string;
   timestampStartNs: string;
   durationNs: string;

@@ -6,6 +6,9 @@
 export {
   ExtensionError,
   PocketStationError,
+  StreamError,
+  StreamInUseError,
+  StreamModeError,
   SidecarBackpressureError,
   SidecarError,
   SidecarProtocolError,
@@ -235,10 +238,13 @@ export {
 } from './sources.js';
 export {
   END_OF_STREAM,
+  AudioBatch,
   AudioStream,
   EndOfStream,
   StreamAbortError,
+  type AudioBatchReadResult,
   type AudioFrame,
   type AudioReadResult,
+  type ClockDomainDescriptor,
   type StreamReadOptions,
 } from './streams.js';

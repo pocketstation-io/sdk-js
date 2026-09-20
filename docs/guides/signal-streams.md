@@ -57,9 +57,12 @@ The payload is a discriminated union, so TypeScript narrows the available
 fields from `payload.kind`. Audio is interleaved `Float32Array` PCM. Text is a
 JavaScript string. Other encodings arrive as an owned `Uint8Array` snapshot.
 
-One `SignalStream` has one reader. Calling `read()` while an iterator is active,
-or starting two iterators, raises `stream.in_use`. Breaking the loop releases
-the reader and leaves the Session running.
+One `SignalStream` has one reader and one permanent consumption mode. The first
+`read()` or `poll()` selects direct mode; the first `values()` or
+`iterSignals()` selects iteration mode. Concurrent use raises `stream.in_use`,
+and switching modes raises `stream.mode_conflict`. Breaking a loop releases the
+active reader so a new iterator can resume the same mode without changing the
+stream's delivery contract.
 
 ## Distinguish timeout from end-of-stream
 
@@ -78,6 +81,10 @@ if (value === undefined) {
   console.log(value.timing.observedTimestampNs, value.payload);
 }
 ```
+
+`poll()` is the explicit zero-wait spelling. `readerMode` reports
+`"signal_read"` or `"signals"`, while `isClosed` distinguishes a terminal
+subscription from a temporary empty read.
 
 Timeouts are integers from 0 through 1,000 milliseconds. A zero timeout is
 valid for a direct poll. Async iteration requires a positive timeout so an
@@ -125,4 +132,5 @@ stream.close();
 
 Closing is idempotent. It ends that stream without stopping the Session,
 capture, recording, or another subscription. `stop()` and `cancel()` close all
-remaining streams as part of Session shutdown.
+remaining streams as part of Session shutdown. `aclose()` provides the same
+operation for code that uniformly awaits resource shutdown.

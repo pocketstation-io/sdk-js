@@ -1,5 +1,32 @@
 # JavaScript SDK progress
 
+## W21 Python/JavaScript parity slice — bounded streams
+
+- Status: `SAFE-TO-MERGE` for the stream capability family; whole-SDK Python
+  parity remains false until the neutral row ledger reaches zero gaps.
+- `AudioStream` now exposes native batch polling, bounded batch reads, explicit
+  timeout-versus-EOF results, batch iteration, permanent reader modes, and
+  compatible frame-first iteration without creating an unbounded JavaScript
+  media queue.
+- `AudioFrame` now exposes the owned `f32le` bytes, sample count and format,
+  optional observations, and the same Core-derived clock-domain descriptor as
+  Python. `AudioBatch` provides ordered iteration, indexed access, length, and
+  owned array snapshots.
+- `SignalStream` now exposes `poll()`, `iterSignals()`, `readerMode`,
+  `isClosed`, and `aclose()` while enforcing Python's one-mode/one-reader
+  contract.
+- `StreamError`, `StreamModeError`, and `StreamInUseError` retain stable error
+  codes plus the active/requested mode fields needed to act on ownership
+  failures without parsing messages.
+- Focused mock-boundary and real-Core tests cover batch states, EOF, timeout,
+  mode conflict, concurrent ownership, abort retention, two independent Stems,
+  clock lineage, PCM metadata, signal polling, and idempotent close.
+- The complete JavaScript suite passes 20 suites / 173 tests. Rust formatting,
+  Clippy with warnings denied, native tests, API extraction, documentation,
+  package exports, and the isolated packed consumer also pass.
+- No scaffold, mock product path, extra native queue, provider, deployment,
+  release, or cross-platform/physical-device claim is introduced.
+
 ## W21 browser Relay authority and lifecycle hardening
 
 The control plane now issues one media-only publisher capability for one exact
