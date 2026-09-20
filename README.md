@@ -64,6 +64,37 @@ const desktop = session.capture(Source.systemAudio());
 desktop.send(session.audio());
 ```
 
+## Own Session lifecycle from JavaScript
+
+Use the separate, browser-safe control entry point when trusted application
+code owns Session creation and receiver authorization. It uses web-standard
+`fetch`; importing it does not load the native addon or the browser WebRTC
+client:
+
+```ts
+import { ControlClient } from "pocketstation/control";
+
+using control = new ControlClient("https://control.example");
+const credentials = await control.createSession({
+  requiredBuses: ["application", "microphone"],
+});
+
+const snapshot = await control.session(
+  credentials.sessionId,
+  credentials.sourceToken,
+);
+```
+
+Every operation has a finite deadline and accepts an `AbortSignal`. Responses
+are size-bounded and strictly decoded. `SecretToken` redacts normal string and
+JSON conversion; `exposeSecret()` is the deliberate transport boundary.
+Creating subscriber credentials and invitations requires the source-owner
+token, so those operations belong in trusted application or server code—not an
+untrusted phone or public browser bundle.
+
+See [Control Session lifecycle](docs/reference/control-plane.md) for the full
+create, inspect, subscribe, invite, delete, cancellation, and error contract.
+
 ## Record or process the same Stem
 
 Capture does not need to be repeated for each destination. The same Stem can be

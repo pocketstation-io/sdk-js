@@ -10,7 +10,12 @@ describe('package structure', () => {
       exports: Record<string, { import: string; types: string }>;
     };
 
-    expect(Object.keys(manifest.exports)).toEqual(['.', './node', './browser']);
+    expect(Object.keys(manifest.exports)).toEqual([
+      '.',
+      './node',
+      './browser',
+      './control',
+    ]);
     expect(manifest.exports['./node']).toEqual({
       types: './dist/node/index.d.ts',
       import: './dist/node/index.js',
@@ -18,6 +23,10 @@ describe('package structure', () => {
     expect(manifest.exports['./browser']).toEqual({
       types: './dist/browser/index.d.ts',
       import: './dist/browser/index.js',
+    });
+    expect(manifest.exports['./control']).toEqual({
+      types: './dist/control/index.d.ts',
+      import: './dist/control/index.js',
     });
   });
 

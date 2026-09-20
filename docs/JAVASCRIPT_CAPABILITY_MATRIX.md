@@ -21,8 +21,10 @@ remain unproved. A declaration-name match is intentionally not counted as
 semantic parity.
 
 This table is therefore a product-area summary, not a substitute for that
-row-level ledger. In particular, the complete Python voice/conversation API,
-control client, and event-ingress API are absent in JavaScript today.
+row-level ledger. The control-client family is now implemented by the active
+bounded parity slice; the complete Python voice/conversation and event-ingress
+families remain absent. The ledger must be regenerated before its totals may be
+changed.
 
 | Area | Rust 1.1.10 | Python 0.1.4 | JavaScript now |
 |---|---|---|---|
@@ -51,6 +53,7 @@ control client, and event-ingress API are absent in JavaScript today.
 | Managed sidecars | `REAL` | `REAL` | `REAL` for macOS component tests; copied buffers, fixed capacity, immediate saturation errors, finite reads, Session ownership, protocol failure, close/cancel, forced kill, and process reaping pass |
 | Shared Relay publication | `REAL` | `REAL` | `REAL-DEVICE-PROVEN` for independent application and physical-microphone buses on the recorded same-host macOS run; WAN and TURN remain pending |
 | Browser Relay receiver | `REAL` in shared services | `REAL` through shared Relay | `REAL` for same-host Chromium, Firefox, and WebKit receipt, observations, reconnect, connection cancellation, and clean close; acoustic hearing is unavailable |
+| Session control-plane client | n/a; service boundary | `REAL` for sync and asyncio clients | `REAL` for direct component contract: complete async lifecycle, bounded bodies, strict decoding, finite deadlines, cancellation, redaction, package export, and packed consumer; deployed-service proof remains pending |
 | Provider-neutral voice composition | Not part of Core | `PARTIAL`; real orchestration, no bundled provider and no continuous-duplex proof | Not available |
 | Installed target packages | crates.io | PyPI wheels and source package | `PARTIAL`; a local macOS tarball passes component use, while npm and other targets remain unavailable |
 

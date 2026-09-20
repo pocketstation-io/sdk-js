@@ -62,6 +62,22 @@ assert.deepEqual(Object.keys(browser).sort(), [
   'resolveRelayInvitation',
 ]);
 
+const control = await import('pocketstation/control');
+assert.equal(typeof control.ControlClient, 'function');
+assert.equal(typeof control.ControlPlaneError, 'function');
+assert.equal(typeof control.SecretToken, 'function');
+assert.equal(typeof control.SessionId, 'function');
+assert.deepEqual(Object.keys(control).sort(), [
+  'ControlClient',
+  'ControlPlaneError',
+  'PocketStationError',
+  'SecretToken',
+  'SessionId',
+]);
+const redacted = new control.SecretToken('package-resolution-secret');
+assert.equal(String(redacted), "SecretToken('[redacted]')");
+assert.equal(JSON.stringify(redacted), '"[redacted]"');
+
 const root = await import('pocketstation');
 assert.deepEqual(Object.keys(root), ['PocketStationError', 'version']);
 assert.equal(root.version, '0.1.0');

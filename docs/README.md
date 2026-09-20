@@ -1,8 +1,8 @@
 # PocketStation JavaScript documentation
 
-Start with the job your application needs to perform. The native Node package
-and experimental browser Relay client are separate exports, so a browser build
-does not load native code.
+Start with the job your application needs to perform. Native Node capture,
+trusted control-plane lifecycle, and browser Relay media are separate exports,
+so browser-safe packages do not load native code.
 
 ## Get started
 
@@ -31,7 +31,9 @@ does not load native code.
 - [API map](reference/api-map.md)
 - [Events, errors, and final results](reference/events-and-errors.md)
 - [Browser Relay status](reference/browser-relay.md)
+- [Control Session lifecycle](reference/control-plane.md)
 - [Public API report](../etc/pocketstation-node.api.md)
+- [Control API report](../etc/pocketstation-control.api.md)
 
 The Node package is not published to npm yet. Examples use a packed local
 archive and do not establish Windows, Linux, WAN, or performance support.
