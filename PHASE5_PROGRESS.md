@@ -546,6 +546,25 @@ the normal native addon and is not physical-device or provider evidence.
 - publication, tags, or version selection;
 - cross-platform or performance claims.
 
+## Python/JavaScript parity slice — application-owned PCM
+
+- `AudioInput` now implements an exported `PcmSource` contract, matching the
+  advanced Python source surface while retaining JavaScript's asynchronous
+  finite-wait `write()` method on the concrete convenience class.
+- PCM writes accept the cross-SDK `generation` name; the existing `output`
+  spelling remains a compatibility alias and conflicting aliases fail before
+  native dispatch.
+- input observations now include Core's
+  `discardedOutputFramesTotal`, alongside the already exposed capacity,
+  acceptance, fullness, invalidity, cancelled-write, cancelled, and closed
+  state.
+- native and TypeScript tests cover the shared bounded-capacity, exact slot
+  recovery, identity, continuity, output replacement, cancellation, close,
+  invalid-buffer, timeout, and no-background-write behavior.
+- No scaffold, mock, loopback-only path, provider, or second media runtime was
+  introduced. This closes only the application-owned PCM family; it is not an
+  all-SDK Python-parity claim.
+
 ## Staff Bar Self-Check — JavaScript Session observations
 
 - Smallest correct design: yes — Core remains the source of events, metrics,

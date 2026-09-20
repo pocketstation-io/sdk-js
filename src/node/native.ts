@@ -249,6 +249,7 @@ export interface NativeAudioInputObservations {
   acceptedTotal: string;
   fullTotal: string;
   invalidTotal: string;
+  discardedOutputFramesTotal: string;
   cancelledOutputWritesTotal: string;
   cancelled: boolean;
   closed: boolean;
