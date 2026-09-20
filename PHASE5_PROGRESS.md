@@ -1,5 +1,26 @@
 # JavaScript SDK progress
 
+## W21 Python/JavaScript parity slice — bounded event ingress
+
+- Status: `SAFE-TO-MERGE` for `pocketstation.aio.event_input`; the neutral
+  ledger refresh remains owned by `pocketstation-lab`, and whole-SDK Python
+  parity remains false.
+- `Session.eventInput()` now exposes application-owned JSON as one normal
+  source-aware typed output. Canonical UTF-8 serialization, event size,
+  pre-Core queue capacity, and timestamp range are validated before acceptance.
+- `tryWrite()` is immediate and reports typed full/closed failures. Accepted
+  events retain source/stream identity and exact source time through Core;
+  observations expose finite capacity, current depth, accepted/full totals,
+  and closure. Close is idempotent and lets already accepted events drain.
+- Three focused tests cover the two Python reference behaviors plus identity,
+  validation, canonical serialization, close, exact counters, and real Core
+  delivery. The complete JavaScript suite passes 23 suites / 202 tests;
+  typecheck, all API reports, documentation, package exports, the isolated
+  packed consumer, and three executable Core examples pass.
+- The queue runs off the realtime audio callback and introduces no unbounded
+  storage, provider/model code, scaffold, mock product path, release,
+  deployment, PR, push, outreach, or platform claim.
+
 ## W21 Python/JavaScript parity slice — conversation orchestration
 
 - Status: `SAFE-TO-MERGE` for the Python voice-orchestration family;

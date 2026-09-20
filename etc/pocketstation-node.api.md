@@ -711,6 +711,63 @@ export interface EndpointSignalItem {
 export type EventFormat = 'json' | 'protobuf' | 'flatbuffers' | 'cbor';
 
 // @public
+export class EventInput implements AsyncDisposable {
+    [Symbol.asyncDispose](): Promise<void>;
+    constructor(session: Session, name: string, options?: EventInputOptions);
+    // (undocumented)
+    readonly capacityEvents: number;
+    close(): Promise<void>;
+    // (undocumented)
+    readonly maximumEventBytes: number;
+    // (undocumented)
+    readonly name: string;
+    observations(): EventInputObservations;
+    // (undocumented)
+    readonly output: SourceOutput;
+    // (undocumented)
+    readonly signal: SignalSpec;
+    tryWrite(event: Readonly<Record<string, unknown>>, options?: EventInputWriteOptions): void;
+}
+
+// @public
+export class EventInputClosedError extends EventInputError {
+    constructor(message?: string);
+}
+
+// @public
+export class EventInputError extends PocketStationError {
+    constructor(code: string, message: string, options?: {
+        cause?: unknown;
+    });
+}
+
+// @public
+export class EventInputFullError extends EventInputError {
+    constructor(message?: string);
+}
+
+// @public
+export interface EventInputObservations {
+    readonly acceptedTotal: bigint;
+    readonly capacityEvents: number;
+    readonly closed: boolean;
+    readonly depthEvents: number;
+    readonly fullTotal: bigint;
+}
+
+// @public
+export interface EventInputOptions {
+    readonly capacityEvents?: number;
+    readonly maximumEventBytes?: number;
+    readonly signal?: SignalSpec;
+}
+
+// @public
+export interface EventInputWriteOptions {
+    readonly timestampNs?: bigint;
+}
+
+// @public
 export interface EventQueueMetrics {
     // (undocumented)
     readonly capacityCount: bigint;
@@ -1413,6 +1470,7 @@ export class Session {
     conversation<TInput>(options: Omit<ConversationDeclarationOptions<Session, TInput, BusSubscription, AudioInputSamples, SignalEnvelope, RunningSession>, 'session'>): Conversation<BusSubscription, AudioInputSamples, SignalEnvelope>;
     destination(connector: Connector): Endpoint;
     endpoint(definition: EndpointDefinition | EndpointFactory, configuration?: Configuration): Endpoint;
+    eventInput(name: string, options?: EventInputOptions): EventInput;
     get id(): bigint;
     loadNativeExtensionLibrary(path: string): Promise<NativeExtensionLibrary>;
     operator(operator: Operator | OperatorFactory, configuration?: Configuration): OperatorInstance;

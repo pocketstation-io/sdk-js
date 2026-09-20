@@ -50,6 +50,9 @@ try {
       EndpointFactory,
       DeliveryPolicy,
       END_OF_STREAM,
+      EventInput,
+      EventInputClosedError,
+      EventInputFullError,
       ExtensionAbiVersion,
       ExtensionDescriptor,
       ExtensionPort,
@@ -150,6 +153,46 @@ try {
     if (await inputAudio.read({ timeoutMs: 0 }) !== END_OF_STREAM) {
       throw new Error('packed audio stream did not report end-of-stream');
     }
+    const eventSession = new Session();
+    const eventInput = eventSession.eventInput('packed-events', {
+      capacityEvents: 1,
+    });
+    if (!(eventInput instanceof EventInput)) {
+      throw new Error('packed event input did not use the public type');
+    }
+    const eventSubscription = eventSession.subscribe(eventInput.output, {
+      signal: eventInput.signal,
+      route: RouteSettings.buffered(),
+    });
+    eventInput.tryWrite({ type: 'packed.ready' }, { timestampNs: 42n });
+    try {
+      eventInput.tryWrite({ type: 'packed.full' });
+      throw new Error('packed event input exceeded its finite capacity');
+    } catch (error) {
+      if (!(error instanceof EventInputFullError)) throw error;
+    }
+    await eventInput.close();
+    try {
+      eventInput.tryWrite({ type: 'packed.closed' });
+      throw new Error('closed packed event input accepted an event');
+    } catch (error) {
+      if (!(error instanceof EventInputClosedError)) throw error;
+    }
+    const runningEvents = await eventSession.start();
+    const packedEvent = await runningEvents
+      .signals(eventSubscription)
+      .read({ timeoutMs: 1000 });
+    const eventStop = await runningEvents.stop();
+    if (packedEvent?.payload?.kind !== 'bytes') {
+      throw new Error('packed event input did not deliver JSON bytes');
+    }
+    if (JSON.parse(Buffer.from(packedEvent.payload.data)).type !== 'packed.ready') {
+      throw new Error('packed event input changed its JSON payload');
+    }
+    if (packedEvent.timing.sourceTimestampNs !== 42n) {
+      throw new Error('packed event input changed its source timestamp');
+    }
+    if (!eventStop.success) throw new Error('packed event Session did not stop cleanly');
     const providerSession = new Session({ frameDurationMs: 10 });
     const text = SignalSpec.text();
     const feed = defineSource({

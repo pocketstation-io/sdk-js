@@ -22,6 +22,10 @@ import {
   type AudioInputOptions,
   type AudioInputSamples,
 } from './application-audio.js';
+import {
+  EventInput,
+  type EventInputOptions,
+} from './event-input.js';
 import { PocketStationError } from '../errors.js';
 import {
   type Conversation,
@@ -990,6 +994,11 @@ export class Session {
       throw _audioInputFailure(failure);
     }
     return AudioInput._create(this, native, config);
+  }
+
+  /** Add bounded application-owned JSON events as one typed Source. */
+  public eventInput(name: string, options: EventInputOptions = {}): EventInput {
+    return new EventInput(this, name, options);
   }
 
   /** Add an Endpoint that exposes audio to the Node process. */
