@@ -1,8 +1,9 @@
 # JavaScript API map
 
-Import native desktop features from `pocketstation/node`. Receive authorized
-Relay audio from `pocketstation/browser`; that import never loads the native
-addon.
+Import native desktop features from `pocketstation/node`. Own trusted Session
+lifecycle through `pocketstation/control`. Publish or receive authorized Relay
+media through `pocketstation/browser`. The two web-standard entries never load
+the native addon.
 
 | Task | Start here | Advanced API |
 |---|---|---|
@@ -22,7 +23,12 @@ addon.
 | Run an isolated process | `session.registerSidecar()` | `SidecarProcess`, `SidecarConnection` |
 | Publish named audio buses | `session.relay()` / `relay.audio()` | `RelayPublisherOptions` |
 | Receive one Relay AudioBus in a browser | `RelayReceiver` | direct subscriber access and [receiver observations](browser-relay.md) |
+| Create and inspect remote Sessions | `ControlClient` | [bounded control operations](control-plane.md) |
+| Issue receiver access | `issueSubscriberCredentials()` / `createInvitation()` | `SecretToken`, `SubscriberCredentials`, `Invitation` |
 
 The checked-in [Node API report](../../etc/pocketstation-node.api.md) records
 every exported signature. It is generated from the TypeScript declarations and
 reviewed whenever the public API changes.
+
+The separate [Control API report](../../etc/pocketstation-control.api.md)
+records the browser-safe lifecycle surface.

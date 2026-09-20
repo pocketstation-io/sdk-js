@@ -278,6 +278,41 @@ try {
     ) {
       throw new Error('browser export did not resolve');
     }
+    const control = await import('pocketstation/control');
+    if (
+      typeof control.ControlClient !== 'function' ||
+      typeof control.ControlPlaneError !== 'function' ||
+      typeof control.SecretToken !== 'function' ||
+      typeof control.SessionId !== 'function'
+    ) {
+      throw new Error('control export did not resolve');
+    }
+    const controlRequests = [];
+    const controlClient = new control.ControlClient('https://control.example/base', {
+      fetch: async (input, init) => {
+        controlRequests.push({ input: String(input), init });
+        return new Response(JSON.stringify({
+          session_id: 'packed_session',
+          required_buses: ['application', 'microphone'],
+          source_token: 'packed-source-secret',
+          ice_servers: [],
+        }), { status: 201 });
+      },
+    });
+    const controlCredentials = await controlClient.createSession();
+    if (controlCredentials.sessionId.toString() !== 'packed_session') {
+      throw new Error('packed control client lost Session identity');
+    }
+    if (controlCredentials.sourceToken.exposeSecret() !== 'packed-source-secret') {
+      throw new Error('packed control client lost the explicit secret boundary');
+    }
+    if (JSON.stringify(controlCredentials).includes('packed-source-secret')) {
+      throw new Error('packed control client serialized a bearer secret');
+    }
+    if (controlRequests.length !== 1) {
+      throw new Error('packed control client did not execute exactly one request');
+    }
+    controlClient.close();
     console.log('packed consumer: PASS');
   `;
   execFileSync(process.execPath, ['--input-type=module', '--eval', source], {

@@ -11,6 +11,7 @@
     "src/*.ts",
     "src/node/*.ts",
     "src/browser/*.ts",
+    "src/control/*.ts",
     "README.md",
     "LICENSE"
   ],
@@ -26,6 +27,10 @@
     "./browser": {
       "types": "./dist/browser/index.d.ts",
       "import": "./dist/browser/index.js"
+    },
+    "./control": {
+      "types": "./dist/control/index.d.ts",
+      "import": "./dist/control/index.js"
     }
   },
   "scripts": {
@@ -36,8 +41,8 @@
     "example:capture": "npm run build && node examples/capture-application.mjs",
     "docs:check": "node tools/check-docs.mjs",
     "examples:check": "npm run build && node tools/check-examples.mjs",
-    "api:check": "npm run build:typescript && api-extractor run && api-extractor run --config api-extractor.browser.json && api-extractor run --config api-extractor.root.json",
-    "api:update": "npm run build:typescript && api-extractor run --local && api-extractor run --local --config api-extractor.browser.json && api-extractor run --local --config api-extractor.root.json",
+    "api:check": "npm run build:typescript && api-extractor run && api-extractor run --config api-extractor.browser.json && api-extractor run --config api-extractor.control.json && api-extractor run --config api-extractor.root.json",
+    "api:update": "npm run build:typescript && api-extractor run --local && api-extractor run --local --config api-extractor.browser.json && api-extractor run --local --config api-extractor.control.json && api-extractor run --local --config api-extractor.root.json",
     "native:check": "cargo fmt --manifest-path native/Cargo.toml --all -- --check && cargo clippy --manifest-path native/Cargo.toml --all-targets --all-features -- -D warnings && cargo test --manifest-path native/Cargo.toml --all-features",
     "test:exports": "npm run build && node tests/package-resolution.mjs",
     "test:packed": "npm run build && node tools/test-packed-consumer.mjs",

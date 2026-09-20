@@ -1,5 +1,44 @@
 # JavaScript SDK progress
 
+## W21 JavaScript control-plane parity
+
+The package now exposes trusted Session lifecycle through a dedicated
+`pocketstation/control` subpath. It is asynchronous by default and provides the
+language-idiomatic equivalent of both Python's synchronous
+`pocketstation.control` client and its `pocketstation.aio.control` facade.
+Create, snapshot, subscriber-credential, invitation, delete, and close
+operations use the same wire routes and status expectations as Python.
+
+The client uses web-standard `fetch` and never imports the native Node addon or
+the WebRTC browser client. Successful JSON and error bodies are streamed under
+65,536-byte and 4,096-byte bounds. Session IDs, AudioBus identifiers,
+credentials, required-bus counts, ICE configuration, snapshots, and
+subscription state are validated before use. Every request has a finite
+deadline, supports caller cancellation, and is cancelled when the client
+closes. Returned records and arrays are frozen. `SecretToken` uses a private
+field, redacts string and JSON conversion, and is also removed from HTTP,
+transport, and response-stream error details.
+
+Twenty-seven focused JavaScript tests cover the complete lifecycle, Python
+wire defaults and bounds, malformed responses, unsafe paths, timeout,
+cancellation, closure, and secret handling. The full JavaScript gate passes 20
+suites / 146 tests. API extraction, package subpath resolution, documentation,
+the clean tarball consumer, and npm audit also pass. The packed consumer imports
+and runs `pocketstation/control` separately from `pocketstation/node`.
+
+A fresh local real-service check ran the built JavaScript client against the
+actual PocketStation control-plane process. It completed Session creation,
+initial snapshot, subscriber credential issuance, authenticated Relay-state
+replacement, ready snapshot, invitation creation, deletion, and the expected
+post-delete 404. This is a local control-contract proof, not a deployed-service
+or WAN claim.
+
+`pocketstation/browser` remains the caller-owned WebRTC media edge. It does not
+own Session creation or mint credentials. The current service source-owner
+token is broader than an untrusted phone publisher should receive, so a
+publish-only capability split remains a separate required security task. No
+release, npm publication, push, deployment, or external mutation occurred.
+
 ## W21 exhaustive Python-to-JavaScript parity correction
 
 The historical `W21-JAVASCRIPT-API-PARITY-DEVELOPER-EXPERIENCE` task proved a
