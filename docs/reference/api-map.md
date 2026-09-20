@@ -2,8 +2,9 @@
 
 Import native desktop features from `pocketstation/node`. Own trusted Session
 lifecycle through `pocketstation/control`. Publish or receive authorized Relay
-media through `pocketstation/browser`. The two web-standard entries never load
-the native addon.
+media through `pocketstation/browser`. Define provider-neutral voice values and
+lifecycle interfaces through `pocketstation/voice`. The control, browser, and
+voice entries never load the native addon.
 
 | Task | Start here | Advanced API |
 |---|---|---|
@@ -25,6 +26,8 @@ the native addon.
 | Receive one Relay AudioBus in a browser | `RelayReceiver` | direct subscriber access and [receiver observations](browser-relay.md) |
 | Create and inspect remote Sessions | `ControlClient` | [bounded control operations](control-plane.md) |
 | Issue receiver access | `issueSubscriberCredentials()` / `createInvitation()` | `SecretToken`, `SubscriberCredentials`, `Invitation` |
+| Define finite voice composition | `ConversationConfig`, `VoiceCapabilities` | transcriber, response, synthesis, detector, and duplex interfaces |
+| Preserve recognized-speech lineage | `TranscriptUpdate` | `ConversationTurn`, `VoiceEvent`, `ConversationOutcome` |
 
 The checked-in [Node API report](../../etc/pocketstation-node.api.md) records
 every exported signature. It is generated from the TypeScript declarations and
@@ -32,3 +35,6 @@ reviewed whenever the public API changes.
 
 The separate [Control API report](../../etc/pocketstation-control.api.md)
 records the browser-safe lifecycle surface.
+
+The separate [Voice API report](../../etc/pocketstation-voice.api.md) records
+the environment-neutral provider contracts and immutable values.

@@ -15,6 +15,7 @@ describe('package structure', () => {
       './node',
       './browser',
       './control',
+      './voice',
     ]);
     expect(manifest.exports['./node']).toEqual({
       types: './dist/node/index.d.ts',
@@ -28,6 +29,10 @@ describe('package structure', () => {
       types: './dist/control/index.d.ts',
       import: './dist/control/index.js',
     });
+    expect(manifest.exports['./voice']).toEqual({
+      types: './dist/voice/index.d.ts',
+      import: './dist/voice/index.js',
+    });
   });
 
   it('Given the browser build When inspected Then it never imports Node or the native addon', () => {
@@ -36,6 +41,15 @@ describe('package structure', () => {
     expect(browser).not.toContain('node:');
     expect(browser).not.toContain('native-dist');
     expect(browser).not.toContain('../node');
+  });
+
+  it('Given the voice build When inspected Then it remains environment-neutral', () => {
+    const voice = read('dist/voice/index.js');
+
+    expect(voice).not.toContain('node:');
+    expect(voice).not.toContain('native-dist');
+    expect(voice).not.toContain('../node');
+    expect(voice).not.toContain('../browser');
   });
 
   it('Given public Node declarations When inspected Then native handles are not exposed', () => {

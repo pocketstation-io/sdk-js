@@ -78,6 +78,19 @@ const redacted = new control.SecretToken('package-resolution-secret');
 assert.equal(String(redacted), "SecretToken('[redacted]')");
 assert.equal(JSON.stringify(redacted), '"[redacted]"');
 
+const voice = await import('pocketstation/voice');
+assert.equal(typeof voice.ConversationConfig, 'function');
+assert.equal(typeof voice.TranscriptUpdate, 'function');
+assert.equal(typeof voice.ResponseChunk, 'function');
+assert.equal(typeof voice.SynthesisChunk, 'function');
+assert.equal(typeof voice.SpeechActivity, 'function');
+assert.equal(typeof voice.VoiceError, 'function');
+assert.equal(new voice.ConversationConfig().historyCapacity, 32);
+assert.deepEqual(
+  Object.keys(voice).filter((name) => name === 'Session'),
+  [],
+);
+
 const root = await import('pocketstation');
 assert.deepEqual(Object.keys(root), ['PocketStationError', 'version']);
 assert.equal(root.version, '0.1.0');

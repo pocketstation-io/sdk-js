@@ -11,20 +11,19 @@ cases visible. Browser tests that replace the service with mocked fetch remain
 
 ## Exhaustive parity result
 
-The Lab-owned cross-repository audit expands the current Python package into
-3,674 individually addressable public API, member/signature, test-behavior,
-workflow, and package rows. Its strict parity gate currently **fails**: only 5
-package-policy rows are classified equivalent or idiomatically equivalent;
-1,041 declaration candidates are `PARTIAL`, 2,365 rows are `ABSENT`, 248 Python
-test behaviors have no reviewed one-to-one JavaScript proof, and 15 workflows
-remain unproved. A declaration-name match is intentionally not counted as
-semantic parity.
+The last accepted Lab-owned cross-repository audit expands the current Python
+package into 3,674 individually addressable public API, member/signature,
+test-behavior, workflow, and package rows. Its strict parity gate currently
+**fails**: 314 rows are classified equivalent or idiomatically equivalent and
+3,360 remain gaps. A declaration-name match is intentionally not counted as
+semantic parity. The voice work below has not yet been incorporated into that
+accepted ledger, so these totals are not increased here.
 
 This table is therefore a product-area summary, not a substitute for that
-row-level ledger. The control-client family is now implemented by the active
-bounded parity slice; the complete Python voice/conversation and event-ingress
-families remain absent. The ledger must be regenerated before its totals may be
-changed.
+row-level ledger. The control-client family and the provider-neutral voice
+foundation modules are implemented. Python's `Conversation` and
+`RunningConversation` orchestration remains absent, as does event ingress. The
+ledger must be regenerated before its totals may be changed.
 
 | Area | Rust 1.1.10 | Python 0.1.4 | JavaScript now |
 |---|---|---|---|
@@ -54,8 +53,32 @@ changed.
 | Shared Relay publication | `REAL` | `REAL` | `REAL-DEVICE-PROVEN` for independent application and physical-microphone buses on the recorded same-host macOS run; WAN and TURN remain pending |
 | Browser Relay receiver | `REAL` in shared services | `REAL` through shared Relay | `REAL` for same-host Chromium, Firefox, and WebKit receipt, observations, reconnect, connection cancellation, and clean close; acoustic hearing is unavailable |
 | Session control-plane client | n/a; service boundary | `REAL` for sync and asyncio clients | `REAL` for direct component contract: complete async lifecycle, bounded bodies, strict decoding, finite deadlines, cancellation, redaction, package export, and packed consumer; deployed-service proof remains pending |
-| Provider-neutral voice composition | Not part of Core | `PARTIAL`; real orchestration, no bundled provider and no continuous-duplex proof | Not available |
+| Provider-neutral voice composition | Not part of Core | `PARTIAL`; real orchestration, no bundled provider and no continuous-duplex proof | `PARTIAL`; environment-neutral capabilities, configuration, errors, events, turns, transcription, response, synthesis, speech detection, and duplex contracts pass, while `Conversation` and `RunningConversation` orchestration remain absent |
 | Installed target packages | crates.io | PyPI wheels and source package | `PARTIAL`; a local macOS tarball passes component use, while npm and other targets remain unavailable |
+
+## Voice module comparison
+
+The JavaScript package uses one asynchronous, TypeScript-idiomatic surface.
+This table compares owning modules rather than relying on matching names:
+
+| Python module | JavaScript module | Current result |
+|---|---|---|
+| `voice.capabilities` | `voice/capabilities.ts` | Implemented and directly tested |
+| `voice.configuration` | `voice/configuration.ts` | Implemented with the same defaults and finite bounds |
+| `voice.errors` | `voice/errors.ts` | Implemented with stable codes and recovery facts |
+| `voice.events` | `voice/events.ts` | Implemented as immutable measured events |
+| `voice.turns` | `voice/turns.ts` | Implemented as immutable turns, history, context, and outcomes |
+| `voice.transcription` | `voice/transcription.ts` | Implemented as an asynchronous provider contract with source lineage |
+| `voice.response` | `voice/response.ts` | Implemented for complete and streaming provider results |
+| `voice.synthesis` | `voice/synthesis.ts` | Implemented for incremental generated PCM |
+| `voice.speech_detection` | `voice/speech-detection.ts` | Implemented for source-aware speech activity |
+| `voice.duplex` | `voice/duplex.ts` | Implemented as a stateful provider connection contract |
+| `voice.conversation` | none | Missing: orchestration, lifecycle, bounded queues, interruption, and outcomes |
+
+The `pocketstation/voice` subpath imports neither the Node native addon nor the
+browser WebRTC package. Providers may therefore implement these contracts in
+Node, browsers, or another JavaScript runtime without pulling in an unrelated
+media environment. This is an environment boundary, not a second voice engine.
 
 ## Explicit Session API
 
