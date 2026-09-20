@@ -10,6 +10,7 @@ import {
   AudioInputTimeoutError,
   OutputCancelledError,
   OutputOwnershipError,
+  type PcmSource,
   Session,
 } from '../node/index.js';
 
@@ -25,6 +26,16 @@ describe('application-owned PCM', () => {
     expect(tenMillisecondInput.config.frameSamplesPerChannel).toBe(480);
     expect(twentyMillisecondInput.config.frameSamplesPerChannel).toBe(960);
     expect(() => twentyMillisecondInput.tryWrite(new Float32Array(960))).not.toThrow();
+  });
+
+  it('exposes AudioInput through the advanced PcmSource contract', () => {
+    const input = new Session({ frameDurationMs: 10 }).audioInput('advanced input');
+    const source: PcmSource = input;
+
+    expect(source.config.name).toBe('advanced input');
+    expect(source.sourceId).toBeGreaterThan(0n);
+    expect(source.streamId).toBeGreaterThan(0n);
+    expect(source.output).toBeDefined();
   });
 
   it('copies Float32Array samples into Core and preserves source identity and timing', async () => {
@@ -97,16 +108,16 @@ describe('application-owned PCM', () => {
     const firstSamples = new Float32Array(480).fill(0.25);
     const secondSamples = new Float32Array(480).fill(0.75);
 
-    input.tryWrite(firstSamples, { output: first });
+    input.tryWrite(firstSamples, { generation: first });
     const second = input.beginOutput();
 
     expect(first.active).toBe(false);
     expect(second.active).toBe(true);
-    expect(() => input.tryWrite(firstSamples, { output: first })).toThrow(
+    expect(() => input.tryWrite(firstSamples, { generation: first })).toThrow(
       OutputCancelledError,
     );
 
-    input.tryWrite(secondSamples, { output: second });
+    input.tryWrite(secondSamples, { generation: second });
     input.close();
 
     const running = await session.start();
@@ -117,9 +128,23 @@ describe('application-owned PCM', () => {
     expect(received?.outputGenerationId).toBe(second.id);
     expect(received?.samples[0]).toBeCloseTo(0.75);
     expect(input.observations()).toMatchObject({
+      discardedOutputFramesTotal: 0n,
       cancelledOutputWritesTotal: 1n,
     });
     expect(metrics.routes[0]?.delivery.discardedOutputFramesTotal).toBe(1n);
+  });
+
+  it('rejects conflicting output-generation aliases', () => {
+    const input = new Session({ frameDurationMs: 10 }).audioInput('aliases');
+    const first = input.beginOutput();
+    const second = input.beginOutput();
+
+    expect(() =>
+      input.tryWrite(new Float32Array(480), {
+        output: first,
+        generation: second,
+      }),
+    ).toThrow(AudioInputConfigurationError);
   });
 
   it('rejects output created by another AudioInput', () => {
@@ -159,6 +184,21 @@ describe('application-owned PCM', () => {
     expect(second?.discontinuityEpoch).toBe(0n);
   });
 
+  it('recovers the exact preallocated slot after delivery', async () => {
+    const session = new Session({ frameDurationMs: 10 });
+    const input = session.audioInput('slot recovery', { capacityFrames: 1 });
+    input.output.send(session.audio());
+    const running = await session.start();
+
+    input.tryWrite(new Float32Array(480).fill(0.25), { discontinuity: true });
+    await running.audio.read({ timeoutMs: 1_000 });
+
+    const observations = input.observations();
+    expect(observations.bufferSlots).toBe(observations.capacityFrames + 1n);
+    expect(observations.availableBuffers).toBe(observations.bufferSlots);
+    await running.stop();
+  });
+
   it('times out without adding a JavaScript media queue', async () => {
     const session = new Session({ frameDurationMs: 10 });
     const input = session.audioInput('timeout test', { capacityFrames: 1 });
@@ -186,7 +226,10 @@ describe('application-owned PCM', () => {
     controller.abort('test complete');
 
     await expect(write).rejects.toBeInstanceOf(AudioInputAbortError);
-    expect(input.observations().closed).toBe(false);
+    expect(input.observations()).toMatchObject({
+      acceptedTotal: 1n,
+      closed: false,
+    });
   });
 
   it('rejects invalid samples and writes after close with typed errors', () => {
@@ -246,7 +289,11 @@ describe('application-owned PCM', () => {
   it('validates configuration before adding a Source', () => {
     const session = new Session({ frameDurationMs: 10 });
 
-    expect(() => session.audioInput('')).toThrow(AudioInputConfigurationError);
+    for (const invalidName of ['', ' ', '\t']) {
+      expect(() => session.audioInput(invalidName)).toThrow(
+        AudioInputConfigurationError,
+      );
+    }
     expect(() =>
       session.audioInput('invalid', { capacityFrames: 0 }),
     ).toThrow('capacity must be between 1 and 63 frames');

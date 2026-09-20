@@ -23,6 +23,11 @@ const input = session.audioInput("agent audio");
 input.output.send(session.audio());
 ```
 
+`AudioInput` implements the exported `PcmSource` contract. Accept `PcmSource` in
+advanced components that need source identity, `output`, `beginOutput()`,
+`tryWrite()`, `observations()`, and `close()` but do not require the
+finite-wait `write()` convenience.
+
 The input defaults to 48 kHz mono with 480 samples per channel in each write.
 That is one 10 ms frame. Set the values explicitly when the producer uses a
 different supported format:
@@ -117,8 +122,8 @@ waiting for delivery. Voice responses are the common example:
 ```ts
 const response = input.beginOutput();
 
-await input.write(firstFrame, { output: response });
-await input.write(secondFrame, { output: response });
+await input.write(firstFrame, { generation: response });
+await input.write(secondFrame, { generation: response });
 
 response.cancel();
 ```
@@ -149,7 +154,13 @@ Capacity and lifecycle state come directly from Core:
 ```ts
 const state = input.observations();
 
-console.log(state.acceptedTotal, state.fullTotal, state.availableBuffers);
+console.log(
+  state.acceptedTotal,
+  state.fullTotal,
+  state.availableBuffers,
+  state.discardedOutputFramesTotal,
+  state.cancelledOutputWritesTotal,
+);
 ```
 
 Call `close()` after the producer sends its last frame. New writes then fail

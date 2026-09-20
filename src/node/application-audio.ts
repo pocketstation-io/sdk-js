@@ -42,6 +42,11 @@ export interface AudioInputTryWriteOptions {
   discontinuity?: boolean;
   /** Attach this frame to replaceable output created by this AudioInput. */
   output?: OutputGeneration;
+  /**
+   * Attach this frame to a replaceable output generation.
+   * This is the cross-SDK name; `output` remains as a compatibility alias.
+   */
+  generation?: OutputGeneration;
 }
 
 /** Options for one finite wait for Core capacity. */
@@ -66,6 +71,8 @@ export interface AudioInputObservations {
   readonly fullTotal: bigint;
   /** Writes rejected because their frame shape was invalid. */
   readonly invalidTotal: bigint;
+  /** Accepted frames discarded after their replaceable output was cancelled. */
+  readonly discardedOutputFramesTotal: bigint;
   /** Writes rejected because their output was no longer active. */
   readonly cancelledOutputWritesTotal: bigint;
   /** Whether the owning Session was cancelled. */
@@ -225,8 +232,36 @@ export class OutputGeneration {
   }
 }
 
+/**
+ * Advanced explicit ownership of one Session source output and PCM writer.
+ *
+ * Session constructs instances; applications use this contract when a component
+ * accepts any application-owned PCM source without requiring finite-wait
+ * `AudioInput.write()` convenience.
+ */
+export interface PcmSource extends Disposable {
+  /** Resolved format, frame size, and capacity. */
+  readonly config: AudioInputConfig;
+  /** Stable Source identity assigned by Core. */
+  readonly sourceId: bigint;
+  /** Stable stream identity assigned by Core. */
+  readonly streamId: bigint;
+  /** Source output used with send, connect, through, or record. */
+  readonly output: SourceOutput;
+  /** Start a replaceable output while keeping this source and Session alive. */
+  beginOutput(): OutputGeneration;
+  /** Attempt one immediate write into Core's bounded input. */
+  tryWrite(samples: AudioInputSamples, options?: AudioInputTryWriteOptions): void;
+  /** Close this input after accepted frames drain. */
+  close(): void;
+  /** Read one current capacity and lifecycle snapshot from Core. */
+  observations(): AudioInputObservations;
+  /** Close this input when used with `using`. */
+  [Symbol.dispose](): void;
+}
+
 /** Supplies application-owned PCM to one native Session Source. */
-export class AudioInput implements Disposable {
+export class AudioInput implements PcmSource {
   readonly #native: NativeAudioInputHandle;
   readonly #config: AudioInputConfig;
   readonly #output: SourceOutput;
@@ -292,12 +327,13 @@ export class AudioInput implements Disposable {
     options: AudioInputTryWriteOptions = {},
   ): void {
     try {
+      const generation = resolveGeneration(options);
       if (Buffer.isBuffer(samples)) {
         nativeCallSync(() =>
           this.#native.tryWriteF32Le(
             samples,
             options.discontinuity ?? false,
-            options.output?._handle(),
+            generation?._handle(),
           ),
         );
         return;
@@ -311,7 +347,7 @@ export class AudioInput implements Disposable {
         this.#native.tryWriteF32(
           samples,
           options.discontinuity ?? false,
-          options.output?._handle(),
+          generation?._handle(),
         ),
       );
     } catch (failure) {
@@ -394,6 +430,7 @@ export class AudioInput implements Disposable {
       acceptedTotal: BigInt(value.acceptedTotal),
       fullTotal: BigInt(value.fullTotal),
       invalidTotal: BigInt(value.invalidTotal),
+      discardedOutputFramesTotal: BigInt(value.discardedOutputFramesTotal),
       cancelledOutputWritesTotal: BigInt(value.cancelledOutputWritesTotal),
       cancelled: value.cancelled,
       closed: value.closed,
@@ -404,6 +441,21 @@ export class AudioInput implements Disposable {
   public [Symbol.dispose](): void {
     this.close();
   }
+}
+
+function resolveGeneration(
+  options: AudioInputTryWriteOptions,
+): OutputGeneration | undefined {
+  if (
+    options.output !== undefined &&
+    options.generation !== undefined &&
+    options.output !== options.generation
+  ) {
+    throw new AudioInputConfigurationError(
+      'output and generation must reference the same OutputGeneration',
+    );
+  }
+  return options.generation ?? options.output;
 }
 
 function typedFailure(failure: unknown): Error {

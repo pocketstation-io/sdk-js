@@ -21,13 +21,18 @@ pub struct NativeAudioInputObservations {
     pub accepted_total: String,
     pub full_total: String,
     pub invalid_total: String,
+    pub discarded_output_frames_total: String,
     pub cancelled_output_writes_total: String,
     pub cancelled: bool,
     pub closed: bool,
 }
 
 impl NativeAudioInputObservations {
-    fn new(value: AudioInputObservations, cancelled_output_writes_total: u64) -> Self {
+    fn new(
+        value: AudioInputObservations,
+        discarded_output_frames_total: u64,
+        cancelled_output_writes_total: u64,
+    ) -> Self {
         Self {
             capacity_frames: value.capacity_frames.to_string(),
             buffer_slots: value.buffer_slots.to_string(),
@@ -35,6 +40,7 @@ impl NativeAudioInputObservations {
             accepted_total: value.accepted_total.to_string(),
             full_total: value.full_total.to_string(),
             invalid_total: value.invalid_total.to_string(),
+            discarded_output_frames_total: discarded_output_frames_total.to_string(),
             cancelled_output_writes_total: cancelled_output_writes_total.to_string(),
             cancelled: value.cancelled,
             closed: value.closed,
@@ -283,6 +289,7 @@ impl NativeAudioInput {
         self.with_input(|input| {
             Ok(NativeAudioInputObservations::new(
                 input.observations(),
+                input.discarded_output_frames_total(),
                 input.cancelled_output_writes_total(),
             ))
         })
@@ -413,6 +420,7 @@ mod tests {
             .expect("current output write");
 
         let observations = input.observations().expect("observations");
+        assert_eq!(observations.discarded_output_frames_total, "0");
         assert_eq!(observations.cancelled_output_writes_total, "1");
         assert!(!observations.closed);
     }

@@ -50,7 +50,7 @@ export interface AudioFrame {
 }
 
 // @public
-export class AudioInput implements Disposable {
+export class AudioInput implements PcmSource {
     [Symbol.dispose](): void;
     beginOutput(): OutputGeneration;
     close(): void;
@@ -131,6 +131,7 @@ export interface AudioInputObservations {
     readonly cancelledOutputWritesTotal: bigint;
     readonly capacityFrames: bigint;
     readonly closed: boolean;
+    readonly discardedOutputFramesTotal: bigint;
     readonly fullTotal: bigint;
     readonly invalidTotal: bigint;
 }
@@ -157,6 +158,7 @@ export class AudioInputTimeoutError extends AudioInputError {
 // @public
 export interface AudioInputTryWriteOptions {
     discontinuity?: boolean;
+    generation?: OutputGeneration;
     output?: OutputGeneration;
 }
 
@@ -1045,6 +1047,19 @@ export class OutputOwnershipError extends AudioInputError {
     constructor(message: string, options?: {
         cause?: unknown;
     });
+}
+
+// @public
+export interface PcmSource extends Disposable {
+    [Symbol.dispose](): void;
+    beginOutput(): OutputGeneration;
+    close(): void;
+    readonly config: AudioInputConfig;
+    observations(): AudioInputObservations;
+    readonly output: SourceOutput;
+    readonly sourceId: bigint;
+    readonly streamId: bigint;
+    tryWrite(samples: AudioInputSamples, options?: AudioInputTryWriteOptions): void;
 }
 
 // @public

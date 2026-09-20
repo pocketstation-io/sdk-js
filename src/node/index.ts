@@ -36,6 +36,7 @@ export {
   OutputGeneration,
   OutputGenerationLimitError,
   OutputOwnershipError,
+  type PcmSource,
   type AudioInputConfig,
   type AudioInputObservations,
   type AudioInputOptions,
