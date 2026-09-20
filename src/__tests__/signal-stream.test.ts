@@ -191,7 +191,7 @@ describe('typed signal streams', () => {
     await running.cancel();
   });
 
-  it('releases reader ownership when iteration ends early', async () => {
+  it('releases ownership but permanently retains the selected reader mode', async () => {
     const session = Session._conformance();
     const source = session.capture(Source.defaultMicrophone());
     const text = source.through(
@@ -208,10 +208,34 @@ describe('typed signal streams', () => {
     const first = await iterator.next();
     expect(first.done).toBe(false);
     await iterator.return(undefined);
-    const second = await stream.read({ timeoutMs: 1_000 });
+    await expect(stream.read({ timeoutMs: 1_000 })).rejects.toMatchObject({
+      code: 'stream.mode_conflict',
+    });
+    const second = await stream.iterSignals({ timeoutMs: 1_000 }).next();
 
-    expect(second).toBeDefined();
-    expect(second).not.toBeInstanceOf(EndOfStream);
+    expect(second.value).toBeDefined();
+    expect(second.value).not.toBeInstanceOf(EndOfStream);
+    expect(stream.readerMode).toBe('signals');
+    expect((await running.stop()).success).toBe(true);
+  });
+
+  it('exposes poll, close state, and idempotent asynchronous close', async () => {
+    const session = Session._conformance();
+    const source = session.capture(Source.defaultMicrophone());
+    const text = source.through(
+      new Operator('org.pocketstation.javascript.conformance.audio-to-text.v1'),
+      { input: 'audio-in', output: 'text-out' },
+    );
+    const subscription = session.subscribe(text, { signal: SignalSpec.text() });
+    const running = await session.start();
+    const stream = running.signals(subscription);
+
+    expect(stream.isClosed).toBe(false);
+    await stream.aclose();
+    await stream.aclose();
+    expect(stream.isClosed).toBe(true);
+    await expect(stream.poll()).resolves.toBe(END_OF_STREAM);
+    expect(stream.readerMode).toBe('signal_read');
     expect((await running.stop()).success).toBe(true);
   });
 });

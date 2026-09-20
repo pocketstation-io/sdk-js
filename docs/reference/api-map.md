@@ -10,7 +10,7 @@ the native addon.
 | Capture one application | `capture()` / `Capture` | `Session`, `Source`, `Stem` |
 | Discover applications and devices | `discoverSources()` | `DiscoveredSource`, `SourceQuery` |
 | Inspect microphone permission | `microphonePermissionObservation()` | `CapturePermissionLifecycle` |
-| Read PCM | `running.audio` | `AudioStream`, `AudioFrame`, `END_OF_STREAM` |
+| Read PCM | `running.audio` | `AudioStream`, `AudioBatch`, `AudioFrame`, `ClockDomainDescriptor`, `END_OF_STREAM` |
 | Add existing PCM | `session.audioInput()` | `AudioInput`, write options and observations |
 | Replace obsolete generated PCM | `input.beginOutput()` / `output.cancel()` | output identity and route discard metrics |
 | Send PCM to application code | `connector()` | `Connector`, `ConnectorContext` |

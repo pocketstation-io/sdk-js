@@ -16,6 +16,17 @@ export type ApplicationPolicyObservation = 'allowed' | 'denied' | 'not-observabl
 export type ApplicationSelection = string | number | StableSourceId | ProcessInstanceSelector;
 
 // @public
+export class AudioBatch implements Iterable<AudioFrame> {
+    [Symbol.iterator](): Iterator<AudioFrame>;
+    at(index: number): AudioFrame | undefined;
+    frames(): readonly AudioFrame[];
+    get length(): number;
+}
+
+// @public
+export type AudioBatchReadResult = AudioBatch | EndOfStream | undefined;
+
+// @public
 export interface AudioCaps {
     readonly channelLayout?: ChannelLayout;
     readonly frameSamples?: number;
@@ -25,21 +36,25 @@ export interface AudioCaps {
 // @public
 export interface AudioFrame {
     readonly channelCount: number;
+    readonly clock: ClockDomainDescriptor;
     readonly clockId: number;
-    readonly connectorId: bigint;
+    readonly connectorId: bigint | undefined;
     readonly discontinuityEpoch: bigint;
     readonly durationNs: bigint;
-    readonly endpointEnqueuedAtNs: bigint;
+    readonly endpointEnqueuedAtNs: bigint | undefined;
     readonly endpointId: bigint;
     readonly nodeReadResolvedAtNs: bigint;
     readonly outputGenerationId: bigint | undefined;
     readonly permissionEpoch: bigint;
-    readonly polledAtNs: bigint;
+    readonly polledAtNs: bigint | undefined;
     readonly routeEnqueuedAtNs: bigint;
     readonly routeId: bigint;
     readonly routeReceivedAtNs: bigint;
+    readonly sampleCount: number;
+    readonly sampleFormat: 'f32le';
     readonly sampleRateHz: number;
     readonly samples: Float32Array;
+    readonly samplesF32Le: Uint8Array;
     readonly sequenceNumber: bigint;
     readonly sessionId: bigint;
     readonly sourceGeneration: number;
@@ -228,9 +243,16 @@ export interface AudioSignalPayload {
 // @public
 export class AudioStream implements AsyncIterable<AudioFrame> {
     [Symbol.asyncIterator](): AsyncGenerator<AudioFrame>;
+    batches(options?: StreamReadOptions): AsyncGenerator<AudioBatch>;
     get closed(): boolean;
     frames(options?: StreamReadOptions): AsyncGenerator<AudioFrame>;
+    get isClosed(): boolean;
+    poll(options?: Omit<StreamReadOptions, 'timeoutMs'>): Promise<AudioBatchReadResult>;
+    pollBatch(options?: Omit<StreamReadOptions, 'timeoutMs'>): Promise<AudioBatch | undefined>;
     read(options?: StreamReadOptions): Promise<AudioReadResult>;
+    readBatch(options?: StreamReadOptions): Promise<AudioBatch | undefined>;
+    get readerMode(): 'read' | 'frames' | 'batches' | undefined;
+    readResult(options?: StreamReadOptions): Promise<AudioBatchReadResult>;
 }
 
 // @public
@@ -368,6 +390,14 @@ export type ChannelLayout = 'mono' | 'stereo' | 'any';
 
 // @public
 export type ClockDomain = 'capture' | 'playback' | 'network' | 'inherited' | 'wallclock';
+
+// @public
+export interface ClockDomainDescriptor {
+    readonly id: number;
+    readonly kind: 'unspecified' | 'process-monotonic' | 'provider-defined';
+    readonly origin: 'unspecified' | 'process-start' | 'provider-defined';
+    readonly tickRateHz: bigint | undefined;
+}
 
 // @public
 export const Codec: {
@@ -1816,10 +1846,15 @@ export class SignalSpec {
 export class SignalStream implements AsyncIterable<SignalEnvelope>, Disposable {
     [Symbol.asyncIterator](): AsyncGenerator<SignalEnvelope>;
     [Symbol.dispose](): void;
+    aclose(): Promise<void>;
     close(): void;
     get closed(): boolean;
+    get isClosed(): boolean;
+    iterSignals(options?: StreamReadOptions): AsyncGenerator<SignalEnvelope>;
     metrics(): Promise<SignalSubscriptionMetrics>;
+    poll(options?: Omit<StreamReadOptions, 'timeoutMs'>): Promise<SignalReadResult>;
     read(options?: StreamReadOptions): Promise<SignalReadResult>;
+    get readerMode(): 'signal_read' | 'signals' | undefined;
     values(options?: StreamReadOptions): AsyncGenerator<SignalEnvelope>;
 }
 
@@ -2102,9 +2137,27 @@ export interface StopResult {
 }
 
 // @public
-export class StreamAbortError extends PocketStationError {
+export class StreamAbortError extends StreamError {
     constructor(reason?: unknown);
     readonly reason: unknown;
+}
+
+// @public
+export class StreamError extends PocketStationError {
+    constructor(code: string, message: string, cause?: unknown);
+}
+
+// @public
+export class StreamInUseError extends StreamError {
+    constructor(mode: string);
+    readonly mode: string;
+}
+
+// @public
+export class StreamModeError extends StreamError {
+    constructor(activeMode: string, requestedMode: string);
+    readonly activeMode: string;
+    readonly requestedMode: string;
 }
 
 // @public

@@ -1,4 +1,10 @@
-import { PocketStationError, nativeCall, nativeCallSync } from './errors.js';
+import {
+  PocketStationError,
+  StreamInUseError,
+  StreamModeError,
+  nativeCall,
+  nativeCallSync,
+} from './errors.js';
 import { RouteSettings, SignalSpec, type SignalKind } from './graph.js';
 import type {
   NativeBusSubscriptionHandle,
@@ -209,7 +215,7 @@ export class SignalStream
   readonly #running: NativeRunningSessionHandle;
   readonly #subscription: BusSubscription;
   #activeReader = false;
-  #readInProgress = false;
+  #readerMode: 'signal_read' | 'signals' | undefined;
   #closed = false;
 
   private constructor(
@@ -233,19 +239,35 @@ export class SignalStream
     return this.#closed;
   }
 
+  /** Python-parity alias for whether this subscription is terminal. */
+  public get isClosed(): boolean {
+    return this.#closed;
+  }
+
+  /** Permanently selected consumption mode, once reading begins. */
+  public get readerMode(): 'signal_read' | 'signals' | undefined {
+    return this.#readerMode;
+  }
+
+  /** Read immediately with distinct empty and end-of-stream outcomes. */
+  public async poll(
+    options: Omit<StreamReadOptions, 'timeoutMs'> = {},
+  ): Promise<SignalReadResult> {
+    const release = this.#claim('signal_read');
+    try {
+      return await this.#readOnce({ ...options, timeoutMs: 0 });
+    } finally {
+      release();
+    }
+  }
+
   /** Read one value, wait for the selected duration, or observe end-of-stream. */
   public async read(options: StreamReadOptions = {}): Promise<SignalReadResult> {
-    if (this.#activeReader || this.#readInProgress) {
-      throw new PocketStationError(
-        'stream.in_use',
-        'Signal stream already has an active reader',
-      );
-    }
-    this.#readInProgress = true;
+    const release = this.#claim('signal_read');
     try {
       return await this.#readOnce(options);
     } finally {
-      this.#readInProgress = false;
+      release();
     }
   }
 
@@ -253,18 +275,19 @@ export class SignalStream
   public async *values(
     options: StreamReadOptions = {},
   ): AsyncGenerator<SignalEnvelope> {
+    yield* this.iterSignals(options);
+  }
+
+  /** Python-parity name for iterating until this subscription closes. */
+  public async *iterSignals(
+    options: StreamReadOptions = {},
+  ): AsyncGenerator<SignalEnvelope> {
     const timeoutMs = options.timeoutMs ?? DEFAULT_WAIT_MS;
     validateTimeout(timeoutMs);
     if (timeoutMs === 0) {
       throw new RangeError('values() requires timeoutMs to be greater than zero');
     }
-    if (this.#activeReader || this.#readInProgress) {
-      throw new PocketStationError(
-        'stream.in_use',
-        'Signal stream already has an active reader',
-      );
-    }
-    this.#activeReader = true;
+    const release = this.#claim('signals');
     try {
       while (true) {
         const result = await this.#readOnce(options);
@@ -276,13 +299,13 @@ export class SignalStream
         }
       }
     } finally {
-      this.#activeReader = false;
+      release();
     }
   }
 
   /** Iterate with the default read options. */
   public [Symbol.asyncIterator](): AsyncGenerator<SignalEnvelope> {
-    return this.values();
+    return this.iterSignals();
   }
 
   /** Stop this subscription without stopping the Session. */
@@ -293,6 +316,11 @@ export class SignalStream
       );
       this.#closed = true;
     }
+  }
+
+  /** Async close form matching Python's asyncio stream surface. */
+  public async aclose(): Promise<void> {
+    this.close();
   }
 
   /** Read current queue and delivery totals from Core. */
@@ -320,6 +348,20 @@ export class SignalStream
   /** @internal */
   public _finish(): void {
     this.#closed = true;
+  }
+
+  #claim(mode: 'signal_read' | 'signals'): () => void {
+    if (this.#readerMode !== undefined && this.#readerMode !== mode) {
+      throw new StreamModeError(this.#readerMode, mode);
+    }
+    if (this.#activeReader) {
+      throw new StreamInUseError(mode);
+    }
+    this.#readerMode = mode;
+    this.#activeReader = true;
+    return () => {
+      this.#activeReader = false;
+    };
   }
 
   async #readOnce(options: StreamReadOptions): Promise<SignalReadResult> {

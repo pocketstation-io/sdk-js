@@ -12,6 +12,9 @@ pub struct NativeAudioFrame {
     pub source_id: String,
     pub stem_id: String,
     pub clock_id: u32,
+    pub clock_kind: String,
+    pub clock_origin: String,
+    pub clock_tick_rate_hz: Option<String>,
     pub sequence_number: String,
     pub timestamp_start_ns: String,
     pub duration_ns: String,
@@ -51,6 +54,17 @@ pub(crate) fn copy_audio(
             .frame(index)
             .ok_or_else(|| "native audio batch changed during copy".to_owned())?;
         let lineage = frame.lineage();
+        let clock = pocketstation::timing::describe_clock_domain(lineage.clock_id());
+        let clock_kind = match clock.kind() {
+            pocketstation::timing::ClockDomainKind::Unspecified => "unspecified",
+            pocketstation::timing::ClockDomainKind::ProcessMonotonic => "process-monotonic",
+            pocketstation::timing::ClockDomainKind::ProviderDefined => "provider-defined",
+        };
+        let clock_origin = match clock.origin() {
+            pocketstation::timing::ClockDomainOrigin::Unspecified => "unspecified",
+            pocketstation::timing::ClockDomainOrigin::ProcessStart => "process-start",
+            pocketstation::timing::ClockDomainOrigin::ProviderDefined => "provider-defined",
+        };
         let mut bytes = Vec::with_capacity(std::mem::size_of_val(frame.samples()));
         for sample in frame.samples() {
             bytes.extend_from_slice(&sample.to_le_bytes());
@@ -66,6 +80,9 @@ pub(crate) fn copy_audio(
             source_id: lineage.source_id().get().to_string(),
             stem_id: lineage.stem_id().get().to_string(),
             clock_id: lineage.clock_id().get(),
+            clock_kind: clock_kind.to_owned(),
+            clock_origin: clock_origin.to_owned(),
+            clock_tick_rate_hz: clock.tick_rate_hz().map(|value| value.to_string()),
             sequence_number: lineage.sequence_number().to_string(),
             timestamp_start_ns: lineage.timestamp_start_ns().to_string(),
             duration_ns: lineage.duration_ns().to_string(),

@@ -1,13 +1,36 @@
-import { PocketStationError, nativeCall } from './errors.js';
+import {
+  StreamError,
+  StreamInUseError,
+  StreamModeError,
+  nativeCall,
+} from './errors.js';
 import type {
   NativeAudioFrame,
   NativeRunningSessionHandle,
 } from './native.js';
 
+/** Stable semantics associated with a native clock-domain identity. */
+export interface ClockDomainDescriptor {
+  /** Native clock-domain identity. */
+  readonly id: number;
+  /** Authority that defines the clock. */
+  readonly kind: 'unspecified' | 'process-monotonic' | 'provider-defined';
+  /** Epoch against which timestamps are measured. */
+  readonly origin: 'unspecified' | 'process-start' | 'provider-defined';
+  /** Number of clock ticks per second, when Core knows it. */
+  readonly tickRateHz: bigint | undefined;
+}
+
 /** One PCM frame with the identity and timing assigned by the native Session. */
 export interface AudioFrame {
   /** Interleaved floating-point PCM samples. */
   readonly samples: Float32Array;
+  /** Owned little-endian float32 PCM bytes. */
+  readonly samplesF32Le: Uint8Array;
+  /** Number of interleaved float32 samples. */
+  readonly sampleCount: number;
+  /** Stable PCM sample representation. */
+  readonly sampleFormat: 'f32le';
   /** Sample rate in hertz. */
   readonly sampleRateHz: number;
   /** Number of interleaved audio channels. */
@@ -22,6 +45,8 @@ export interface AudioFrame {
   readonly stemId: bigint;
   /** Native clock identity used for the media timestamp. */
   readonly clockId: number;
+  /** Semantics Core can assert for the native clock identity. */
+  readonly clock: ClockDomainDescriptor;
   /** Sequence number within the stream. */
   readonly sequenceNumber: bigint;
   /** Timestamp of the first sample, in nanoseconds on the frame's clock. */
@@ -38,18 +63,18 @@ export interface AudioFrame {
   readonly outputGenerationId: bigint | undefined;
   /** Endpoint that supplied this observed frame. */
   readonly endpointId: bigint;
-  /** Connector identity, or zero when no Connector supplied the frame. */
-  readonly connectorId: bigint;
+  /** Connector identity, when a Connector supplied the frame. */
+  readonly connectorId: bigint | undefined;
   /** Route that delivered the frame. */
   readonly routeId: bigint;
   /** Route enqueue time in monotonic nanoseconds. */
   readonly routeEnqueuedAtNs: bigint;
   /** Route receive time in monotonic nanoseconds. */
   readonly routeReceivedAtNs: bigint;
-  /** Endpoint enqueue time in monotonic nanoseconds. */
-  readonly endpointEnqueuedAtNs: bigint;
-  /** Time the Node reader received the frame, in monotonic nanoseconds. */
-  readonly polledAtNs: bigint;
+  /** Endpoint enqueue time in monotonic nanoseconds, when observed. */
+  readonly endpointEnqueuedAtNs: bigint | undefined;
+  /** Time the native reader received the frame, in monotonic nanoseconds. */
+  readonly polledAtNs: bigint | undefined;
   /** Time the Node main thread completed the native read, in monotonic nanoseconds. */
   readonly nodeReadResolvedAtNs: bigint;
 }
@@ -82,26 +107,72 @@ export const END_OF_STREAM = EndOfStream.value;
 /** Result of one direct audio read. `undefined` means that the wait expired. */
 export type AudioReadResult = AudioFrame | EndOfStream | undefined;
 
+/** Result of one explicit batch read. `undefined` means the wait expired. */
+export type AudioBatchReadResult = AudioBatch | EndOfStream | undefined;
+
+/** One bounded batch returned by the native polled-audio endpoint. */
+export class AudioBatch implements Iterable<AudioFrame> {
+  readonly #frames: readonly AudioFrame[];
+
+  private constructor(frames: readonly AudioFrame[]) {
+    this.#frames = Object.freeze([...frames]);
+  }
+
+  /** @internal */
+  public static _create(frames: readonly AudioFrame[]): AudioBatch {
+    return new AudioBatch(frames);
+  }
+
+  /** Number of frames in this batch. */
+  public get length(): number {
+    return this.#frames.length;
+  }
+
+  /** Return one frame by zero-based index, with negative indexes from the end. */
+  public at(index: number): AudioFrame | undefined {
+    if (!Number.isInteger(index)) {
+      throw new TypeError('AudioBatch index must be an integer');
+    }
+    return this.#frames.at(index);
+  }
+
+  /** Return a shallow, independently owned array of the batch frames. */
+  public frames(): readonly AudioFrame[] {
+    return Object.freeze([...this.#frames]);
+  }
+
+  /** Iterate over the frames in native delivery order. */
+  public [Symbol.iterator](): Iterator<AudioFrame> {
+    return this.#frames[Symbol.iterator]();
+  }
+}
+
 /** A read stopped because its AbortSignal was aborted. */
-export class StreamAbortError extends PocketStationError {
+export class StreamAbortError extends StreamError {
   /** Value supplied when AbortController.abort() was called. */
   public readonly reason: unknown;
 
   public constructor(reason?: unknown) {
-    super('stream.aborted', 'Stream read was aborted', { cause: reason });
+    super('stream.aborted', 'Stream read was aborted', reason);
     this.name = 'AbortError';
     this.reason = reason;
   }
 }
 
 function frameFromNative(frame: NativeAudioFrame): AudioFrame {
+  const samplesF32Le = Uint8Array.from(frame.samplesF32Le);
   const samples = new Float32Array(
-    frame.samplesF32Le.buffer,
-    frame.samplesF32Le.byteOffset,
+    samplesF32Le.buffer,
+    samplesF32Le.byteOffset,
     frame.sampleCount,
   );
+  const optionalBigInt = (value: string): bigint | undefined =>
+    value === '0' ? undefined : BigInt(value);
   return {
     samples,
+    samplesF32Le,
+    sampleCount: frame.sampleCount,
+    sampleFormat: 'f32le',
     sampleRateHz: frame.sampleRateHz,
     channelCount: frame.channelCount,
     sessionId: BigInt(frame.sessionId),
@@ -109,6 +180,15 @@ function frameFromNative(frame: NativeAudioFrame): AudioFrame {
     sourceId: BigInt(frame.sourceId),
     stemId: BigInt(frame.stemId),
     clockId: frame.clockId,
+    clock: Object.freeze({
+      id: frame.clockId,
+      kind: frame.clockKind as ClockDomainDescriptor['kind'],
+      origin: frame.clockOrigin as ClockDomainDescriptor['origin'],
+      tickRateHz:
+        frame.clockTickRateHz === undefined
+          ? undefined
+          : BigInt(frame.clockTickRateHz),
+    }),
     sequenceNumber: BigInt(frame.sequenceNumber),
     timestampStartNs: BigInt(frame.timestampStartNs),
     durationNs: BigInt(frame.durationNs),
@@ -120,12 +200,12 @@ function frameFromNative(frame: NativeAudioFrame): AudioFrame {
         ? undefined
         : BigInt(frame.outputGenerationId),
     endpointId: BigInt(frame.endpointId),
-    connectorId: BigInt(frame.connectorId),
+    connectorId: optionalBigInt(frame.connectorId),
     routeId: BigInt(frame.routeId),
     routeEnqueuedAtNs: BigInt(frame.routeEnqueuedAtNs),
     routeReceivedAtNs: BigInt(frame.routeReceivedAtNs),
-    endpointEnqueuedAtNs: BigInt(frame.endpointEnqueuedAtNs),
-    polledAtNs: BigInt(frame.polledAtNs),
+    endpointEnqueuedAtNs: optionalBigInt(frame.endpointEnqueuedAtNs),
+    polledAtNs: optionalBigInt(frame.polledAtNs),
     nodeReadResolvedAtNs: BigInt(frame.nativeReadResolvedAtNs),
   };
 }
@@ -146,9 +226,10 @@ function throwIfAborted(signal?: AbortSignal): void {
 export class AudioStream implements AsyncIterable<AudioFrame> {
   readonly #running: NativeRunningSessionHandle;
   #activeReader = false;
-  #readInProgress = false;
+  #readerMode: 'read' | 'frames' | 'batches' | undefined;
   #closed = false;
-  #pending: AudioFrame[] = [];
+  #pendingFrames: AudioFrame[] = [];
+  #pendingBatch: AudioBatch | undefined;
 
   private constructor(running: NativeRunningSessionHandle) {
     this.#running = running;
@@ -164,6 +245,16 @@ export class AudioStream implements AsyncIterable<AudioFrame> {
     return this.#closed;
   }
 
+  /** Python-parity alias for whether the native Session is terminal. */
+  public get isClosed(): boolean {
+    return this.#closed;
+  }
+
+  /** Permanently selected consumption mode, once reading begins. */
+  public get readerMode(): 'read' | 'frames' | 'batches' | undefined {
+    return this.#readerMode;
+  }
+
   /**
    * Read the next available frame.
    *
@@ -171,17 +262,61 @@ export class AudioStream implements AsyncIterable<AudioFrame> {
    * Session ends and all received frames have been read.
    */
   public async read(options: StreamReadOptions = {}): Promise<AudioReadResult> {
-    if (this.#activeReader || this.#readInProgress) {
-      throw new PocketStationError(
-        'stream.in_use',
-        'Audio stream already has an active reader',
-      );
-    }
-    this.#readInProgress = true;
+    const release = this.#claim('read');
     try {
-      return await this.#readOnce(options);
+      return await this.#readFrame(options);
     } finally {
-      this.#readInProgress = false;
+      release();
+    }
+  }
+
+  /** Read one native batch immediately; empty and end-of-stream both return undefined. */
+  public async pollBatch(
+    options: Omit<StreamReadOptions, 'timeoutMs'> = {},
+  ): Promise<AudioBatch | undefined> {
+    const release = this.#claim('batches');
+    try {
+      const result = await this.#readBatchOnce({ ...options, timeoutMs: 0 });
+      return result instanceof EndOfStream ? undefined : result;
+    } finally {
+      release();
+    }
+  }
+
+  /** Read one native batch immediately with distinct empty and EOF outcomes. */
+  public async poll(
+    options: Omit<StreamReadOptions, 'timeoutMs'> = {},
+  ): Promise<AudioBatchReadResult> {
+    const release = this.#claim('batches');
+    try {
+      return await this.#readBatchOnce({ ...options, timeoutMs: 0 });
+    } finally {
+      release();
+    }
+  }
+
+  /** Wait for one native batch; timeout and end-of-stream both return undefined. */
+  public async readBatch(
+    options: StreamReadOptions = {},
+  ): Promise<AudioBatch | undefined> {
+    const release = this.#claim('batches');
+    try {
+      const result = await this.#readBatchOnce(options);
+      return result instanceof EndOfStream ? undefined : result;
+    } finally {
+      release();
+    }
+  }
+
+  /** Wait for one native batch with distinct timeout and EOF outcomes. */
+  public async readResult(
+    options: StreamReadOptions = {},
+  ): Promise<AudioBatchReadResult> {
+    const release = this.#claim('batches');
+    try {
+      return await this.#readBatchOnce(options);
+    } finally {
+      release();
     }
   }
 
@@ -192,16 +327,10 @@ export class AudioStream implements AsyncIterable<AudioFrame> {
     if (timeoutMs === 0) {
       throw new RangeError('frames() requires timeoutMs to be greater than zero');
     }
-    if (this.#activeReader || this.#readInProgress) {
-      throw new PocketStationError(
-        'stream.in_use',
-        'Audio stream already has an active reader',
-      );
-    }
-    this.#activeReader = true;
+    const release = this.#claim('frames');
     try {
       while (true) {
-        const result = await this.#readOnce(options);
+        const result = await this.#readFrame(options);
         if (result instanceof EndOfStream) {
           return;
         }
@@ -210,7 +339,32 @@ export class AudioStream implements AsyncIterable<AudioFrame> {
         }
       }
     } finally {
-      this.#activeReader = false;
+      release();
+    }
+  }
+
+  /** Iterate over native-owned batches without creating an unbounded JS queue. */
+  public async *batches(
+    options: StreamReadOptions = {},
+  ): AsyncGenerator<AudioBatch> {
+    const timeoutMs = options.timeoutMs ?? DEFAULT_WAIT_MS;
+    validateTimeout(timeoutMs);
+    if (timeoutMs === 0) {
+      throw new RangeError('batches() requires timeoutMs to be greater than zero');
+    }
+    const release = this.#claim('batches');
+    try {
+      while (true) {
+        const result = await this.#readBatchOnce(options);
+        if (result instanceof EndOfStream) {
+          return;
+        }
+        if (result !== undefined) {
+          yield result;
+        }
+      }
+    } finally {
+      release();
     }
   }
 
@@ -224,17 +378,73 @@ export class AudioStream implements AsyncIterable<AudioFrame> {
     this.#closed = true;
   }
 
-  async #readOnce(options: StreamReadOptions): Promise<AudioReadResult> {
+  #claim(mode: 'read' | 'frames' | 'batches'): () => void {
+    if (this.#readerMode !== undefined && this.#readerMode !== mode) {
+      throw new StreamModeError(this.#readerMode, mode);
+    }
+    if (this.#activeReader) {
+      throw new StreamInUseError(mode);
+    }
+    this.#readerMode = mode;
+    this.#activeReader = true;
+    return () => {
+      this.#activeReader = false;
+    };
+  }
+
+  async #readFrame(options: StreamReadOptions): Promise<AudioReadResult> {
     throwIfAborted(options.signal);
     const timeoutMs = options.timeoutMs ?? DEFAULT_WAIT_MS;
     validateTimeout(timeoutMs);
-    const pending = this.#pending.shift();
+    const pending = this.#pendingFrames.shift();
     if (pending !== undefined) {
       return pending;
     }
     if (this.#closed) {
       return END_OF_STREAM;
     }
+
+    const batch = await this.#waitNativeBatch(options);
+    if (batch !== undefined) {
+      this.#pendingFrames.push(...batch);
+    }
+    throwIfAborted(options.signal);
+    const frame = this.#pendingFrames.shift();
+    if (frame !== undefined) {
+      return frame;
+    }
+    return this.#closed ? END_OF_STREAM : undefined;
+  }
+
+  async #readBatchOnce(
+    options: StreamReadOptions,
+  ): Promise<AudioBatchReadResult> {
+    throwIfAborted(options.signal);
+    const timeoutMs = options.timeoutMs ?? DEFAULT_WAIT_MS;
+    validateTimeout(timeoutMs);
+    const pending = this.#pendingBatch;
+    if (pending !== undefined) {
+      this.#pendingBatch = undefined;
+      return pending;
+    }
+    if (this.#closed) {
+      return END_OF_STREAM;
+    }
+    const batch = await this.#waitNativeBatch(options);
+    this.#pendingBatch = batch;
+    throwIfAborted(options.signal);
+    if (this.#pendingBatch !== undefined) {
+      const ready = this.#pendingBatch;
+      this.#pendingBatch = undefined;
+      return ready;
+    }
+    return this.#closed ? END_OF_STREAM : undefined;
+  }
+
+  async #waitNativeBatch(
+    options: StreamReadOptions,
+  ): Promise<AudioBatch | undefined> {
+    const timeoutMs = options.timeoutMs ?? DEFAULT_WAIT_MS;
 
     const deadline = performance.now() + timeoutMs;
     let firstRead = true;
@@ -252,17 +462,14 @@ export class AudioStream implements AsyncIterable<AudioFrame> {
         frame.nativeReadResolvedAtNs = resolvedAtNs;
       }
       const frames = result.frames.map(frameFromNative);
-      this.#pending.push(...frames);
       if (result.sessionState === 'stopped' || result.sessionState === 'failed') {
         this.#closed = true;
       }
-      throwIfAborted(options.signal);
-      const frame = this.#pending.shift();
-      if (frame !== undefined) {
-        return frame;
+      if (frames.length > 0) {
+        return AudioBatch._create(frames);
       }
       if (this.#closed) {
-        return END_OF_STREAM;
+        return undefined;
       }
     }
     return undefined;

@@ -4,6 +4,44 @@ import { PocketStationError } from '../errors.js';
 
 export { PocketStationError } from '../errors.js';
 
+/** Base failure for managed consumption of one bounded stream. */
+export class StreamError extends PocketStationError {
+  public constructor(code: string, message: string, cause?: unknown) {
+    super(code, message, { cause });
+    this.name = 'StreamError';
+  }
+}
+
+/** A stream cannot change consumption mode after its first read. */
+export class StreamModeError extends StreamError {
+  /** Permanently selected reader mode. */
+  public readonly activeMode: string;
+  /** Incompatible mode requested by the caller. */
+  public readonly requestedMode: string;
+
+  public constructor(activeMode: string, requestedMode: string) {
+    super(
+      'stream.mode_conflict',
+      `Stream already uses ${activeMode}; cannot switch to ${requestedMode}`,
+    );
+    this.name = 'StreamModeError';
+    this.activeMode = activeMode;
+    this.requestedMode = requestedMode;
+  }
+}
+
+/** Another caller already owns the stream's selected reader mode. */
+export class StreamInUseError extends StreamError {
+  /** Reader mode currently in use. */
+  public readonly mode: string;
+
+  public constructor(mode: string) {
+    super('stream.in_use', `Stream already has an active ${mode} reader`);
+    this.name = 'StreamInUseError';
+    this.mode = mode;
+  }
+}
+
 /** Native extension loading or descriptor validation failed. */
 export class ExtensionError extends PocketStationError {
   public constructor(code: string, message: string, cause?: unknown) {
@@ -76,6 +114,9 @@ export function fromNativeError(failure: unknown): PocketStationError {
   }
   if (code.startsWith('sidecar.')) {
     return new SidecarError(code, detail, failure);
+  }
+  if (code.startsWith('stream.')) {
+    return new StreamError(code, detail, failure);
   }
   return new PocketStationError(code, detail, { cause: failure });
 }
