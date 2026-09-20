@@ -20,8 +20,14 @@ import {
   AudioInputConfigurationError,
   _audioInputFailure,
   type AudioInputOptions,
+  type AudioInputSamples,
 } from './application-audio.js';
 import { PocketStationError } from '../errors.js';
+import {
+  type Conversation,
+  type ConversationDeclarationOptions,
+  declareConversation,
+} from '../voice/conversation.js';
 import {
   DeliveryPolicy,
   type Configuration,
@@ -33,7 +39,11 @@ import {
 import { Source, nativeSource } from './sources.js';
 import { AudioStream } from './streams.js';
 import { _eventFromNative, EventStream, type TerminalEvent } from './events.js';
-import { BusSubscription, SignalStream } from './signals.js';
+import {
+  BusSubscription,
+  SignalStream,
+  type SignalEnvelope,
+} from './signals.js';
 import {
   extensionLibraryFromNative,
   type NativeExtensionLibrary,
@@ -343,6 +353,8 @@ export class Stem {
 export class SourceOutput {
   readonly #session: Session;
   readonly #native: NativeSourceOutputHandle;
+  readonly #conversationRouteIds = new Set<bigint>();
+  readonly #conversationEndpointIds = new Set<bigint>();
 
   private constructor(session: Session, native: NativeSourceOutputHandle) {
     this.#session = session;
@@ -387,11 +399,14 @@ export class SourceOutput {
     if (!endpoint._belongsTo(this.#session)) {
       throw new TypeError('SourceOutput and Endpoint belong to different Sessions');
     }
-    return BigInt(
+    const routeId = BigInt(
       nativeCallSync(() =>
         this.#native.send(endpoint._nativeHandle(), options.input),
       ),
     );
+    this.#conversationRouteIds.add(routeId);
+    this.#conversationEndpointIds.add(endpoint.id);
+    return routeId;
   }
 
   /** Send this output to one application-owned Connector. */
@@ -423,10 +438,23 @@ export class SourceOutput {
 
   /** Record this output under a stable name in the Session recording directory. */
   public record(name: string): Endpoint {
-    return Endpoint._create(
+    const endpoint = Endpoint._create(
       this.#session,
       nativeCallSync(() => this.#native.record(name)),
     );
+    this.#conversationEndpointIds.add(endpoint.id);
+    return endpoint;
+  }
+
+  /** @internal */
+  public _conversationDeliveryTargets(): {
+    readonly routeIds: readonly bigint[];
+    readonly endpointIds: readonly bigint[];
+  } {
+    return Object.freeze({
+      routeIds: Object.freeze([...this.#conversationRouteIds]),
+      endpointIds: Object.freeze([...this.#conversationEndpointIds]),
+    });
   }
 
   /** @internal */
@@ -980,6 +1008,28 @@ export class Session {
   public relay(options: RelayPublisherOptions): RelayPublisher {
     validateRelayPublisherOptions(options);
     return RelayPublisher._create(this, options);
+  }
+
+  /**
+   * Compose bounded provider-neutral voice work over this Session draft.
+   *
+   * Capture, routing, recording, and generated-audio ingestion remain owned by
+   * the native Session. The returned object owns only provider and turn state.
+   */
+  public conversation<TInput>(
+    options: Omit<
+      ConversationDeclarationOptions<
+        Session,
+        TInput,
+        BusSubscription,
+        AudioInputSamples,
+        SignalEnvelope,
+        RunningSession
+      >,
+      'session'
+    >,
+  ): Conversation<BusSubscription, AudioInputSamples, SignalEnvelope> {
+    return declareConversation({ ...options, session: this });
   }
 
   /** @internal */

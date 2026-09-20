@@ -74,6 +74,7 @@ export class SpeechActivity {
 export interface SpeechDetectionInput<TSession = unknown, TInput = unknown> {
   readonly session: TSession;
   readonly input: TInput;
+  readonly signal?: AbortSignal;
 }
 
 /** Observe speech activity without deciding conversation policy. */
@@ -82,6 +83,6 @@ export interface SpeechDetector<TSession = unknown, TInput = unknown> {
   detect(
     input: SpeechDetectionInput<TSession, TInput>,
   ): AsyncIterable<SpeechActivity>;
-  start(): Promise<void>;
-  close(): Promise<void>;
+  start(signal?: AbortSignal): Promise<void>;
+  close(signal?: AbortSignal): Promise<void>;
 }

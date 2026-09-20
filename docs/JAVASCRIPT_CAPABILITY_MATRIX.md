@@ -20,10 +20,10 @@ semantic parity. The voice work below has not yet been incorporated into that
 accepted ledger, so these totals are not increased here.
 
 This table is therefore a product-area summary, not a substitute for that
-row-level ledger. The control-client family and the provider-neutral voice
-foundation modules are implemented. Python's `Conversation` and
-`RunningConversation` orchestration remains absent, as does event ingress. The
-ledger must be regenerated before its totals may be changed.
+row-level ledger. The control-client family and provider-neutral voice
+composition are now implemented, but the accepted ledger predates the voice
+work. Event ingress remains absent. The ledger must be regenerated before its
+totals may be changed.
 
 | Area | Rust 1.1.10 | Python 0.1.4 | JavaScript now |
 |---|---|---|---|
@@ -53,7 +53,7 @@ ledger must be regenerated before its totals may be changed.
 | Shared Relay publication | `REAL` | `REAL` | `REAL-DEVICE-PROVEN` for independent application and physical-microphone buses on the recorded same-host macOS run; WAN and TURN remain pending |
 | Browser Relay receiver | `REAL` in shared services | `REAL` through shared Relay | `REAL` for same-host Chromium, Firefox, and WebKit receipt, observations, reconnect, connection cancellation, and clean close; acoustic hearing is unavailable |
 | Session control-plane client | n/a; service boundary | `REAL` for sync and asyncio clients | `REAL` for direct component contract: complete async lifecycle, bounded bodies, strict decoding, finite deadlines, cancellation, redaction, package export, and packed consumer; deployed-service proof remains pending |
-| Provider-neutral voice composition | Not part of Core | `PARTIAL`; real orchestration, no bundled provider and no continuous-duplex proof | `PARTIAL`; environment-neutral capabilities, configuration, errors, events, turns, transcription, response, synthesis, speech detection, and duplex contracts pass, while `Conversation` and `RunningConversation` orchestration remain absent |
+| Provider-neutral voice composition | Not part of Core | `PARTIAL`; real orchestration, no bundled provider and no continuous-duplex proof | `PARTIAL`; bounded component orchestration passes through a real local Core Session, contracts and duplex orchestration pass component tests, and no bundled provider or continuous-duplex proof is claimed |
 | Installed target packages | crates.io | PyPI wheels and source package | `PARTIAL`; a local macOS tarball passes component use, while npm and other targets remain unavailable |
 
 ## Voice module comparison
@@ -73,7 +73,7 @@ This table compares owning modules rather than relying on matching names:
 | `voice.synthesis` | `voice/synthesis.ts` | Implemented for incremental generated PCM |
 | `voice.speech_detection` | `voice/speech-detection.ts` | Implemented for source-aware speech activity |
 | `voice.duplex` | `voice/duplex.ts` | Implemented as a stateful provider connection contract |
-| `voice.conversation` | none | Missing: orchestration, lifecycle, bounded queues, interruption, and outcomes |
+| `voice.conversation` | `voice/conversation.ts` | Implemented with bounded state/work, finite lifecycle, interruption, selected-output cancellation, cleanup, outcomes, packed use, and a real local Core Session test |
 
 The `pocketstation/voice` subpath imports neither the Node native addon nor the
 browser WebRTC package. Providers may therefore implement these contracts in

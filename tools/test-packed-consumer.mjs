@@ -333,6 +333,47 @@ try {
     if (!transcript.final || transcript.sourceId !== 1n) {
       throw new Error('packed voice transcript lost final state or Source identity');
     }
+    let generationActive = true;
+    const generated = [];
+    const conversation = new voice.Conversation({
+      transcripts: { sessionId: 9n },
+      respond: async () => 'packed answer',
+      synthesize: async function* () { yield 0.25; },
+      output: {
+        config: { sampleRateHz: 48000, channels: 1 },
+        output: { sessionId: 9n },
+        beginOutput: () => ({
+          id: 1n,
+          get active() { return generationActive; },
+          cancel: () => {
+            const changed = generationActive;
+            generationActive = false;
+            return changed;
+          },
+        }),
+        write: async (samples) => { generated.push(samples); },
+        observations: () => ({ bufferSlots: 1n, availableBuffers: 1n }),
+      },
+    });
+    let signalRead = false;
+    const voiceOutcome = await conversation.run({
+      sessionId: 9n,
+      signals: () => ({
+        read: async () => {
+          if (signalRead) return { kind: 'end-of-stream' };
+          signalRead = true;
+          return {
+            payload: { kind: 'text', text: 'packed question' },
+            timing: { observedTimestampNs: 1n },
+            lineage: { sourceId: 2n, streamId: 3n, sequenceNumber: 0n },
+          };
+        },
+      }),
+      metrics: async () => ({ routes: [] }),
+    });
+    if (!voiceOutcome.success || generated.length !== 1) {
+      throw new Error('packed voice conversation did not complete bounded work');
+    }
     console.log('packed consumer: PASS');
   `;
   execFileSync(process.execPath, ['--input-type=module', '--eval', source], {

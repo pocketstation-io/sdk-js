@@ -128,11 +128,30 @@ const finalTranscript = new TranscriptUpdate({
 ```
 
 `pocketstation/voice` covers the provider-neutral capability, configuration,
-transcript, turn, response, synthesis, speech-activity, duplex, event, and
-failure values also available in Python. Every retained collection is copied
-and frozen, and every count or deadline has a finite limit. Conversation
-orchestration is not included in this entry yet; the application still owns
-when these provider interfaces run.
+transcript, turn, response, synthesis, speech-activity, duplex, event, failure,
+and bounded conversation orchestration available in Python. Every retained
+collection is copied and frozen, and every count or deadline has a finite
+limit. Providers receive `AbortSignal` cancellation, while selected generated
+output is cancelled without stopping capture or the owning Session.
+
+After declaring a transcript `BusSubscription` and an `AudioInput`, compose the
+workflow on the same Session:
+
+```ts
+const conversation = session.conversation({
+  transcripts,
+  output: assistantAudio,
+  respond: async (update, context, signal) => answer(update, context, signal),
+  synthesize: (chunk, turn, signal) => speech(chunk, turn, signal),
+});
+
+await using running = await session.start();
+const outcome = await conversation.run(running);
+```
+
+Separate STT/response/synthesis/VAD providers and one stateful duplex provider
+use the same finite lifecycle through `Conversation.fromComponents()` and
+`Conversation.fromDuplex()`. The SDK does not bundle a model or provider.
 
 ## Record or process the same Stem
 

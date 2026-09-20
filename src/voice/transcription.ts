@@ -111,14 +111,15 @@ export interface TranscriptionConnection<
 > {
   readonly subscription: TSubscription;
   decode(envelope: TEnvelope): TranscriptUpdate | undefined;
-  start(): Promise<void>;
-  close(): Promise<void>;
+  start(signal?: AbortSignal): Promise<void>;
+  close(signal?: AbortSignal): Promise<void>;
 }
 
 /** Existing Session values supplied when attaching speech recognition. */
 export interface TranscriptionInput<TSession = unknown, TInput = unknown> {
   readonly session: TSession;
   readonly input: TInput;
+  readonly signal?: AbortSignal;
 }
 
 /** Attach speech recognition to one existing Session audio stream. */
