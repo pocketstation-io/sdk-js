@@ -1,10 +1,40 @@
 # JavaScript SDK progress
 
+## W21 Python/JavaScript parity slice — conversation orchestration
+
+- Status: `SAFE-TO-MERGE` for the Python voice-orchestration family;
+  whole-SDK Python parity remains false until the neutral row ledger is
+  independently refreshed and every other family gap is closed.
+- `Conversation` and `RunningConversation` now coordinate low-level callbacks,
+  separate STT/response/synthesis/VAD providers, or one duplex provider through
+  one environment-neutral asynchronous contract. `Session.conversation()`
+  binds the same orchestration to the Node Session without moving capture,
+  routing, recording, or PCM ingestion out of Core.
+- Transcript revisions, speculative responses, history, events, response text,
+  tool observations, generated frames, and provider event detail are bounded.
+  Provider start, close, response, synthesis, writes, drain, cancellation, and
+  iterator cleanup all have finite deadlines.
+- `AbortSignal` propagates cancellation to JavaScript providers. Interruption
+  cancels only selected response/output generations, preserves capture, marks
+  replacement PCM discontinuous, and retains explicit unavailable connector,
+  receiver, and acoustic observations.
+- Sixteen focused orchestration tests cover all eight Python reference-test
+  behaviors plus capability rejection, separate components, duplex lifecycle,
+  Session ownership, finite startup, reverse cleanup, speech-triggered
+  interruption, and one actual Core Session with source-aware transcript and
+  generated-audio reentry. The complete JavaScript suite passes 22 suites / 199
+  tests; the three Python reference suites pass 8 tests. Type checking, API
+  extraction, documentation, package exports, the isolated packed consumer,
+  and the dependency audit also pass.
+- No bundled provider, credential, model policy, extra media queue, callback
+  hot-path work, scaffold, mock product path, release, deployment, push, or
+  continuous-duplex/provider-production claim is introduced.
+
 ## W21 Python/JavaScript parity slice — voice foundations
 
-- Status: `SAFE-TO-MERGE` for the provider-neutral foundation modules; full
-  Python voice parity remains false because `Conversation` and
-  `RunningConversation` orchestration are not part of this slice.
+- Status: `SAFE-TO-MERGE` for the provider-neutral foundation modules; the
+  separate orchestration slice above supplies `Conversation` and
+  `RunningConversation`.
 - The new `pocketstation/voice` subpath implements immutable capabilities,
   validated limits/deadlines/interruption policy, typed failure and event
   records, turns and outcomes, transcript lineage, response and tool chunks,

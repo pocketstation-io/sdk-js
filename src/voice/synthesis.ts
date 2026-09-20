@@ -15,10 +15,16 @@ import {
 export class SynthesisRequest {
   public readonly response: ResponseChunk;
   public readonly turn: ConversationTurn;
+  public readonly signal: AbortSignal | undefined;
 
-  public constructor(response: ResponseChunk, turn: ConversationTurn) {
+  public constructor(
+    response: ResponseChunk,
+    turn: ConversationTurn,
+    signal?: AbortSignal,
+  ) {
     this.response = response;
     this.turn = turn;
+    this.signal = signal;
     Object.freeze(this);
   }
 }
@@ -98,6 +104,6 @@ export interface SpeechSynthesizer<
   synthesize(
     request: SynthesisRequest,
   ): SynthesisResult<TSamples, TObservation>;
-  start(): Promise<void>;
-  close(): Promise<void>;
+  start(signal?: AbortSignal): Promise<void>;
+  close(signal?: AbortSignal): Promise<void>;
 }

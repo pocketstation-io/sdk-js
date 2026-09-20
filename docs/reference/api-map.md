@@ -26,7 +26,7 @@ voice entries never load the native addon.
 | Receive one Relay AudioBus in a browser | `RelayReceiver` | direct subscriber access and [receiver observations](browser-relay.md) |
 | Create and inspect remote Sessions | `ControlClient` | [bounded control operations](control-plane.md) |
 | Issue receiver access | `issueSubscriberCredentials()` / `createInvitation()` | `SecretToken`, `SubscriberCredentials`, `Invitation` |
-| Define finite voice composition | `ConversationConfig`, `VoiceCapabilities` | transcriber, response, synthesis, detector, and duplex interfaces |
+| Define finite voice composition | `Session.conversation()`, `ConversationConfig` | `Conversation.fromComponents()`, `Conversation.fromDuplex()`, provider interfaces |
 | Preserve recognized-speech lineage | `TranscriptUpdate` | `ConversationTurn`, `VoiceEvent`, `ConversationOutcome` |
 
 The checked-in [Node API report](../../etc/pocketstation-node.api.md) records

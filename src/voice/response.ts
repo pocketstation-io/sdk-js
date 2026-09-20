@@ -30,13 +30,16 @@ export class ToolEvent {
 export class ResponseRequest {
   public readonly transcript: TranscriptUpdate;
   public readonly context: ConversationContext;
+  public readonly signal: AbortSignal | undefined;
 
   public constructor(
     transcript: TranscriptUpdate,
     context: ConversationContext,
+    signal?: AbortSignal,
   ) {
     this.transcript = transcript;
     this.context = context;
+    this.signal = signal;
     Object.freeze(this);
   }
 }
@@ -115,6 +118,6 @@ export type ResponseResult =
 export interface ResponseModel {
   readonly capabilities: ResponseCapabilities;
   respond(request: ResponseRequest): ResponseResult;
-  start(): Promise<void>;
-  close(): Promise<void>;
+  start(signal?: AbortSignal): Promise<void>;
+  close(signal?: AbortSignal): Promise<void>;
 }

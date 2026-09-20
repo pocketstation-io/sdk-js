@@ -5,6 +5,48 @@
 ```ts
 
 // @public
+export interface ComponentConversationOptions<TSession = unknown, TInput = unknown, TSubscription extends ConversationSubscription = ConversationSubscription, TSamples = unknown, TEnvelope extends ConversationSignalEnvelope = ConversationSignalEnvelope> {
+    // (undocumented)
+    readonly config?: ConversationConfig;
+    // (undocumented)
+    readonly input: TInput;
+    // (undocumented)
+    readonly llm: ResponseModel;
+    // (undocumented)
+    readonly output: ConversationOutput<TSamples>;
+    // (undocumented)
+    readonly session: TSession;
+    // (undocumented)
+    readonly stt: StreamingTranscriber<TSession, TInput, TranscriptionConnection<TSubscription, TEnvelope>>;
+    // (undocumented)
+    readonly tts: SpeechSynthesizer<TSamples>;
+    // (undocumented)
+    readonly vad?: SpeechDetector<TSession, TInput>;
+}
+
+// @public
+export class Conversation<TSubscription extends ConversationSubscription = ConversationSubscription, TSamples = unknown, TEnvelope extends ConversationSignalEnvelope = ConversationSignalEnvelope> {
+    constructor(options: ConversationOptions<TSubscription, TSamples, TEnvelope>);
+    cancelOutput(): Promise<void>;
+    // (undocumented)
+    get capabilities(): VoiceCapabilities | undefined;
+    // (undocumented)
+    get config(): ConversationConfig;
+    // (undocumented)
+    get events(): readonly VoiceEvent[];
+    static fromComponents<TSession, TInput, TSubscription extends ConversationSubscription, TSamples, TEnvelope extends ConversationSignalEnvelope>(options: ComponentConversationOptions<TSession, TInput, TSubscription, TSamples, TEnvelope>): Conversation<TSubscription, TSamples, TEnvelope>;
+    static fromDuplex<TSession, TInput, TSamples, TRunning>(options: DuplexConversationOptions<TSession, TInput, TSamples, TRunning>): Conversation<ConversationSubscription, TSamples>;
+    // (undocumented)
+    get history(): readonly ConversationMessage[];
+    interrupt(): Promise<void>;
+    // (undocumented)
+    get outcome(): ConversationOutcome | undefined;
+    run(running: ConversationRunningSession<TSubscription, TEnvelope>, options?: ConversationRunOptions): Promise<ConversationOutcome>;
+    start(running: ConversationRunningSession<TSubscription, TEnvelope>): Promise<RunningConversation<TSubscription, TSamples, TEnvelope>>;
+    stop(): void;
+}
+
+// @public
 export class ConversationConfig {
     constructor(options?: ConversationConfigOptions);
     // (undocumented)
@@ -112,7 +154,51 @@ export class ConversationContext {
 }
 
 // @public
+export interface ConversationDeclarationOptions<TSession = unknown, TInput = unknown, TSubscription extends ConversationSubscription = ConversationSubscription, TSamples = unknown, TEnvelope extends ConversationSignalEnvelope = ConversationSignalEnvelope, TRunning = unknown> {
+    // (undocumented)
+    readonly config?: ConversationConfig;
+    // (undocumented)
+    readonly decodeTranscript?: TranscriptDecoder<TEnvelope>;
+    // (undocumented)
+    readonly input?: TInput;
+    // (undocumented)
+    readonly llm?: ResponseModel;
+    // (undocumented)
+    readonly output: ConversationOutput<TSamples>;
+    // (undocumented)
+    readonly respond?: ResponseHandler;
+    // (undocumented)
+    readonly session: TSession;
+    // (undocumented)
+    readonly stt?: StreamingTranscriber<TSession, TInput, TranscriptionConnection<TSubscription, TEnvelope>>;
+    // (undocumented)
+    readonly synthesize?: SynthesisHandler<TSamples>;
+    // (undocumented)
+    readonly transcripts?: TSubscription;
+    // (undocumented)
+    readonly tts?: SpeechSynthesizer<TSamples>;
+    // (undocumented)
+    readonly vad?: SpeechDetector<TSession, TInput>;
+    // (undocumented)
+    readonly voiceModel?: DuplexVoiceModel<TSession, TInput, ConversationOutput<TSamples>, TRunning>;
+}
+
+// @public
+export interface ConversationDeliveryTargets {
+    // (undocumented)
+    readonly endpointIds: readonly bigint[];
+    // (undocumented)
+    readonly routeIds: readonly bigint[];
+}
+
+// @public
 export type ConversationDisposition = 'completed' | 'stopped' | 'cancelled' | 'failed';
+
+// @public
+export interface ConversationEndOfStream {
+    // (undocumented)
+    readonly kind: 'end-of-stream';
+}
 
 // @public
 export type ConversationEvent = VoiceEvent;
@@ -140,6 +226,36 @@ export interface ConversationMessageOptions {
     readonly timestampNs: bigint;
     // (undocumented)
     readonly turnId: bigint;
+}
+
+// @public
+export interface ConversationOptions<TSubscription extends ConversationSubscription = ConversationSubscription, TSamples = unknown, TEnvelope extends ConversationSignalEnvelope = ConversationSignalEnvelope> {
+    // (undocumented)
+    readonly capabilities?: VoiceCapabilities;
+    // (undocumented)
+    readonly config?: ConversationConfig;
+    // (undocumented)
+    readonly decodeTranscript?: TranscriptDecoder<TEnvelope>;
+    // (undocumented)
+    readonly duplexConnection?: DuplexVoiceConnection;
+    // (undocumented)
+    readonly output: ConversationOutput<TSamples>;
+    // Warning: (ae-forgotten-export) The symbol "ProviderLifecycle" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    readonly providers?: readonly ProviderLifecycle[];
+    // (undocumented)
+    readonly respond?: ResponseHandler;
+    // (undocumented)
+    readonly speechActivity?: AsyncIterable<SpeechActivity>;
+    // (undocumented)
+    readonly synthesize?: SynthesisHandler<TSamples>;
+    // (undocumented)
+    readonly transcripts?: TSubscription;
+    // (undocumented)
+    readonly voiceContext?: DuplexVoiceContext;
+    // (undocumented)
+    readonly voiceModel?: DuplexVoiceModel;
 }
 
 // @public
@@ -217,6 +333,44 @@ export interface ConversationOutcomeOptions {
 }
 
 // @public
+export interface ConversationOutput<TSamples = unknown> {
+    // (undocumented)
+    beginOutput(): ConversationOutputGeneration;
+    // (undocumented)
+    readonly config: {
+        readonly sampleRateHz: number;
+        readonly channels: number;
+    };
+    // (undocumented)
+    observations(): {
+        readonly bufferSlots: bigint;
+        readonly availableBuffers: bigint;
+    };
+    // (undocumented)
+    readonly output: {
+        readonly sessionId: bigint;
+        _conversationDeliveryTargets?(): ConversationDeliveryTargets;
+    };
+    // (undocumented)
+    write(samples: TSamples, options?: {
+        readonly discontinuity?: boolean;
+        readonly generation?: ConversationOutputGeneration;
+        readonly timeoutMs?: number;
+        readonly signal?: AbortSignal;
+    }): Promise<void>;
+}
+
+// @public
+export interface ConversationOutputGeneration {
+    // (undocumented)
+    readonly active: boolean;
+    // (undocumented)
+    cancel(): boolean;
+    // (undocumented)
+    readonly id: bigint;
+}
+
+// @public
 export class ConversationResponse {
     constructor(text: string, toolEvents?: readonly ToolEvent[]);
     // (undocumented)
@@ -230,6 +384,94 @@ export type ConversationResponseChunk = ResponseChunk;
 
 // @public
 export type ConversationRole = 'user' | 'assistant' | 'tool';
+
+// @public
+export interface ConversationRouteMetrics {
+    // (undocumented)
+    readonly delivery: {
+        readonly queueDepthFrames: bigint;
+        readonly framesDeliveredTotal: bigint;
+        readonly framesDroppedTotal: bigint;
+        readonly discardedOutputFramesTotal?: bigint;
+    };
+    // (undocumented)
+    readonly endpoint: {
+        readonly framesDroppedTotal: bigint;
+        readonly failuresTotal: bigint;
+    };
+    // (undocumented)
+    readonly endpointId: bigint;
+    // (undocumented)
+    readonly routeId: bigint;
+}
+
+// @public
+export interface ConversationRunningSession<TSubscription extends ConversationSubscription = ConversationSubscription, TEnvelope extends ConversationSignalEnvelope = ConversationSignalEnvelope> {
+    // (undocumented)
+    metrics(): Promise<ConversationSessionMetrics>;
+    // (undocumented)
+    readonly sessionId: bigint;
+    // (undocumented)
+    signals(subscription: TSubscription): ConversationSignalStream<TEnvelope>;
+}
+
+// @public
+export interface ConversationRunOptions {
+    readonly signal?: AbortSignal;
+}
+
+// @public
+export interface ConversationSessionMetrics {
+    // (undocumented)
+    readonly routes: readonly ConversationRouteMetrics[];
+}
+
+// @public
+export interface ConversationSignalEnvelope {
+    // (undocumented)
+    readonly lineage?: ConversationSignalLineage;
+    // (undocumented)
+    readonly payload: unknown;
+    // (undocumented)
+    readonly timing: ConversationSignalTiming;
+}
+
+// @public
+export interface ConversationSignalLineage {
+    // (undocumented)
+    readonly sequenceNumber: bigint;
+    // (undocumented)
+    readonly sourceId: bigint;
+    // (undocumented)
+    readonly streamId: bigint;
+}
+
+// @public
+export interface ConversationSignalStream<TEnvelope extends ConversationSignalEnvelope = ConversationSignalEnvelope> {
+    // (undocumented)
+    read(options?: {
+        readonly timeoutMs?: number;
+        readonly signal?: AbortSignal;
+    }): Promise<TEnvelope | ConversationEndOfStream | undefined>;
+}
+
+// @public
+export interface ConversationSignalTiming {
+    // (undocumented)
+    readonly durationNs?: bigint;
+    // (undocumented)
+    readonly observedTimestampNs: bigint;
+    // (undocumented)
+    readonly sessionTimestampNs?: bigint;
+    // (undocumented)
+    readonly sourceTimestampNs?: bigint;
+}
+
+// @public
+export interface ConversationSubscription {
+    // (undocumented)
+    readonly sessionId: bigint;
+}
 
 // @public
 export class ConversationTurn {
@@ -281,7 +523,24 @@ export interface ConversationTurnOptions {
 }
 
 // @public
+export function declareConversation<TSession, TInput, TSubscription extends ConversationSubscription, TSamples, TEnvelope extends ConversationSignalEnvelope, TRunning>(options: ConversationDeclarationOptions<TSession, TInput, TSubscription, TSamples, TEnvelope, TRunning>): Conversation<TSubscription, TSamples, TEnvelope>;
+
+// @public
 export type DuplexConnectResult<TRunning = unknown> = DuplexVoiceConnection<TRunning>;
+
+// @public
+export interface DuplexConversationOptions<TSession = unknown, TInput = unknown, TSamples = unknown, TRunning = unknown> {
+    // (undocumented)
+    readonly config?: ConversationConfig;
+    // (undocumented)
+    readonly input: TInput;
+    // (undocumented)
+    readonly output: ConversationOutput<TSamples>;
+    // (undocumented)
+    readonly session: TSession;
+    // (undocumented)
+    readonly voiceModel: DuplexVoiceModel<TSession, TInput, ConversationOutput<TSamples>, TRunning>;
+}
 
 // @public
 export class DuplexVoiceCapabilities {
@@ -355,17 +614,17 @@ export interface DuplexVoiceCapabilitiesOptions {
 // @public
 export interface DuplexVoiceConnection<TRunning = unknown> {
     // (undocumented)
-    cancelOutput(): Promise<void>;
+    cancelOutput(signal?: AbortSignal): Promise<void>;
     // (undocumented)
-    close(): Promise<void>;
+    close(signal?: AbortSignal): Promise<void>;
     // (undocumented)
-    interrupt(): Promise<void>;
+    interrupt(signal?: AbortSignal): Promise<void>;
     // (undocumented)
-    start(running: TRunning): Promise<void>;
+    start(running: TRunning, signal?: AbortSignal): Promise<void>;
     // (undocumented)
     stop(): void;
     // (undocumented)
-    wait(): Promise<ConversationOutcome>;
+    wait(signal?: AbortSignal): Promise<ConversationOutcome>;
 }
 
 // @public
@@ -516,6 +775,9 @@ export interface ResponseChunkOptions {
 }
 
 // @public
+export type ResponseHandler = (transcript: TranscriptUpdate, context: ConversationContext, signal: AbortSignal) => ResponseItem | AsyncIterable<ResponseItem> | Promise<ResponseItem | AsyncIterable<ResponseItem>>;
+
+// @public
 export type ResponseItem = string | ConversationResponse | ResponseChunk;
 
 // @public
@@ -523,24 +785,52 @@ export interface ResponseModel {
     // (undocumented)
     readonly capabilities: ResponseCapabilities;
     // (undocumented)
-    close(): Promise<void>;
+    close(signal?: AbortSignal): Promise<void>;
     // (undocumented)
     respond(request: ResponseRequest): ResponseResult;
     // (undocumented)
-    start(): Promise<void>;
+    start(signal?: AbortSignal): Promise<void>;
 }
 
 // @public
 export class ResponseRequest {
-    constructor(transcript: TranscriptUpdate, context: ConversationContext);
+    constructor(transcript: TranscriptUpdate, context: ConversationContext, signal?: AbortSignal);
     // (undocumented)
     readonly context: ConversationContext;
+    // (undocumented)
+    readonly signal: AbortSignal | undefined;
     // (undocumented)
     readonly transcript: TranscriptUpdate;
 }
 
 // @public
 export type ResponseResult = ResponseItem | AsyncIterable<ResponseItem> | Promise<ResponseItem | AsyncIterable<ResponseItem>>;
+
+// @public
+export class RunningConversation<TSubscription extends ConversationSubscription = ConversationSubscription, TSamples = unknown, TEnvelope extends ConversationSignalEnvelope = ConversationSignalEnvelope> implements AsyncDisposable {
+    // (undocumented)
+    [Symbol.asyncDispose](): Promise<void>;
+    constructor(conversation: Conversation<TSubscription, TSamples, TEnvelope>, task: Promise<ConversationOutcome>);
+    aclose(options?: {
+        readonly abort?: boolean;
+    }): Promise<ConversationOutcome>;
+    // (undocumented)
+    cancelOutput(): Promise<void>;
+    // (undocumented)
+    close(options?: {
+        readonly abort?: boolean;
+    }): Promise<ConversationOutcome>;
+    // (undocumented)
+    get events(): readonly VoiceEvent[];
+    // (undocumented)
+    interrupt(): Promise<void>;
+    // (undocumented)
+    get outcome(): ConversationOutcome | undefined;
+    // (undocumented)
+    stop(): void;
+    // (undocumented)
+    wait(): Promise<ConversationOutcome>;
+}
 
 // @public
 export class SpeechActivity {
@@ -621,6 +911,8 @@ export interface SpeechDetectionInput<TSession = unknown, TInput = unknown> {
     readonly input: TInput;
     // (undocumented)
     readonly session: TSession;
+    // (undocumented)
+    readonly signal?: AbortSignal;
 }
 
 // @public
@@ -628,11 +920,11 @@ export interface SpeechDetector<TSession = unknown, TInput = unknown> {
     // (undocumented)
     readonly capabilities: SpeechDetectionCapabilities;
     // (undocumented)
-    close(): Promise<void>;
+    close(signal?: AbortSignal): Promise<void>;
     // (undocumented)
     detect(input: SpeechDetectionInput<TSession, TInput>): AsyncIterable<SpeechActivity>;
     // (undocumented)
-    start(): Promise<void>;
+    start(signal?: AbortSignal): Promise<void>;
 }
 
 // @public
@@ -640,9 +932,9 @@ export interface SpeechSynthesizer<TSamples = unknown, TObservation = unknown> {
     // (undocumented)
     readonly capabilities: SynthesisCapabilities;
     // (undocumented)
-    close(): Promise<void>;
+    close(signal?: AbortSignal): Promise<void>;
     // (undocumented)
-    start(): Promise<void>;
+    start(signal?: AbortSignal): Promise<void>;
     // (undocumented)
     synthesize(request: SynthesisRequest): SynthesisResult<TSamples, TObservation>;
 }
@@ -730,13 +1022,18 @@ export interface SynthesisChunkOptions<TSamples = unknown, TObservation = unknow
 }
 
 // @public
+export type SynthesisHandler<TSamples = unknown> = (response: ResponseChunk, turn: ConversationTurn, signal: AbortSignal) => AsyncIterable<TSamples> | Promise<AsyncIterable<TSamples>>;
+
+// @public
 export type SynthesisItem<TSamples = unknown, TObservation = unknown> = SynthesisChunk<TSamples, TObservation> | TSamples;
 
 // @public
 export class SynthesisRequest {
-    constructor(response: ResponseChunk, turn: ConversationTurn);
+    constructor(response: ResponseChunk, turn: ConversationTurn, signal?: AbortSignal);
     // (undocumented)
     readonly response: ResponseChunk;
+    // (undocumented)
+    readonly signal: AbortSignal | undefined;
     // (undocumented)
     readonly turn: ConversationTurn;
 }
@@ -754,6 +1051,9 @@ export class ToolEvent {
     // (undocumented)
     readonly outcome: string;
 }
+
+// @public
+export type TranscriptDecoder<TEnvelope extends ConversationSignalEnvelope = ConversationSignalEnvelope> = (envelope: TEnvelope) => TranscriptUpdate | undefined;
 
 // @public
 export class TranscriptionCapabilities {
@@ -795,11 +1095,11 @@ export interface TranscriptionCapabilitiesOptions {
 // @public
 export interface TranscriptionConnection<TSubscription = unknown, TEnvelope = unknown> {
     // (undocumented)
-    close(): Promise<void>;
+    close(signal?: AbortSignal): Promise<void>;
     // (undocumented)
     decode(envelope: TEnvelope): TranscriptUpdate | undefined;
     // (undocumented)
-    start(): Promise<void>;
+    start(signal?: AbortSignal): Promise<void>;
     // (undocumented)
     readonly subscription: TSubscription;
 }
@@ -810,6 +1110,8 @@ export interface TranscriptionInput<TSession = unknown, TInput = unknown> {
     readonly input: TInput;
     // (undocumented)
     readonly session: TSession;
+    // (undocumented)
+    readonly signal?: AbortSignal;
 }
 
 // @public

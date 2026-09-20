@@ -85,6 +85,10 @@ assert.equal(typeof voice.ResponseChunk, 'function');
 assert.equal(typeof voice.SynthesisChunk, 'function');
 assert.equal(typeof voice.SpeechActivity, 'function');
 assert.equal(typeof voice.VoiceError, 'function');
+assert.equal(typeof voice.Conversation, 'function');
+assert.equal(typeof voice.RunningConversation, 'function');
+assert.equal(typeof voice.declareConversation, 'function');
+assert.equal(typeof node.Session.prototype.conversation, 'function');
 assert.equal(new voice.ConversationConfig().historyCapacity, 32);
 assert.deepEqual(
   Object.keys(voice).filter((name) => name === 'Session'),

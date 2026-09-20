@@ -1408,6 +1408,9 @@ export class Session {
     audio(route?: RouteSettings): Endpoint;
     audioInput(name: string, options?: AudioInputOptions): AudioInput;
     capture(source: Source): Stem;
+    // Warning: (ae-forgotten-export) The symbol "ConversationDeclarationOptions" needs to be exported by the entry point index.d.ts
+    // Warning: (ae-forgotten-export) The symbol "Conversation" needs to be exported by the entry point index.d.ts
+    conversation<TInput>(options: Omit<ConversationDeclarationOptions<Session, TInput, BusSubscription, AudioInputSamples, SignalEnvelope, RunningSession>, 'session'>): Conversation<BusSubscription, AudioInputSamples, SignalEnvelope>;
     destination(connector: Connector): Endpoint;
     endpoint(definition: EndpointDefinition | EndpointFactory, configuration?: Configuration): Endpoint;
     get id(): bigint;

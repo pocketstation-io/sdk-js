@@ -29,12 +29,12 @@ export class DuplexVoiceContext<
 
 /** One finite provider connection attached to a PocketStation Session. */
 export interface DuplexVoiceConnection<TRunning = unknown> {
-  start(running: TRunning): Promise<void>;
-  wait(): Promise<ConversationOutcome>;
-  interrupt(): Promise<void>;
-  cancelOutput(): Promise<void>;
+  start(running: TRunning, signal?: AbortSignal): Promise<void>;
+  wait(signal?: AbortSignal): Promise<ConversationOutcome>;
+  interrupt(signal?: AbortSignal): Promise<void>;
+  cancelOutput(signal?: AbortSignal): Promise<void>;
   stop(): void;
-  close(): Promise<void>;
+  close(signal?: AbortSignal): Promise<void>;
 }
 
 /** Result returned after declaring a stateful provider connection. */
