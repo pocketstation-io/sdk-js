@@ -48,6 +48,15 @@ export {
   type AudioInputWriteOptions,
 } from './application-audio.js';
 export {
+  EventInput,
+  EventInputClosedError,
+  EventInputError,
+  EventInputFullError,
+  type EventInputObservations,
+  type EventInputOptions,
+  type EventInputWriteOptions,
+} from './event-input.js';
+export {
   Capture,
   capture,
   type CaptureAudioBatchOptions,

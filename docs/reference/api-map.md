@@ -13,6 +13,7 @@ voice entries never load the native addon.
 | Inspect microphone permission | `microphonePermissionObservation()` | `CapturePermissionLifecycle` |
 | Read PCM | `running.audio` | `AudioStream`, `AudioBatch`, `AudioFrame`, `ClockDomainDescriptor`, `END_OF_STREAM` |
 | Add existing PCM | `session.audioInput()` | `AudioInput`, write options and observations |
+| Add application-owned JSON events | `session.eventInput()` | `EventInput`, finite capacity and observations |
 | Replace obsolete generated PCM | `input.beginOutput()` / `output.cancel()` | output identity and route discard metrics |
 | Send PCM to application code | `connector()` | `Connector`, `ConnectorContext` |
 | Process typed media | `defineOperator()` | `OperatorFactory`, `SignalSpec`, `PortSpec` |

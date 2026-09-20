@@ -14,16 +14,13 @@ cases visible. Browser tests that replace the service with mocked fetch remain
 The last accepted Lab-owned cross-repository audit expands the current Python
 package into 3,674 individually addressable public API, member/signature,
 test-behavior, workflow, and package rows. Its strict parity gate currently
-**fails**: 314 rows are classified equivalent or idiomatically equivalent and
-3,360 remain gaps. A declaration-name match is intentionally not counted as
-semantic parity. The voice work below has not yet been incorporated into that
-accepted ledger, so these totals are not increased here.
+**fails**: 1,007 rows are classified equivalent or idiomatically equivalent
+and 2,667 remain gaps. A declaration-name match is intentionally not counted
+as semantic parity.
 
 This table is therefore a product-area summary, not a substitute for that
-row-level ledger. The control-client family and provider-neutral voice
-composition are now implemented, but the accepted ledger predates the voice
-work. Event ingress remains absent. The ledger must be regenerated before its
-totals may be changed.
+row-level ledger. Event ingress was implemented after that accepted checkpoint
+and is not included in those totals yet.
 
 | Area | Rust 1.1.10 | Python 0.1.4 | JavaScript now |
 |---|---|---|---|
@@ -39,6 +36,7 @@ totals may be changed.
 | Exclusive async stream readers | `REAL` | `REAL` | `REAL`; direct reads and iteration reject a concurrent reader |
 | Abort and deterministic stream close | `REAL` | `REAL` | `REAL`; reads check cancellation at most every 20 ms, final received audio is retained, and a signal subscription closes independently |
 | PCM application input | `REAL` | `REAL` | `REAL`; typed arrays and explicit float32-LE buffers, fixed capacity, discontinuity, timeout, `AbortSignal`, close, observations, identity, and timing pass through Core |
+| Application JSON event input | `REAL` | `REAL` | `REAL`; deterministic serialization, finite capacity, immediate full/closed failures, observations, source identity, and timestamps pass through Core |
 | Generated-audio reentry and selected-output cancellation | `REAL` | `REAL` | `REAL` for component tests; application PCM and JavaScript Operator audio enter Core with output identity, and one obsolete output can be cancelled without stopping capture or the Session |
 | Typed signals and `BusSubscription` | `REAL` | `REAL` | `REAL`; Core-backed audio, text, and bytes, lineage, derivation, one-reader ownership, explicit timeout/end, close, and queue metrics pass |
 | Operators with named typed ports | `REAL` | `REAL` | `REAL` for off-realtime JavaScript implementations; validation, create, prepare, process, flush, cancel, close, named outputs, lineage, and exact PCM reentry pass through Core |

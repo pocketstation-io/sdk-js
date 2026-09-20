@@ -32,6 +32,16 @@ This deterministic example needs no capture permission or audio device. It
 writes one 10 ms PCM frame into Core and reads the copied frame from the Node
 audio stream.
 
+## Feed structured events into a Session
+
+```bash
+node examples/feed-events.mjs
+```
+
+This deterministic example serializes one application-owned JSON event,
+delivers it through Core with source identity and timing, and prints the
+bounded input observations.
+
 ## Create a Connector
 
 ```bash
