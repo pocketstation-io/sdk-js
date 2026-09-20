@@ -32,6 +32,12 @@ export type RelayClientMessage = {
 };
 
 // @public
+export interface RelayConnectOptions {
+    // (undocumented)
+    readonly signal?: AbortSignal;
+}
+
+// @public
 export interface RelayInvitation {
     readonly controlUrl: string;
     readonly joinCode: string;
@@ -75,9 +81,8 @@ export class RelayPublisher {
     // (undocumented)
     get lastError(): PocketStationError | null;
     observe(): Promise<RelayPublishObservation>;
-    // Warning: (ae-forgotten-export) The symbol "PublishOptions" needs to be exported by the entry point index.d.ts
-    publish(stream: MediaStream, options?: PublishOptions): Promise<void>;
-    reconnect(stream?: MediaStream, options?: PublishOptions): Promise<void>;
+    publish(stream: MediaStream, options?: RelayPublishOperationOptions): Promise<void>;
+    reconnect(stream?: MediaStream, options?: RelayPublishOperationOptions): Promise<void>;
     // (undocumented)
     get sessionState(): RelaySessionState | null;
     // (undocumented)
@@ -137,17 +142,22 @@ export interface RelayPublishObservation {
 }
 
 // @public
+export interface RelayPublishOperationOptions {
+    // (undocumented)
+    readonly signal?: AbortSignal;
+}
+
+// @public
 export class RelayReceiver {
     constructor(access: RelayReceiverAccess | RelayInvitation, options?: RelayReceiverOptions);
     // (undocumented)
     get access(): RelayReceiverAccess | null;
-    // Warning: (ae-forgotten-export) The symbol "ConnectOptions" needs to be exported by the entry point index.d.ts
-    connect(options?: ConnectOptions): Promise<MediaStream>;
+    connect(options?: RelayConnectOptions): Promise<MediaStream>;
     disconnect(): Promise<void>;
     // (undocumented)
     get lastError(): PocketStationError | null;
     observe(): Promise<RelayPlayoutObservation>;
-    reconnect(options?: ConnectOptions): Promise<MediaStream>;
+    reconnect(options?: RelayConnectOptions): Promise<MediaStream>;
     // (undocumented)
     get sessionState(): RelaySessionState | null;
     // (undocumented)

@@ -16,7 +16,8 @@ const FIRST_PACKET_POLL_MS = 25;
 const MAX_IDENTIFIER_BYTES = 64;
 const MAX_PENDING_ICE_CANDIDATES = 64;
 
-interface PublishOptions {
+/** Per-operation cancellation for browser Relay publication. */
+export interface RelayPublishOperationOptions {
   readonly signal?: AbortSignal;
 }
 
@@ -62,7 +63,10 @@ export class RelayPublisher {
    *
    * The caller retains ownership of the MediaStream and every track in it.
    */
-  public publish(stream: MediaStream, options: PublishOptions = {}): Promise<void> {
+  public publish(
+    stream: MediaStream,
+    options: RelayPublishOperationOptions = {},
+  ): Promise<void> {
     if (this.#state === 'closed') {
       return Promise.reject(
         new PocketStationError('relay.publisher_closed', 'RelayPublisher is closed'),
@@ -121,7 +125,7 @@ export class RelayPublisher {
   /** Reattach the same or a replacement live stream as a new Relay source generation. */
   public async reconnect(
     stream: MediaStream = requiredStream(this.#stream),
-    options: PublishOptions = {},
+    options: RelayPublishOperationOptions = {},
   ): Promise<void> {
     if (this.#state === 'closed') {
       throw new PocketStationError('relay.publisher_closed', 'RelayPublisher is closed');
