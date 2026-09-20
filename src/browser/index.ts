@@ -14,8 +14,9 @@ export {
   resolveRelayInvitation,
 } from './relay-session.js';
 export type {
-  RelayClientMessage,
+  RelayCodecHint,
   RelayInvitation,
+  RelayLatencyReport,
   RelayPlayoutObservation,
   RelayPublishObservation,
   RelayPublisherAccess,
@@ -24,6 +25,5 @@ export type {
   RelayReceiverAccess,
   RelayReceiverOptions,
   RelayReceiverState,
-  RelayServerMessage,
   RelaySessionState,
 } from './types.js';

@@ -83,6 +83,15 @@ describe('ControlClient', () => {
           subscriber_token: 'next-subscriber-secret',
         });
       }
+      if (url.pathname.endsWith('/publish')) {
+        return jsonResponse(200, {
+          session_id: 'session_123',
+          bus_id: 'microphone',
+          publisher_token: 'publisher-only-secret',
+          signal_url: 'wss://relay.example/v1/signal',
+          ice_servers: [],
+        });
+      }
       if (url.pathname.endsWith('/invitations')) {
         return jsonResponse(201, {
           join_code: 'opaque-code',
@@ -106,6 +115,11 @@ describe('ControlClient', () => {
     const subscriber = await client.issueSubscriberCredentials(
       credentials.sessionId,
       credentials.sourceToken,
+    );
+    const publisher = await client.issuePublisherCredentials(
+      credentials.sessionId,
+      credentials.sourceToken,
+      { busId: 'microphone' },
     );
     const invitation = await client.createInvitation(
       credentials.sessionId,
@@ -138,6 +152,12 @@ describe('ControlClient', () => {
       'next-subscriber-secret',
     );
     expect(subscriber.busId).toBe('mix');
+    expect(publisher.busId).toBe('microphone');
+    expect(publisher.signalUrl).toBe('wss://relay.example/v1/signal');
+    expect(publisher.publisherToken.exposeSecret()).toBe(
+      'publisher-only-secret',
+    );
+    expect(JSON.stringify(publisher)).not.toContain('publisher-only-secret');
     expect(invitation.joinCode).toBe('opaque-code');
     expect(invitation.sessionId).toBe(credentials.sessionId);
     expect(requests).toEqual([
@@ -158,6 +178,12 @@ describe('ControlClient', () => {
         path: '/base/v1/sessions/session_123/subscribe',
         authorization: 'Bearer source-secret',
         body: { bus_id: 'mix' },
+      },
+      {
+        method: 'POST',
+        path: '/base/v1/sessions/session_123/publish',
+        authorization: 'Bearer source-secret',
+        body: { bus_id: 'microphone' },
       },
       {
         method: 'POST',

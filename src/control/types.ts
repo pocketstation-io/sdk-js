@@ -123,6 +123,15 @@ export interface SubscriberCredentials {
   readonly subscriberToken: SecretToken;
 }
 
+/** Media-only capability scoped to one publisher and one AudioBus. */
+export interface PublisherCredentials {
+  readonly sessionId: SessionId;
+  readonly busId: string;
+  readonly publisherToken: SecretToken;
+  readonly signalUrl: string;
+  readonly iceServers: readonly IceServer[];
+}
+
 /** Per-operation deadline and cancellation controls. */
 export interface ControlRequestOptions {
   readonly timeoutMs?: number;
@@ -137,6 +146,11 @@ export interface CreateSessionOptions extends ControlRequestOptions {
 /** Options for a single-AudioBus credential or invitation operation. */
 export interface BusCredentialOptions extends ControlRequestOptions {
   readonly busId?: string;
+}
+
+/** Options for issuing one exact AudioBus publisher capability. */
+export interface PublisherCredentialOptions extends ControlRequestOptions {
+  readonly busId: string;
 }
 
 /** Minimal web-standard fetch contract accepted for dependency injection. */

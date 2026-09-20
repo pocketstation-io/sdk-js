@@ -130,3 +130,200 @@ describe('RelayReceiver before connection', () => {
     expect(failure.code).toBe('test.code');
   });
 });
+
+describe('RelayReceiver connected protocol', () => {
+  class FakeTrack extends EventTarget {
+    public readonly kind = 'audio';
+    public readonly readyState = 'live';
+  }
+
+  class FakeMediaStream {
+    readonly #tracks: FakeTrack[] = [];
+
+    public addTrack(track: FakeTrack): void {
+      this.#tracks.push(track);
+    }
+
+    public getTracks(): FakeTrack[] {
+      return [...this.#tracks];
+    }
+
+    public getAudioTracks(): FakeTrack[] {
+      return [...this.#tracks];
+    }
+  }
+
+  class FakePeerConnection {
+    public connectionState: RTCPeerConnectionState = 'new';
+    public remoteDescription: RTCSessionDescription | null = null;
+    public onicecandidate: ((event: RTCPeerConnectionIceEvent) => void) | null = null;
+    public onconnectionstatechange: (() => void) | null = null;
+    public ontrack: ((event: RTCTrackEvent) => void) | null = null;
+
+    public addTransceiver(): void {}
+
+    public async createOffer(): Promise<RTCSessionDescriptionInit> {
+      return { type: 'offer', sdp: 'v=0\r\n' };
+    }
+
+    public async setLocalDescription(): Promise<void> {}
+
+    public async setRemoteDescription(
+      description: RTCSessionDescriptionInit,
+    ): Promise<void> {
+      this.remoteDescription = description as RTCSessionDescription;
+      this.connectionState = 'connected';
+      const track = new FakeTrack();
+      queueMicrotask(() => {
+        this.onconnectionstatechange?.();
+        this.ontrack?.({ track, streams: [] } as unknown as RTCTrackEvent);
+      });
+    }
+
+    public async addIceCandidate(): Promise<void> {}
+
+    public async getStats(): Promise<RTCStatsReport> {
+      return { forEach(): void {} } as RTCStatsReport;
+    }
+
+    public close(): void {
+      this.connectionState = 'closed';
+    }
+  }
+
+  type SocketListener = (event: Event) => void;
+
+  class FakeWebSocket {
+    public static readonly OPEN = 1;
+    public static readonly CLOSED = 3;
+    public static instances: FakeWebSocket[] = [];
+    public readyState = 0;
+    public onmessage: ((event: MessageEvent) => void) | null = null;
+    public onclose: (() => void) | null = null;
+    public onerror: (() => void) | null = null;
+    public readonly sent: unknown[] = [];
+    readonly #listeners = new Map<string, Set<SocketListener>>();
+
+    public constructor() {
+      FakeWebSocket.instances.push(this);
+      queueMicrotask(() => {
+        this.readyState = FakeWebSocket.OPEN;
+        this.#emit('open');
+      });
+    }
+
+    public addEventListener(type: string, listener: SocketListener): void {
+      const listeners = this.#listeners.get(type) ?? new Set<SocketListener>();
+      listeners.add(listener);
+      this.#listeners.set(type, listeners);
+    }
+
+    public removeEventListener(type: string, listener: SocketListener): void {
+      this.#listeners.get(type)?.delete(listener);
+    }
+
+    public send(value: string): void {
+      const message = JSON.parse(value) as Record<string, unknown>;
+      this.sent.push(message);
+      if (message.type === 'SUBSCRIBE') {
+        queueMicrotask(() => {
+          this.onmessage?.({
+            data: JSON.stringify({ type: 'SDP_ANSWER', sdp_answer: 'v=0\r\n' }),
+          } as MessageEvent<string>);
+        });
+      }
+    }
+
+    public close(): void {
+      if (this.readyState === FakeWebSocket.CLOSED) return;
+      this.readyState = FakeWebSocket.CLOSED;
+      this.onclose?.();
+      this.#emit('close');
+    }
+
+    public receive(value: unknown): void {
+      this.onmessage?.({ data: JSON.stringify(value) } as MessageEvent<string>);
+    }
+
+    #emit(type: string): void {
+      const event = new Event(type);
+      for (const listener of this.#listeners.get(type) ?? []) listener(event);
+    }
+  }
+
+  beforeEach(() => {
+    FakeWebSocket.instances = [];
+    Object.defineProperty(globalThis, 'RTCPeerConnection', {
+      configurable: true,
+      value: FakePeerConnection,
+    });
+    Object.defineProperty(globalThis, 'MediaStream', {
+      configurable: true,
+      value: FakeMediaStream,
+    });
+    Object.defineProperty(globalThis, 'WebSocket', {
+      configurable: true,
+      value: FakeWebSocket,
+    });
+  });
+
+  afterEach(() => {
+    Reflect.deleteProperty(globalThis, 'RTCPeerConnection');
+    Reflect.deleteProperty(globalThis, 'MediaStream');
+    Reflect.deleteProperty(globalThis, 'WebSocket');
+  });
+
+  it('rejects state for a different Session instead of accepting poisoned identity', async () => {
+    const receiver = new RelayReceiver({
+      signalUrl: resolution.signal_url,
+      sessionId: resolution.session_id,
+      busId: resolution.bus_id,
+      subscriberToken: resolution.subscriber_token,
+    });
+    await receiver.connect();
+    const socket = FakeWebSocket.instances[0];
+    if (socket === undefined) throw new Error('missing fake WebSocket');
+
+    socket.receive({
+      type: 'SESSION_STATE',
+      session_id: 'different-session',
+      bus_id: resolution.bus_id,
+      source_active: true,
+      subscription_count: 1,
+    });
+    await Promise.resolve();
+
+    expect(receiver.lastError?.code).toBe('relay.receiver_state_identity_mismatch');
+    expect(receiver.state).toBe('failed');
+  });
+
+  it('reports latency and fails explicitly when encrypted media is unsupported', async () => {
+    const receiver = new RelayReceiver({
+      signalUrl: resolution.signal_url,
+      sessionId: resolution.session_id,
+      busId: resolution.bus_id,
+      subscriberToken: resolution.subscriber_token,
+    });
+    await receiver.connect();
+    const socket = FakeWebSocket.instances[0];
+    if (socket === undefined) throw new Error('missing fake WebSocket');
+
+    receiver.reportLatency({
+      captureMs: 0,
+      encodeMs: 0,
+      relayRttMs: 18,
+      jitterBufferMs: 6,
+      decodeMs: 2,
+      packetLossPct: 1,
+      clockDriftPpm: 4,
+    });
+    expect(socket.sent).toContainEqual(
+      expect.objectContaining({ type: 'LATENCY_REPORT' }),
+    );
+
+    socket.receive({ type: 'KEY_EXCHANGE', sframe_key: 'opaque-key' });
+    await Promise.resolve();
+    expect(receiver.lastError?.code).toBe('relay.sframe_unsupported');
+    expect(receiver.state).toBe('failed');
+  });
+});

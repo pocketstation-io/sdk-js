@@ -33,6 +33,7 @@ export class ControlClient {
     createInvitation(sessionId: string | SessionId, sourceToken: SecretToken, options?: BusCredentialOptions): Promise<Invitation>;
     createSession(options?: CreateSessionOptions): Promise<SessionCredentials>;
     deleteSession(sessionId: string | SessionId, sourceToken: SecretToken, options?: ControlRequestOptions): Promise<void>;
+    issuePublisherCredentials(sessionId: string | SessionId, sourceToken: SecretToken, options: PublisherCredentialOptions): Promise<PublisherCredentials>;
     issueSubscriberCredentials(sessionId: string | SessionId, sourceToken: SecretToken, options?: BusCredentialOptions): Promise<SubscriberCredentials>;
     session(sessionId: string | SessionId, sourceToken: SecretToken, options?: ControlRequestOptions): Promise<SessionSnapshot>;
 }
@@ -100,6 +101,26 @@ export class PocketStationError extends Error {
     });
     readonly cause: unknown;
     readonly code: string;
+}
+
+// @public
+export interface PublisherCredentialOptions extends ControlRequestOptions {
+    // (undocumented)
+    readonly busId: string;
+}
+
+// @public
+export interface PublisherCredentials {
+    // (undocumented)
+    readonly busId: string;
+    // (undocumented)
+    readonly iceServers: readonly IceServer[];
+    // (undocumented)
+    readonly publisherToken: SecretToken;
+    // (undocumented)
+    readonly sessionId: SessionId;
+    // (undocumented)
+    readonly signalUrl: string;
 }
 
 // @public

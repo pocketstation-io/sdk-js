@@ -10,6 +10,8 @@ import {
   type CreateSessionOptions,
   type IceServer,
   type Invitation,
+  type PublisherCredentialOptions,
+  type PublisherCredentials,
   type SessionCredentials,
   type SessionSnapshot,
   type SubscriberCredentials,
@@ -132,6 +134,28 @@ export class ControlClient {
       },
     );
     return subscriberCredentials(payload);
+  }
+
+  /** Issue media-only publisher credentials scoped to one AudioBus. */
+  public async issuePublisherCredentials(
+    sessionId: string | SessionId,
+    sourceToken: SecretToken,
+    options: PublisherCredentialOptions,
+  ): Promise<PublisherCredentials> {
+    const identifier = sessionIdentifier(sessionId);
+    const requestedBus = busId(options.busId, 'busId');
+    const payload = await this.#request(
+      'POST',
+      `v1/sessions/${encodeURIComponent(identifier.toString())}/publish`,
+      {
+        expectedStatus: 200,
+        expectJson: true,
+        authorization: sourceToken,
+        options,
+        jsonBody: { bus_id: requestedBus },
+      },
+    );
+    return publisherCredentials(payload);
   }
 
   /** Create one time-limited receiver invitation for an AudioBus. */
@@ -701,6 +725,26 @@ function subscriberCredentials(payload: JsonObject): SubscriberCredentials {
     sessionId: decodedSessionId(payload),
     busId: requiredIdentifier(payload, 'bus_id', 64),
     subscriberToken: decodedSecret(payload, 'subscriber_token'),
+  });
+}
+
+function publisherCredentials(payload: JsonObject): PublisherCredentials {
+  const signalUrl = requiredString(payload, 'signal_url');
+  let parsedSignalUrl: URL;
+  try {
+    parsedSignalUrl = new URL(signalUrl);
+  } catch (error) {
+    throw responseDecode(`control-plane signal_url is invalid: ${safeErrorMessage(error)}`);
+  }
+  if (!['ws:', 'wss:'].includes(parsedSignalUrl.protocol)) {
+    throw responseDecode('control-plane signal_url must use ws or wss');
+  }
+  return Object.freeze({
+    sessionId: decodedSessionId(payload),
+    busId: requiredIdentifier(payload, 'bus_id', 64),
+    publisherToken: decodedSecret(payload, 'publisher_token'),
+    signalUrl: parsedSignalUrl.href,
+    iceServers: iceServers(payload),
   });
 }
 

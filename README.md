@@ -153,7 +153,7 @@ const publisher = new RelayPublisher({
   signalUrl,
   sessionId,
   busId: "user-microphone",
-  sourceToken,
+  publisherToken,
   iceServers,
 });
 
@@ -163,8 +163,10 @@ await publisher.publish(stream);
 `publish()` resolves only after browser WebRTC statistics contain an outbound
 audio packet. This proves media delivery started; it does not prove speech or
 non-silence. `disconnect()` closes PocketStation resources but deliberately
-does not stop the caller-owned track. Keep source credentials out of URLs and
-browser storage. See [Publish and receive Relay audio in a browser](docs/reference/browser-relay.md).
+does not stop the caller-owned track. Mint `publisherToken` with
+`ControlClient.issuePublisherCredentials()`; never hand the Session-owner token
+to browser media code. Keep bearer credentials out of URLs and browser storage.
+See [Publish and receive Relay audio in a browser](docs/reference/browser-relay.md).
 
 ## Send audio to application code
 

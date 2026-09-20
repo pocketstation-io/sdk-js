@@ -14,22 +14,18 @@ export class PocketStationError extends Error {
 }
 
 // @public
-export type RelayClientMessage = {
-    readonly type: 'PUBLISH';
-    readonly session_id: string;
-    readonly bus_id: string;
-    readonly token: string;
-    readonly sdp_offer: string;
-} | {
-    readonly type: 'SUBSCRIBE';
-    readonly session_id: string;
-    readonly bus_id: string;
-    readonly token: string;
-    readonly sdp_offer: string;
-} | {
-    readonly type: 'ICE';
-    readonly candidate: string;
-};
+export interface RelayCodecHint {
+    // (undocumented)
+    readonly bitrateKbps: number;
+    // (undocumented)
+    readonly complexity: number;
+    // (undocumented)
+    readonly dtx: boolean;
+    // (undocumented)
+    readonly fec: boolean;
+    // (undocumented)
+    readonly frameMs: 10 | 20;
+}
 
 // @public
 export interface RelayConnectOptions {
@@ -41,6 +37,24 @@ export interface RelayConnectOptions {
 export interface RelayInvitation {
     readonly controlUrl: string;
     readonly joinCode: string;
+}
+
+// @public
+export interface RelayLatencyReport {
+    // (undocumented)
+    readonly captureMs: number;
+    // (undocumented)
+    readonly clockDriftPpm: number;
+    // (undocumented)
+    readonly decodeMs: number;
+    // (undocumented)
+    readonly encodeMs: number;
+    // (undocumented)
+    readonly jitterBufferMs: number;
+    // (undocumented)
+    readonly packetLossPct: number;
+    // (undocumented)
+    readonly relayRttMs: number;
 }
 
 // @public
@@ -79,10 +93,13 @@ export class RelayPublisher {
     get access(): RelayPublisherAccess;
     disconnect(): Promise<void>;
     // (undocumented)
+    get lastCodecHint(): RelayCodecHint | null;
+    // (undocumented)
     get lastError(): PocketStationError | null;
     observe(): Promise<RelayPublishObservation>;
     publish(stream: MediaStream, options?: RelayPublishOperationOptions): Promise<void>;
     reconnect(stream?: MediaStream, options?: RelayPublishOperationOptions): Promise<void>;
+    reportLatency(report: RelayLatencyReport): void;
     // (undocumented)
     get sessionState(): RelaySessionState | null;
     // (undocumented)
@@ -95,22 +112,23 @@ export class RelayPublisher {
 export interface RelayPublisherAccess {
     readonly busId: string;
     readonly iceServers?: readonly RTCIceServer[];
+    readonly publisherToken: string;
     readonly sessionId: string;
     readonly signalUrl: string;
-    readonly sourceToken: string;
 }
 
 // @public
 export interface RelayPublisherOptions {
     readonly connectTimeoutMs?: number;
     readonly disconnectTimeoutMs?: number;
+    readonly onCodecHint?: (hint: RelayCodecHint) => void;
     readonly onError?: (error: Error) => void;
     readonly onSessionState?: (state: RelaySessionState) => void;
     readonly onStateChange?: (state: RelayPublisherState) => void;
 }
 
 // @public
-export type RelayPublisherState = 'idle' | 'signaling' | 'connecting' | 'publishing' | 'disconnected' | 'failed' | 'closed';
+export type RelayPublisherState = 'idle' | 'signaling' | 'connecting' | 'publishing' | 'recovering' | 'disconnected' | 'failed' | 'closed';
 
 // @public
 export interface RelayPublishObservation {
@@ -158,6 +176,7 @@ export class RelayReceiver {
     get lastError(): PocketStationError | null;
     observe(): Promise<RelayPlayoutObservation>;
     reconnect(options?: RelayConnectOptions): Promise<MediaStream>;
+    reportLatency(report: RelayLatencyReport): void;
     // (undocumented)
     get sessionState(): RelaySessionState | null;
     // (undocumented)
@@ -186,36 +205,6 @@ export interface RelayReceiverOptions {
 
 // @public
 export type RelayReceiverState = 'idle' | 'resolving-invitation' | 'signaling' | 'connecting' | 'connected' | 'disconnected' | 'failed' | 'closed';
-
-// @public
-export type RelayServerMessage = {
-    readonly type: 'SDP_ANSWER';
-    readonly sdp_answer: string;
-} | {
-    readonly type: 'ICE';
-    readonly candidate: string;
-} | {
-    readonly type: 'SESSION_STATE';
-    readonly session_id?: string;
-    readonly bus_id?: string;
-    readonly source_active: boolean;
-    readonly subscription_count: number;
-    readonly codec?: string;
-} | {
-    readonly type: 'ERROR';
-    readonly code?: string;
-    readonly message?: string;
-} | {
-    readonly type: 'KEY_EXCHANGE';
-    readonly sframe_key: string;
-} | {
-    readonly type: 'CODEC_HINT';
-} | {
-    readonly type: 'ICE_RESTART';
-    readonly use_turn?: boolean;
-} | {
-    readonly type: 'LATENCY_REPORT';
-};
 
 // @public
 export interface RelaySessionState {

@@ -1,5 +1,29 @@
 # JavaScript SDK progress
 
+## W21 browser Relay authority and lifecycle hardening
+
+The control plane now issues one media-only publisher capability for one exact
+AudioBus. `ControlClient.issuePublisherCredentials()` validates that response,
+keeps the token redacted, and exposes Relay signaling and ICE configuration.
+`RelayPublisher` requires the resulting `publisherToken`; it no longer asks a
+browser application for the broader Session-owner credential.
+
+Browser signaling no longer silently accepts unsupported semantics. Codec
+guidance is validated, exposed, and applies the supported bitrate setting;
+latency observations are bounded and reportable in both directions; Relay ICE
+recovery performs a bounded reattachment; encrypted SFrame media and
+direction-invalid messages fail explicitly. Receiver Session/AudioBus identity
+is verified before state is accepted, and raw wire-message unions are no longer
+part of the public browser API.
+
+Focused control/browser tests pass, the complete JavaScript suite passes 20
+suites / 150 tests, and API, docs, package exports, and packed-consumer gates
+pass. The real same-host control→Relay path proves owner credential → two
+independently scoped publisher capabilities → two named buses → receiver RTP,
+and proves a publisher token cannot read control-plane Session state. No mock,
+scaffold, fallback, release, push, deployment, or WAN/physical-device claim is
+introduced.
+
 ## W21 JavaScript control-plane parity
 
 The package now exposes trusted Session lifecycle through a dedicated
@@ -34,10 +58,8 @@ post-delete 404. This is a local control-contract proof, not a deployed-service
 or WAN claim.
 
 `pocketstation/browser` remains the caller-owned WebRTC media edge. It does not
-own Session creation or mint credentials. The current service source-owner
-token is broader than an untrusted phone publisher should receive, so a
-publish-only capability split remains a separate required security task. No
-release, npm publication, push, deployment, or external mutation occurred.
+own Session creation or mint credentials. No release, npm publication, push,
+deployment, or external mutation occurred.
 
 ## W21 exhaustive Python-to-JavaScript parity correction
 
