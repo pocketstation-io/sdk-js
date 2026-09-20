@@ -1,5 +1,30 @@
 # JavaScript SDK progress
 
+## W21 Python/JavaScript parity slice — voice foundations
+
+- Status: `SAFE-TO-MERGE` for the provider-neutral foundation modules; full
+  Python voice parity remains false because `Conversation` and
+  `RunningConversation` orchestration are not part of this slice.
+- The new `pocketstation/voice` subpath implements immutable capabilities,
+  validated limits/deadlines/interruption policy, typed failure and event
+  records, turns and outcomes, transcript lineage, response and tool chunks,
+  generated-audio chunks, speech activity, and separate or duplex provider
+  lifecycle contracts.
+- Python and JavaScript use the same configuration defaults and finite bounds.
+  JavaScript uses one asynchronous provider lifecycle instead of duplicating
+  Python's synchronous and asyncio facades.
+- The voice subpath is environment-neutral: it imports neither the Node native
+  addon nor browser WebRTC code. Package-structure tests enforce that boundary,
+  and the isolated packed consumer imports and executes the subpath.
+- Nine focused voice tests cover defaults, validation, immutability, lineage,
+  response/tool data, turns/outcomes, generated audio, speech activity, error
+  recovery facts, and provider lifecycle contracts. The complete JavaScript
+  suite passes 21 suites / 183 tests, and the three Python voice orchestration
+  suites pass 8 tests as the reference behavior gate.
+- This slice adds no provider implementation, media queue, native callback
+  work, scaffold, mock product path, loopback path, release, deployment, push,
+  or claim that JavaScript voice orchestration is complete.
+
 ## W21 Python/JavaScript parity slice — bounded streams
 
 - Status: `SAFE-TO-MERGE` for the stream capability family; whole-SDK Python

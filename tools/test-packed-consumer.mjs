@@ -313,6 +313,26 @@ try {
       throw new Error('packed control client did not execute exactly one request');
     }
     controlClient.close();
+    const voice = await import('pocketstation/voice');
+    const voiceConfig = new voice.ConversationConfig();
+    if (
+      voiceConfig.historyCapacity !== 32 ||
+      voiceConfig.maximumOutputFramesPerTurn !== 3000
+    ) {
+      throw new Error('packed voice configuration lost finite defaults');
+    }
+    const transcript = new voice.TranscriptUpdate({
+      utteranceId: 'packed-speech',
+      revision: 1,
+      text: 'packed voice',
+      stablePrefix: 'packed voice',
+      final: true,
+      sourceId: 1n,
+      streamId: 2n,
+    });
+    if (!transcript.final || transcript.sourceId !== 1n) {
+      throw new Error('packed voice transcript lost final state or Source identity');
+    }
     console.log('packed consumer: PASS');
   `;
   execFileSync(process.execPath, ['--input-type=module', '--eval', source], {

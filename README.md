@@ -95,6 +95,45 @@ untrusted phone or public browser bundle.
 See [Control Session lifecycle](docs/reference/control-plane.md) for the full
 create, inspect, subscribe, invite, delete, cancellation, and error contract.
 
+## Define provider-neutral voice components
+
+Import immutable voice values and provider lifecycle interfaces without loading
+the Node native addon or browser WebRTC code:
+
+```ts
+import {
+  ConversationConfig,
+  ResponseCapabilities,
+  TranscriptUpdate,
+  TranscriptionCapabilities,
+  VoiceCapabilities,
+} from "pocketstation/voice";
+
+const capabilities = new VoiceCapabilities({
+  transcription: new TranscriptionCapabilities({ streaming: true }),
+  response: new ResponseCapabilities({
+    streaming: true,
+    cancellation: true,
+  }),
+});
+
+const config = new ConversationConfig();
+const finalTranscript = new TranscriptUpdate({
+  utteranceId: "speech-1",
+  revision: 1,
+  text: "ship the answer",
+  stablePrefix: "ship the answer",
+  final: true,
+});
+```
+
+`pocketstation/voice` covers the provider-neutral capability, configuration,
+transcript, turn, response, synthesis, speech-activity, duplex, event, and
+failure values also available in Python. Every retained collection is copied
+and frozen, and every count or deadline has a finite limit. Conversation
+orchestration is not included in this entry yet; the application still owns
+when these provider interfaces run.
+
 ## Record or process the same Stem
 
 Capture does not need to be repeated for each destination. The same Stem can be
