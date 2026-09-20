@@ -44,11 +44,42 @@ describe('concise capture workflow', () => {
     );
   });
 
+  test.each([
+    '',
+    ' ',
+    0,
+    -1,
+    1.5,
+    null,
+    true,
+  ])('rejects invalid application selection %p before startup', (application) => {
+    expect(() =>
+      new Capture({
+        application: application as never,
+      }),
+    ).toThrow();
+  });
+
   test('requires startup before reading or stopping', async () => {
     const live = new Capture({ application: 'Zoom' });
 
     expect(() => live.audio).toThrow('Capture has not started');
+    await expect(live.pollAudio()).rejects.toThrow('Capture has not started');
+    await expect(live.waitAudio()).rejects.toThrow('Capture has not started');
+    expect(() => live.audioBatches()).toThrow('Capture has not started');
+    await expect(live.pollEvent()).rejects.toThrow('Capture has not started');
+    await expect(live.waitEvent()).rejects.toThrow('Capture has not started');
     await expect(live.stop()).rejects.toThrow('Capture has not started');
+  });
+
+  test('exposes cross-SDK Stem and recording aliases and idempotent close', async () => {
+    const live = new Capture({ application: 'PocketStation Test Source' });
+
+    expect(live.applicationStem).toBe(live.application);
+    expect(live.microphoneStem).toBeUndefined();
+    expect(live.recordingOutcome).toBeUndefined();
+    await live.close();
+    await live.close();
   });
 
   test('opens the concise function in one awaited call', async () => {
