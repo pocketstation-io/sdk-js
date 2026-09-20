@@ -231,8 +231,7 @@ function parseServerMessage(data: unknown): RelayServerMessage {
     case 'KEY_EXCHANGE':
       return { type: value.type, sframe_key: requiredText(value, 'sframe_key') };
     case 'CODEC_HINT':
-    case 'LATENCY_REPORT':
-      return { type: value.type };
+      return { type: value.type, codec_hint: codecHint(value.codec_hint) };
     case 'ICE_RESTART':
       return {
         type: value.type,
@@ -241,6 +240,42 @@ function parseServerMessage(data: unknown): RelayServerMessage {
     default:
       throw invalidMessage(`Relay returned unsupported message type ${value.type}`);
   }
+}
+
+function codecHint(value: unknown): import('./types.js').RelayCodecHint {
+  if (!isRecord(value)) throw invalidMessage('Relay CODEC_HINT is missing codec_hint');
+  const bitrateKbps = boundedInteger(value, 'bitrate_kbps', 6, 512);
+  const complexity = boundedInteger(value, 'complexity', 0, 10);
+  const frameMs = boundedInteger(value, 'frame_ms', 10, 20);
+  if (frameMs !== 10 && frameMs !== 20) {
+    throw invalidMessage('Relay CODEC_HINT frame_ms must be 10 or 20');
+  }
+  return Object.freeze({
+    bitrateKbps,
+    complexity,
+    fec: requiredBoolean(value, 'fec'),
+    dtx: requiredBoolean(value, 'dtx'),
+    frameMs,
+  });
+}
+
+function boundedInteger(
+  value: Record<string, unknown>,
+  name: string,
+  minimum: number,
+  maximum: number,
+): number {
+  const field = value[name];
+  if (!Number.isSafeInteger(field) || (field as number) < minimum || (field as number) > maximum) {
+    throw invalidMessage(`Relay message has invalid ${name}`);
+  }
+  return field as number;
+}
+
+function requiredBoolean(value: Record<string, unknown>, name: string): boolean {
+  const field = value[name];
+  if (typeof field !== 'boolean') throw invalidMessage(`Relay message has invalid ${name}`);
+  return field;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

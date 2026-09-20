@@ -14,6 +14,8 @@ export {
   type CreateSessionOptions,
   type IceServer,
   type Invitation,
+  type PublisherCredentialOptions,
+  type PublisherCredentials,
   type SessionCredentials,
   type SessionSnapshot,
   type SubscriberCredentials,

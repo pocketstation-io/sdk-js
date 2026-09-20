@@ -31,7 +31,27 @@ source-owner token, optional WHIP/WHEP endpoints, and bounded ICE configuration.
 `session()` returns a frozen snapshot with bus, generation, subscription,
 readiness, revision, and codec state.
 
-## Authorize a receiver
+## Authorize a publisher or receiver
+
+Issue a media-only publisher capability before giving a remote browser or
+device access to Relay:
+
+```ts
+const publisher = await control.issuePublisherCredentials(
+  credentials.sessionId,
+  credentials.sourceToken,
+  { busId: "microphone" },
+);
+
+const publisherToken = publisher.publisherToken.exposeSecret();
+```
+
+The publisher token is accepted for media publication on that exact AudioBus
+and rejected for Session reads, deletion, invitations, or additional
+credential issuance. `SecretToken.exposeSecret()` makes the trusted-to-media
+credential boundary explicit.
+
+Issue direct receiver credentials for one AudioBus:
 
 Issue direct credentials for one AudioBus:
 
@@ -53,9 +73,8 @@ const invitation = await control.createInvitation(
 );
 ```
 
-Both operations require the source-owner token. They should execute in trusted
-application or server code. The current control service does not yet provide a
-separate publish-only credential suitable for an untrusted phone publisher.
+All credential and invitation operations require the source-owner token. They
+should execute in trusted application or server code.
 
 Delete is explicit and idempotent only to the extent guaranteed by the service:
 
@@ -106,5 +125,5 @@ the authentication boundary is visible in application code. The client also
 redacts that token from HTTP, transport, and response-stream error messages.
 
 These safeguards do not make source-owner credentials safe to ship to an
-untrusted client. Capability scope is a service authorization decision, not a
-serialization feature.
+untrusted client. Issue the exact-bus publisher or subscriber capability needed
+by that client instead.

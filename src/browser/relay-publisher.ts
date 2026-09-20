@@ -1,8 +1,11 @@
 import { PocketStationError } from '../errors.js';
 import { operationSignal } from './operation-signal.js';
+import { latencyReportPayload } from './latency-report.js';
 import { SignalingTransport } from './signaling.js';
 import type {
   RelayPublishObservation,
+  RelayCodecHint,
+  RelayLatencyReport,
   RelayPublisherAccess,
   RelayPublisherOptions,
   RelayPublisherState,
@@ -40,6 +43,8 @@ export class RelayPublisher {
   #lastError: PocketStationError | null = null;
   #sessionState: RelaySessionState | null = null;
   #observationRevision = 0;
+  #lastCodecHint: RelayCodecHint | null = null;
+  #reconnectOperation: Promise<void> | null = null;
 
   public constructor(
     access: RelayPublisherAccess,
@@ -123,13 +128,27 @@ export class RelayPublisher {
   }
 
   /** Reattach the same or a replacement live stream as a new Relay source generation. */
-  public async reconnect(
+  public reconnect(
     stream: MediaStream = requiredStream(this.#stream),
     options: RelayPublishOperationOptions = {},
   ): Promise<void> {
     if (this.#state === 'closed') {
-      throw new PocketStationError('relay.publisher_closed', 'RelayPublisher is closed');
+      return Promise.reject(
+        new PocketStationError('relay.publisher_closed', 'RelayPublisher is closed'),
+      );
     }
+    if (this.#reconnectOperation !== null) return this.#reconnectOperation;
+    this.#reconnectOperation = this.#performReconnect(stream, options).finally(() => {
+      this.#reconnectOperation = null;
+    });
+    return this.#reconnectOperation;
+  }
+
+  async #performReconnect(
+    stream: MediaStream,
+    options: RelayPublishOperationOptions,
+  ): Promise<void> {
+    this.#setState('recovering');
     this.#closing = true;
     try {
       this.#controller?.abort(
@@ -145,6 +164,22 @@ export class RelayPublisher {
     this.#publishOperation = null;
     this.#setState('idle');
     return this.publish(stream, options);
+  }
+
+  /** Report one validated latency sample to Relay. */
+  public reportLatency(report: RelayLatencyReport): void {
+    if (this.#transport?.isOpen !== true || this.#state !== 'publishing') {
+      throw new PocketStationError(
+        'relay.publisher_not_connected',
+        'Publish the RelayPublisher before reporting latency',
+      );
+    }
+    const payload = latencyReportPayload(report, this.#access.sessionId);
+    this.#transport.send({
+      type: 'LATENCY_REPORT',
+      session_id: this.#access.sessionId,
+      latency_report: payload,
+    });
   }
 
   /** Read one outbound WebRTC observation without inventing unavailable values. */
@@ -196,6 +231,10 @@ export class RelayPublisher {
 
   public get lastError(): PocketStationError | null {
     return this.#lastError;
+  }
+
+  public get lastCodecHint(): RelayCodecHint | null {
+    return this.#lastCodecHint;
   }
 
   async #publish(
@@ -284,7 +323,7 @@ export class RelayPublisher {
       type: 'PUBLISH',
       session_id: this.#access.sessionId,
       bus_id: this.#access.busId,
-      token: this.#access.sourceToken,
+      token: this.#access.publisherToken,
       sdp_offer: offer.sdp,
     });
     const answer = await waitWithSignal(this.#answer.promise, signal);
@@ -359,10 +398,44 @@ export class RelayPublisher {
         break;
       }
       case 'CODEC_HINT':
-      case 'ICE_RESTART':
-      case 'KEY_EXCHANGE':
-      case 'LATENCY_REPORT':
+        this.#lastCodecHint = message.codec_hint;
+        this.#options.onCodecHint?.(message.codec_hint);
+        void this.#applyCodecHint(message.codec_hint);
         break;
+      case 'ICE_RESTART':
+        void this.reconnect().catch((cause: unknown) => {
+          this.#handleAsyncFailure(publisherFailure(cause));
+        });
+        break;
+      case 'KEY_EXCHANGE':
+        this.#handleAsyncFailure(
+          new PocketStationError(
+            'relay.publisher_unexpected_key_exchange',
+            'Relay sent KEY_EXCHANGE to a publisher',
+          ),
+        );
+        break;
+    }
+  }
+
+  async #applyCodecHint(hint: RelayCodecHint): Promise<void> {
+    const sender = this.#connection
+      ?.getSenders()
+      .find((candidate) => candidate.track === this.#track);
+    if (sender === undefined) return;
+    const parameters = sender.getParameters();
+    if (parameters.encodings.length === 0) return;
+    parameters.encodings[0]!.maxBitrate = hint.bitrateKbps * 1_000;
+    try {
+      await sender.setParameters(parameters);
+    } catch (cause) {
+      this.#options.onError?.(
+        new PocketStationError(
+          'relay.publisher_codec_hint_failed',
+          'Browser could not apply Relay codec bitrate guidance',
+          { cause },
+        ),
+      );
     }
   }
 
@@ -442,7 +515,7 @@ function validateAccess(access: RelayPublisherAccess): void {
   parseSignalUrl(access.signalUrl);
   requiredText(access.sessionId, 'sessionId');
   portableIdentifier(access.busId, 'busId');
-  requiredText(access.sourceToken, 'sourceToken');
+  requiredText(access.publisherToken, 'publisherToken');
 }
 
 function parseSignalUrl(value: string): URL {

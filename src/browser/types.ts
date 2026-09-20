@@ -20,8 +20,8 @@ export interface RelayPublisherAccess {
   readonly sessionId: string;
   /** AudioBus selected for this publisher. */
   readonly busId: string;
-  /** Source credential whose bus scope includes the selected AudioBus. */
-  readonly sourceToken: string;
+  /** Media-only publisher credential scoped to the selected AudioBus. */
+  readonly publisherToken: string;
   /** STUN or TURN servers issued for this RelaySession. */
   readonly iceServers?: readonly RTCIceServer[];
 }
@@ -60,6 +60,8 @@ export interface RelayPublisherOptions {
   readonly onSessionState?: (state: RelaySessionState) => void;
   /** Called for asynchronous signaling, WebRTC, or source-track failures. */
   readonly onError?: (error: Error) => void;
+  /** Called when Relay requests new browser encoder settings. */
+  readonly onCodecHint?: (hint: RelayCodecHint) => void;
 }
 
 /** Observable lifecycle of one browser receiver. */
@@ -79,9 +81,30 @@ export type RelayPublisherState =
   | 'signaling'
   | 'connecting'
   | 'publishing'
+  | 'recovering'
   | 'disconnected'
   | 'failed'
   | 'closed';
+
+/** Advisory browser encoder settings requested by Relay. */
+export interface RelayCodecHint {
+  readonly bitrateKbps: number;
+  readonly complexity: number;
+  readonly fec: boolean;
+  readonly dtx: boolean;
+  readonly frameMs: 10 | 20;
+}
+
+/** One unit-bearing client latency observation reported to Relay. */
+export interface RelayLatencyReport {
+  readonly captureMs: number;
+  readonly encodeMs: number;
+  readonly relayRttMs: number;
+  readonly jitterBufferMs: number;
+  readonly decodeMs: number;
+  readonly packetLossPct: number;
+  readonly clockDriftPpm: number;
+}
 
 /** Client-to-Relay signaling messages used by the browser receiver. */
 export type RelayClientMessage =
@@ -99,7 +122,21 @@ export type RelayClientMessage =
       readonly token: string;
       readonly sdp_offer: string;
     }
-  | { readonly type: 'ICE'; readonly candidate: string };
+  | { readonly type: 'ICE'; readonly candidate: string }
+  | {
+      readonly type: 'LATENCY_REPORT';
+      readonly session_id: string;
+      readonly latency_report: {
+        readonly session_id: string;
+        readonly capture_ms: number;
+        readonly encode_ms: number;
+        readonly relay_rtt_ms: number;
+        readonly jitter_buffer_ms: number;
+        readonly decode_ms: number;
+        readonly packet_loss_pct: number;
+        readonly clock_drift_ppm: number;
+      };
+    };
 
 /** Relay-to-client messages understood by the browser receiver. */
 export type RelayServerMessage =
@@ -115,9 +152,8 @@ export type RelayServerMessage =
     }
   | { readonly type: 'ERROR'; readonly code?: string; readonly message?: string }
   | { readonly type: 'KEY_EXCHANGE'; readonly sframe_key: string }
-  | { readonly type: 'CODEC_HINT' }
-  | { readonly type: 'ICE_RESTART'; readonly use_turn?: boolean }
-  | { readonly type: 'LATENCY_REPORT' };
+  | { readonly type: 'CODEC_HINT'; readonly codec_hint: RelayCodecHint }
+  | { readonly type: 'ICE_RESTART'; readonly use_turn?: boolean };
 
 /** Latest transport-facing state reported by Relay. */
 export interface RelaySessionState {

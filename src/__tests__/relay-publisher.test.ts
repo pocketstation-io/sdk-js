@@ -7,7 +7,7 @@ const access = {
   signalUrl: 'ws://127.0.0.1:4800/v1/signal',
   sessionId: 'session-001',
   busId: 'user-microphone',
-  sourceToken: 'source-token',
+  publisherToken: 'publisher-token',
   iceServers: [{ urls: ['stun:relay.example:3478'] }],
 } as const;
 
@@ -40,7 +40,15 @@ class FakePeerConnection {
   public remoteDescription: RTCSessionDescription | null = null;
   public onicecandidate: ((event: RTCPeerConnectionIceEvent) => void) | null = null;
   public onconnectionstatechange: (() => void) | null = null;
-  public readonly addTrack = jest.fn();
+  public readonly sender = {
+    track: null as FakeTrack | null,
+    getParameters: jest.fn(() => ({ encodings: [{}] })),
+    setParameters: jest.fn(async () => undefined),
+  };
+  public readonly addTrack = jest.fn((track: FakeTrack) => {
+    this.sender.track = track;
+    return this.sender;
+  });
   public readonly close = jest.fn(() => {
     this.connectionState = 'closed';
     this.onconnectionstatechange?.();
@@ -67,6 +75,10 @@ class FakePeerConnection {
   }
 
   public async addIceCandidate(): Promise<void> {}
+
+  public getSenders(): RTCRtpSender[] {
+    return [this.sender as unknown as RTCRtpSender];
+  }
 
   public async getStats(): Promise<RTCStatsReport> {
     const report = {
@@ -142,6 +154,10 @@ class FakeWebSocket {
     this.#emit('close');
   }
 
+  public receive(value: unknown): void {
+    this.onmessage?.({ data: JSON.stringify(value) } as MessageEvent<string>);
+  }
+
   #emit(type: string): void {
     const event = new Event(type);
     for (const listener of this.#listeners.get(type) ?? []) listener(event);
@@ -189,7 +205,7 @@ describe('RelayPublisher', () => {
       type: 'PUBLISH',
       session_id: access.sessionId,
       bus_id: access.busId,
-      token: access.sourceToken,
+      token: access.publisherToken,
       sdp_offer: 'v=0\r\n',
     });
     await expect(publisher.observe()).resolves.toMatchObject({
@@ -256,6 +272,101 @@ describe('RelayPublisher', () => {
     expect(FakePeerConnection.instances).toHaveLength(2);
     expect(first.close).toHaveBeenCalledTimes(1);
     expect(track.stop).not.toHaveBeenCalled();
+    await publisher.disconnect();
+  });
+
+  it('performs one bounded reattachment when Relay requests ICE recovery', async () => {
+    const track = new FakeTrack();
+    const publisher = new RelayPublisher(access);
+    await publisher.publish(streamWith(track));
+    const firstSocket = FakeWebSocket.instances[0];
+    if (firstSocket === undefined) throw new Error('missing first fake WebSocket');
+
+    firstSocket.receive({ type: 'ICE_RESTART', use_turn: true });
+    for (
+      let attempt = 0;
+      attempt < 20 && FakePeerConnection.instances.length < 2;
+      attempt += 1
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    expect(publisher.state).toBe('publishing');
+    expect(FakePeerConnection.instances).toHaveLength(2);
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    expect(track.stop).not.toHaveBeenCalled();
+    await publisher.disconnect();
+  });
+
+  it('applies codec guidance and reports bounded unit-bearing latency', async () => {
+    const hints: unknown[] = [];
+    const publisher = new RelayPublisher(access, {
+      onCodecHint: (hint) => hints.push(hint),
+    });
+    await publisher.publish(streamWith(new FakeTrack()));
+    const socket = FakeWebSocket.instances[0];
+    if (socket === undefined) throw new Error('missing fake WebSocket');
+
+    socket.onmessage?.({
+      data: JSON.stringify({
+        type: 'CODEC_HINT',
+        codec_hint: {
+          bitrate_kbps: 32,
+          complexity: 5,
+          fec: true,
+          dtx: false,
+          frame_ms: 20,
+        },
+      }),
+    } as MessageEvent<string>);
+    await Promise.resolve();
+
+    expect(publisher.lastCodecHint).toEqual({
+      bitrateKbps: 32,
+      complexity: 5,
+      fec: true,
+      dtx: false,
+      frameMs: 20,
+    });
+    expect(hints).toEqual([publisher.lastCodecHint]);
+    expect(FakePeerConnection.instances[0]?.sender.setParameters).toHaveBeenCalledWith({
+      encodings: [{ maxBitrate: 32_000 }],
+    });
+
+    publisher.reportLatency({
+      captureMs: 4,
+      encodeMs: 3,
+      relayRttMs: 22,
+      jitterBufferMs: 7,
+      decodeMs: 2,
+      packetLossPct: 0.5,
+      clockDriftPpm: -3,
+    });
+    expect(socket.sent).toContainEqual({
+      type: 'LATENCY_REPORT',
+      session_id: access.sessionId,
+      latency_report: {
+        session_id: access.sessionId,
+        capture_ms: 4,
+        encode_ms: 3,
+        relay_rtt_ms: 22,
+        jitter_buffer_ms: 7,
+        decode_ms: 2,
+        packet_loss_pct: 0.5,
+        clock_drift_ppm: -3,
+      },
+    });
+    expect(() =>
+      publisher.reportLatency({
+        captureMs: -1,
+        encodeMs: 0,
+        relayRttMs: 0,
+        jitterBufferMs: 0,
+        decodeMs: 0,
+        packetLossPct: 0,
+        clockDriftPpm: 0,
+      }),
+    ).toThrow(RangeError);
     await publisher.disconnect();
   });
 

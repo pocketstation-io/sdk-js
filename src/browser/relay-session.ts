@@ -1,8 +1,10 @@
 import { PocketStationError } from '../errors.js';
 import { operationSignal } from './operation-signal.js';
+import { latencyReportPayload } from './latency-report.js';
 import { SignalingTransport } from './signaling.js';
 import type {
   RelayInvitation,
+  RelayLatencyReport,
   RelayPlayoutObservation,
   RelayReceiverAccess,
   RelayReceiverOptions,
@@ -99,6 +101,7 @@ export class RelayReceiver {
   #lastError: PocketStationError | null = null;
   #sessionState: RelaySessionState | null = null;
   #observationRevision = 0;
+  #reconnectOperation: Promise<MediaStream> | null = null;
 
   public constructor(
     access: RelayReceiverAccess | RelayInvitation,
@@ -171,10 +174,20 @@ export class RelayReceiver {
   }
 
   /** Reconnect direct access or an already-resolved invitation after connection loss. */
-  public async reconnect(options: RelayConnectOptions = {}): Promise<MediaStream> {
+  public reconnect(options: RelayConnectOptions = {}): Promise<MediaStream> {
     if (this.#state === 'closed') {
-      throw new PocketStationError('relay.receiver_closed', 'RelayReceiver is closed');
+      return Promise.reject(
+        new PocketStationError('relay.receiver_closed', 'RelayReceiver is closed'),
+      );
     }
+    if (this.#reconnectOperation !== null) return this.#reconnectOperation;
+    this.#reconnectOperation = this.#performReconnect(options).finally(() => {
+      this.#reconnectOperation = null;
+    });
+    return this.#reconnectOperation;
+  }
+
+  async #performReconnect(options: RelayConnectOptions): Promise<MediaStream> {
     this.#closing = true;
     try {
       this.#controller?.abort(
@@ -187,6 +200,26 @@ export class RelayReceiver {
     this.#connectOperation = null;
     this.#setState('idle');
     return this.connect(options);
+  }
+
+  /** Report one validated latency sample to Relay. */
+  public reportLatency(report: RelayLatencyReport): void {
+    const access = this.#access;
+    if (
+      access === null ||
+      this.#transport?.isOpen !== true ||
+      this.#state !== 'connected'
+    ) {
+      throw new PocketStationError(
+        'relay.receiver_not_connected',
+        'Connect the RelayReceiver before reporting latency',
+      );
+    }
+    this.#transport.send({
+      type: 'LATENCY_REPORT',
+      session_id: access.sessionId,
+      latency_report: latencyReportPayload(report, access.sessionId),
+    });
   }
 
   /** Read one WebRTC receiver observation without inventing unavailable values. */
@@ -406,6 +439,18 @@ export class RelayReceiver {
       case 'SESSION_STATE': {
         const access = this.#access;
         if (access === null) break;
+        if (
+          (message.session_id !== undefined && message.session_id !== access.sessionId) ||
+          (message.bus_id !== undefined && message.bus_id !== access.busId)
+        ) {
+          this.#handleAsyncFailure(
+            new PocketStationError(
+              'relay.receiver_state_identity_mismatch',
+              'Relay returned Session state for a different Session or AudioBus',
+            ),
+          );
+          break;
+        }
         const state = Object.freeze({
           sessionId: message.session_id ?? access.sessionId,
           busId: message.bus_id ?? access.busId,
@@ -426,16 +471,25 @@ export class RelayReceiver {
         );
         break;
       case 'ICE_RESTART':
+        void this.reconnect().catch((cause: unknown) => {
+          this.#handleAsyncFailure(receiverFailure(cause));
+        });
+        break;
+      case 'KEY_EXCHANGE':
         this.#handleAsyncFailure(
           new PocketStationError(
-            'relay.ice_restart_required',
-            'Relay requested a new ICE connection; call reconnect()',
+            'relay.sframe_unsupported',
+            'This browser client cannot consume an encrypted SFrame AudioBus',
           ),
         );
         break;
-      case 'KEY_EXCHANGE':
       case 'CODEC_HINT':
-      case 'LATENCY_REPORT':
+        this.#handleAsyncFailure(
+          new PocketStationError(
+            'relay.receiver_unexpected_codec_hint',
+            'Relay sent publisher codec guidance to a receiver',
+          ),
+        );
         break;
     }
   }

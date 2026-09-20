@@ -23,7 +23,7 @@ const publisher = new RelayPublisher({
   signalUrl: "wss://relay.example.com/v1/signal",
   sessionId,
   busId: "user-microphone",
-  sourceToken,
+  publisherToken,
   iceServers,
 });
 
@@ -64,10 +64,12 @@ application may call `reconnect()` with the same still-live stream or an
 explicit replacement. Relay treats that attachment as a new source generation,
 so applications must not invent continuity across the boundary.
 
-Source capabilities are bearer credentials. Deliver them through your trusted
-pairing/application boundary, restrict them to the required bus, keep them out
-of URLs and persistent browser storage, and give them finite expiry. The SDK
-does not implement authentication UI or agent authorization policy.
+Publisher capabilities are bearer credentials. Mint them with
+`ControlClient.issuePublisherCredentials()`, deliver them through your trusted
+pairing/application boundary, keep them out of URLs and persistent browser
+storage, and give them finite expiry. A publisher capability is scoped to one
+AudioBus and cannot read, mutate, invite receivers to, or delete its Session.
+The SDK does not implement authentication UI or agent authorization policy.
 
 ## Join with an invitation
 

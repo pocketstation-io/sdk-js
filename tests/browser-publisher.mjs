@@ -35,7 +35,7 @@ function parseArguments(values) {
         options.busId = value;
         break;
       case '--source-token':
-        options.sourceToken = value;
+        options.publisherToken = value;
         break;
       case '--output':
         options.output = resolve(value);
@@ -51,7 +51,7 @@ function parseArguments(values) {
     }
     index += 1;
   }
-  for (const name of ['relayUrl', 'sessionId', 'busId', 'sourceToken', 'output']) {
+  for (const name of ['relayUrl', 'sessionId', 'busId', 'publisherToken', 'output']) {
     if (typeof options[name] !== 'string' || options[name].length === 0) {
       throw new Error(`--${name.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)} is required`);
     }
@@ -138,7 +138,7 @@ async function run(options) {
           signalUrl: configuration.relayUrl,
           sessionId: configuration.sessionId,
           busId: configuration.busId,
-          sourceToken: configuration.sourceToken,
+          publisherToken: configuration.publisherToken,
           iceServers: configuration.iceServers,
         },
         {
