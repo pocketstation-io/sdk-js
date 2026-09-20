@@ -4,8 +4,15 @@
  * @packageDocumentation
  */
 export { PocketStationError } from '../errors.js';
-export { RelayPublisher } from './relay-publisher.js';
-export { RelayReceiver, resolveRelayInvitation } from './relay-session.js';
+export {
+  RelayPublisher,
+  type RelayPublishOperationOptions,
+} from './relay-publisher.js';
+export {
+  RelayReceiver,
+  type RelayConnectOptions,
+  resolveRelayInvitation,
+} from './relay-session.js';
 export type {
   RelayClientMessage,
   RelayInvitation,

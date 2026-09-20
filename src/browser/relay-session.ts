@@ -16,7 +16,8 @@ const DEFAULT_DISCONNECT_TIMEOUT_MS = 2_000;
 const MAX_CONTROL_RESPONSE_BYTES = 16 * 1024;
 const MAX_PENDING_ICE_CANDIDATES = 64;
 
-interface ConnectOptions {
+/** Per-operation cancellation for browser Relay receiving. */
+export interface RelayConnectOptions {
   readonly signal?: AbortSignal;
 }
 
@@ -123,7 +124,7 @@ export class RelayReceiver {
   }
 
   /** Resolve access, connect WebRTC, and return after the selected audio track arrives. */
-  public connect(options: ConnectOptions = {}): Promise<MediaStream> {
+  public connect(options: RelayConnectOptions = {}): Promise<MediaStream> {
     if (this.#state === 'closed') {
       return Promise.reject(
         new PocketStationError('relay.receiver_closed', 'RelayReceiver is closed'),
@@ -170,7 +171,7 @@ export class RelayReceiver {
   }
 
   /** Reconnect direct access or an already-resolved invitation after connection loss. */
-  public async reconnect(options: ConnectOptions = {}): Promise<MediaStream> {
+  public async reconnect(options: RelayConnectOptions = {}): Promise<MediaStream> {
     if (this.#state === 'closed') {
       throw new PocketStationError('relay.receiver_closed', 'RelayReceiver is closed');
     }

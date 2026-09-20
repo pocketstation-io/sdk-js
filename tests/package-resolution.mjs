@@ -51,11 +51,13 @@ assert.equal(node.END_OF_STREAM.kind, 'end-of-stream');
 assert.equal(typeof node.StreamAbortError, 'function');
 
 const browser = await import('pocketstation/browser');
+assert.equal(typeof browser.RelayPublisher, 'function');
 assert.equal(typeof browser.RelayReceiver, 'function');
 assert.equal(typeof browser.resolveRelayInvitation, 'function');
 assert.equal(typeof browser.PocketStationError, 'function');
 assert.deepEqual(Object.keys(browser).sort(), [
   'PocketStationError',
+  'RelayPublisher',
   'RelayReceiver',
   'resolveRelayInvitation',
 ]);

@@ -9,6 +9,21 @@ the named behavior. `PARTIAL` names the cases that work and leaves the missing
 cases visible. Browser tests that replace the service with mocked fetch remain
 `MOCKED`.
 
+## Exhaustive parity result
+
+The Lab-owned cross-repository audit expands the current Python package into
+3,674 individually addressable public API, member/signature, test-behavior,
+workflow, and package rows. Its strict parity gate currently **fails**: only 5
+package-policy rows are classified equivalent or idiomatically equivalent;
+1,041 declaration candidates are `PARTIAL`, 2,365 rows are `ABSENT`, 248 Python
+test behaviors have no reviewed one-to-one JavaScript proof, and 15 workflows
+remain unproved. A declaration-name match is intentionally not counted as
+semantic parity.
+
+This table is therefore a product-area summary, not a substitute for that
+row-level ledger. In particular, the complete Python voice/conversation API,
+control client, and event-ingress API are absent in JavaScript today.
+
 | Area | Rust 1.1.10 | Python 0.1.4 | JavaScript now |
 |---|---|---|---|
 | Session declaration and start | `REAL` | `REAL` | `PARTIAL`; native start and typed failure pass on macOS |

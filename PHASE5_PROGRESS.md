@@ -1,5 +1,33 @@
 # JavaScript SDK progress
 
+## W21 exhaustive Python-to-JavaScript parity correction
+
+The historical `W21-JAVASCRIPT-API-PARITY-DEVELOPER-EXPERIENCE` task proved a
+bounded developer-experience slice, but its broad parity label was wrong. Its
+own envelope excluded voice composition, while Python publicly ships the
+provider-neutral `pocketstation.voice` runtime. Passing independent Python and
+JavaScript suites also does not prove that the languages expose the same API or
+behavior.
+
+The cross-repository referee now lives in `pocketstation-lab`, not in this SDK.
+At the guarded Python and JavaScript commits it expands 50 public Python modules
+into 3,674 individually addressable API, member/signature, behavior, workflow,
+and package rows. Only 5 package-policy rows are presently strict-equivalent;
+1,041 declaration candidates remain `PARTIAL`, 2,365 rows are `ABSENT`, 248
+Python test behaviors are `UNTESTED` one-to-one in JavaScript, and 15 workflows
+are `UNPROVED`. These conservative results are an audit baseline, not an
+assertion that every partial declaration is semantically wrong.
+
+The largest clear gaps include the complete voice/conversation family,
+`ControlClient`, event ingress, much of the rich Connector authoring contract,
+branded identity/compatibility surfaces, one-to-one behavior tests, Python demo
+and documentation workflows, npm publication, and non-macOS native packages.
+No full Python-parity, cross-platform-parity, or deployment claim is valid.
+
+The audit introduces no SDK implementation, mock, scaffold, fallback, or
+loopback product path. JavaScript product changes must be split into explicit
+owning tasks after this ledger is hash-accepted.
+
 ## W21 browser AudioBus publisher to Core Source
 
 The active bounded task adds a browser-only `RelayPublisher`. The application
@@ -161,8 +189,10 @@ Windows or Linux packages, or the loaded 10 ms voice profile.
 
 ## W21 JavaScript API and developer experience
 
-`W21-JAVASCRIPT-API-PARITY-DEVELOPER-EXPERIENCE` is complete in the current
-source candidate and ready for its final execution-state check.
+The bounded developer-experience implementation from
+`W21-JAVASCRIPT-API-PARITY-DEVELOPER-EXPERIENCE` remains present, but that task
+is no longer a valid full-capability parity acceptance point. The Lab-owned
+exhaustive audit supersedes the broad claim.
 
 The normal application-capture workflow is now:
 
