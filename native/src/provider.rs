@@ -27,12 +27,12 @@ use pocketstation::{
     AsyncOperatorPrepareContext, AudioBufferPool, AudioFrame, BackpressurePolicy, ChannelLayout,
     ClockDomainId, ConfigError, CopyPolicy, EndpointCancellationOutcome, EndpointDriverFactory,
     EndpointDriverFinalization, EndpointDriverObservations, EndpointFailure,
-    EndpointFailureRetryability, EndpointFailureStage, EndpointGroupId, EndpointPortInput,
-    EndpointPreparationGroup, EndpointReceiver, EndpointShutdownMode, EndpointStartGate,
-    ExecutionPartition, ExecutionSafety, MediaCaps, NodeDefinition, NodeDescriptor, NodeError,
-    NodeTypeId, OperatorCancellationPolicy, OperatorDeadlinePolicy, OperatorFailurePolicy,
-    OperatorId, OperatorOutputRolePolicy, OperatorPermissionPolicy, PortSpec,
-    PreparedEndpointDriver, RouteId, RunningEndpointDriver, SampleFormat, SampleSpec,
+    EndpointFailureRetryability, EndpointFailureStage, EndpointGroupId, EndpointInputOrigin,
+    EndpointPortInput, EndpointPreparationGroup, EndpointReceiver, EndpointShutdownMode,
+    EndpointStartGate, ExecutionPartition, ExecutionSafety, MediaCaps, NodeDefinition,
+    NodeDescriptor, NodeError, NodeTypeId, OperatorCancellationPolicy, OperatorDeadlinePolicy,
+    OperatorFailurePolicy, OperatorId, OperatorOutputRolePolicy, OperatorPermissionPolicy,
+    PortSpec, PreparedEndpointDriver, RouteId, RunningEndpointDriver, SampleFormat, SampleSpec,
     SignalDerivation, SignalEnvelope, SignalLineage, SignalPayload, SignalTiming,
     SourceCancellation, SourceConfiguration, SourceDriver, SourceDriverError, SourceEmission,
     SourceFactory, SourceManifest, SourcePrepareContext, SourceSessionContext,
@@ -91,6 +91,16 @@ pub struct NativeProviderResult {
     pub preparation_group: Option<String>,
     pub route_preparation: Option<bool>,
     pub idle_enabled: Option<bool>,
+    pub endpoint_observations: Option<NativeEndpointDriverObservations>,
+}
+
+#[napi(object)]
+pub struct NativeEndpointDriverObservations {
+    pub frames_received_total: String,
+    pub frames_delivered_total: String,
+    pub frames_dropped_total: String,
+    pub discontinuities_total: String,
+    pub failures_total: String,
 }
 
 #[napi(object)]
@@ -143,10 +153,16 @@ pub struct NativeConnectorRequirement {
 
 #[napi(object)]
 pub struct NativeEndpointInputDescriptor {
+    pub session_id: Option<String>,
     pub endpoint_id: String,
     pub connector_id: Option<String>,
     pub route_id: String,
     pub port_name: String,
+    pub origin_kind: Option<String>,
+    pub source_id: Option<String>,
+    pub stream_id: Option<String>,
+    pub stem_id: Option<String>,
+    pub session_timeline_origin_ns: Option<String>,
 }
 
 #[napi(object)]
@@ -930,6 +946,7 @@ impl ConnectorFactory for JavaScriptConnectorFactory {
         let descriptors = inputs
             .iter()
             .map(|input| NativeEndpointInputDescriptor {
+                session_id: None,
                 endpoint_id: input.context().endpoint_id().get().to_string(),
                 connector_id: input
                     .context()
@@ -937,6 +954,11 @@ impl ConnectorFactory for JavaScriptConnectorFactory {
                     .map(|value| value.get().to_string()),
                 route_id: input.context().route_context().route_id().get().to_string(),
                 port_name: input.port_name().to_owned(),
+                origin_kind: Some("connector".to_owned()),
+                source_id: None,
+                stream_id: None,
+                stem_id: None,
+                session_timeline_origin_ns: None,
             })
             .collect::<Vec<_>>();
         let configuration = inputs
@@ -1141,10 +1163,57 @@ fn connector_preparation_group(
 
 fn native_connector_descriptor(input: &ConnectorInputDescriptor) -> NativeEndpointInputDescriptor {
     NativeEndpointInputDescriptor {
+        session_id: None,
         endpoint_id: input.endpoint_id().get().to_string(),
         connector_id: input.connector_id().map(|value| value.get().to_string()),
         route_id: input.route_id().get().to_string(),
         port_name: input.port_name().to_owned(),
+        origin_kind: Some("connector".to_owned()),
+        source_id: None,
+        stream_id: None,
+        stem_id: None,
+        session_timeline_origin_ns: None,
+    }
+}
+
+fn native_endpoint_descriptor(input: &EndpointPortInput) -> NativeEndpointInputDescriptor {
+    let context = input.context();
+    let route = context.route_context();
+    let (origin_kind, source_id, stream_id, stem_id) = match route.origin() {
+        EndpointInputOrigin::Stem(stem_id) => (
+            "stem".to_owned(),
+            None,
+            None,
+            Some(stem_id.get().to_string()),
+        ),
+        EndpointInputOrigin::Signal => ("signal".to_owned(), None, None, None),
+        EndpointInputOrigin::Source {
+            source_id,
+            stream_id,
+            audio_stem_id,
+        } => (
+            "source".to_owned(),
+            Some(source_id.get().to_string()),
+            Some(stream_id.get().to_string()),
+            audio_stem_id.map(|value| value.get().to_string()),
+        ),
+    };
+    NativeEndpointInputDescriptor {
+        session_id: Some(context.session_id().get().to_string()),
+        endpoint_id: context.endpoint_id().get().to_string(),
+        connector_id: context.connector_id().map(|value| value.get().to_string()),
+        route_id: route.route_id().get().to_string(),
+        port_name: input.port_name().to_owned(),
+        origin_kind: Some(origin_kind),
+        source_id,
+        stream_id,
+        stem_id,
+        session_timeline_origin_ns: Some(
+            context
+                .session_timeline_origin()
+                .monotonic_timestamp_ns()
+                .to_string(),
+        ),
     }
 }
 
@@ -1306,20 +1375,7 @@ impl EndpointDriverFactory for JavaScriptEndpointFactory {
             .map(|input| node_configuration(input.context().node_configuration()))
             .unwrap_or_default();
         let mut create = provider_call("endpoint.create", Some(instance_id), Some(configuration));
-        create.endpoint_inputs = Some(
-            inputs
-                .iter()
-                .map(|input| NativeEndpointInputDescriptor {
-                    endpoint_id: input.context().endpoint_id().get().to_string(),
-                    connector_id: input
-                        .context()
-                        .connector_id()
-                        .map(|value| value.get().to_string()),
-                    route_id: input.context().route_context().route_id().get().to_string(),
-                    port_name: input.port_name().to_owned(),
-                })
-                .collect(),
-        );
+        create.endpoint_inputs = Some(inputs.iter().map(native_endpoint_descriptor).collect());
         self.bridge
             .call(create)
             .map_err(|message| endpoint_failure(EndpointFailureStage::Prepare, message))?;
@@ -1491,11 +1547,21 @@ impl RunningEndpointDriver for JavaScriptRunningEndpoint {
             EndpointShutdownMode::Abort => 2,
         };
         self.control.shutdown.store(value, Ordering::Release);
-        Ok(())
+        let mut request = provider_call("endpoint.stop", Some(self.instance_id), None);
+        request.shutdown_mode = Some(
+            match mode {
+                EndpointShutdownMode::Drain => "drain",
+                EndpointShutdownMode::Abort => "abort",
+            }
+            .to_owned(),
+        );
+        self.bridge
+            .call(request)
+            .map(|_| ())
+            .map_err(|message| endpoint_failure(EndpointFailureStage::RequestStop, message))
     }
 
     fn join_and_finalize(mut self: Box<Self>) -> EndpointDriverFinalization {
-        let mode = self.shutdown_mode.unwrap_or(EndpointShutdownMode::Drain);
         self.control
             .shutdown
             .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
@@ -1508,19 +1574,7 @@ impl RunningEndpointDriver for JavaScriptRunningEndpoint {
                 ))
             })
         });
-        let mut stop_request = provider_call("endpoint.stop", Some(self.instance_id), None);
-        stop_request.shutdown_mode = Some(
-            match mode {
-                EndpointShutdownMode::Drain => "drain",
-                EndpointShutdownMode::Abort => "abort",
-            }
-            .to_owned(),
-        );
-        let stop_result = self
-            .bridge
-            .call(stop_request)
-            .map(|_| ())
-            .map_err(|message| endpoint_failure(EndpointFailureStage::JoinFinalize, message));
+        let mut observations = self.observations();
         let close_result = self
             .bridge
             .call(provider_call(
@@ -1528,11 +1582,30 @@ impl RunningEndpointDriver for JavaScriptRunningEndpoint {
                 Some(self.instance_id),
                 None,
             ))
-            .map(|_| ())
+            .and_then(|result| {
+                if let Some(driver) = result.endpoint_observations.as_ref() {
+                    let driver = endpoint_observations(driver)?;
+                    observations.frames_received_total = observations
+                        .frames_received_total
+                        .max(driver.frames_received_total);
+                    observations.frames_delivered_total = observations
+                        .frames_delivered_total
+                        .max(driver.frames_delivered_total);
+                    observations.frames_dropped_total = observations
+                        .frames_dropped_total
+                        .max(driver.frames_dropped_total);
+                    observations.discontinuities_total = observations
+                        .discontinuities_total
+                        .max(driver.discontinuities_total);
+                    observations.failures_total =
+                        observations.failures_total.max(driver.failures_total);
+                }
+                Ok(())
+            })
             .map_err(|message| endpoint_failure(EndpointFailureStage::JoinFinalize, message));
         EndpointDriverFinalization {
-            observations: self.observations(),
-            result: worker_result.and(stop_result).and(close_result),
+            observations,
+            result: worker_result.and(close_result),
         }
     }
 }
@@ -1552,6 +1625,9 @@ fn endpoint_worker(
         }
         std::thread::sleep(Duration::from_millis(1));
     }
+    bridge
+        .call(provider_call("endpoint.gate_open", Some(instance_id), None))
+        .map_err(|message| endpoint_failure(EndpointFailureStage::Start, message))?;
     loop {
         let shutdown = control.shutdown.load(Ordering::Acquire);
         if shutdown == 2 {
@@ -2310,14 +2386,18 @@ fn provider_call(
 }
 
 fn endpoint_failure(stage: EndpointFailureStage, message: String) -> EndpointFailure {
-    if let Some(encoded) = message.find("PKSCE1:").map(|index| &message[index + 7..]) {
+    let encoded = message
+        .find("PKSEE1:")
+        .map(|index| &message[index + 7..])
+        .or_else(|| message.find("PKSCE1:").map(|index| &message[index + 7..]));
+    if let Some(encoded) = encoded {
         let mut fields = encoded.splitn(4, ':');
         if let (Some(code), Some(_connector_stage), Some(retryability), Some(detail)) =
             (fields.next(), fields.next(), fields.next(), fields.next())
         {
             let retryability = match retryability {
                 "retryable" => EndpointFailureRetryability::Retryable,
-                "retry-after-reconfiguration" => {
+                "retry-after-reconfiguration" | "reconfiguration-required" => {
                     EndpointFailureRetryability::ReconfigurationRequired
                 }
                 _ => EndpointFailureRetryability::Never,
@@ -2357,6 +2437,23 @@ fn delivery_counts(
         "dropped" => Ok((0, expected)),
         _ => Err("JavaScript Endpoint returned an invalid outcome".to_owned()),
     }
+}
+
+fn endpoint_observations(
+    value: &NativeEndpointDriverObservations,
+) -> std::result::Result<EndpointDriverObservations, String> {
+    fn parse(value: &str, field: &str) -> std::result::Result<u64, String> {
+        value
+            .parse::<u64>()
+            .map_err(|_| format!("JavaScript Endpoint returned an invalid {field} counter"))
+    }
+    Ok(EndpointDriverObservations {
+        frames_received_total: parse(&value.frames_received_total, "framesReceivedTotal")?,
+        frames_delivered_total: parse(&value.frames_delivered_total, "framesDeliveredTotal")?,
+        frames_dropped_total: parse(&value.frames_dropped_total, "framesDroppedTotal")?,
+        discontinuities_total: parse(&value.discontinuities_total, "discontinuitiesTotal")?,
+        failures_total: parse(&value.failures_total, "failuresTotal")?,
+    })
 }
 
 fn native_audio(frame: &EndpointAudioFrame) -> NativeProviderAudio {

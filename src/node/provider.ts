@@ -7,6 +7,7 @@ import {
 } from './connector.js';
 import type {
   NativeConfigurationEntry,
+  NativeEndpointDriverObservations,
   NativeEndpointInputDescriptor,
   NativeEndpointItem,
   NativeProviderCall,
@@ -428,6 +429,8 @@ export type EndpointReceive = (
 export interface EndpointNode {
   prepare?(context: EndpointContext): { readonly idleEnabled?: boolean } | void | Promise<{ readonly idleEnabled?: boolean } | void>;
   start?(context: EndpointContext): void | Promise<void>;
+  /** Invoked after Core opens the transactional Session start barrier. */
+  gateOpen?(context: EndpointContext): void | Promise<void>;
   receive(item: EndpointItem, context: EndpointContext): EndpointDeliveryOutcome | void | Promise<EndpointDeliveryOutcome | void>;
   /** Receive one finite native-owned batch when the Endpoint enables batching. */
   receiveBatch?(items: readonly EndpointItem[], context: EndpointContext): EndpointDeliveryOutcome | readonly EndpointDeliveryOutcome[] | void | Promise<EndpointDeliveryOutcome | readonly EndpointDeliveryOutcome[] | void>;
@@ -435,6 +438,8 @@ export interface EndpointNode {
   idle?(context: EndpointContext): void | Promise<void>;
   stop?(mode: 'drain' | 'abort', context: EndpointContext): void | Promise<void>;
   close?(): void | Promise<void>;
+  /** @internal Return validated final counters to Core after close. */
+  _finalObservations?(): NativeEndpointDriverObservations;
 }
 
 /** Settings shared by class-based and function-based Endpoint implementations. */
@@ -587,6 +592,12 @@ export class EndpointFactory {
         active.state = 'running';
         return {};
       }
+      case 'endpoint.gate_open': {
+        const active = this.#active(request);
+        if (active.state !== 'running') throw new Error('Endpoint start gate opened outside its running lifetime');
+        await active.node.gateOpen?.({ signal: active.controller.signal });
+        return {};
+      }
       case 'endpoint.receive': {
         const active = this.#active(request);
         if (active.state !== 'running') {
@@ -652,8 +663,9 @@ export class EndpointFactory {
       case 'endpoint.close': {
         const instanceId = required(request.instanceId, 'instanceId');
         const active = this.#instances.get(instanceId);
-        if (active !== undefined) await this.#finish(instanceId, active);
-        return {};
+        if (active === undefined) return {};
+        const endpointObservations = await this.#finish(instanceId, active);
+        return { endpointObservations };
       }
       default:
         throw new Error(`Unsupported Endpoint operation: ${request.operation}`);
@@ -667,12 +679,16 @@ export class EndpointFactory {
     return active;
   }
 
-  async #finish(instanceId: string, active: ActiveEndpoint): Promise<void> {
-    if (active.state === 'closed') return;
+  async #finish(
+    instanceId: string,
+    active: ActiveEndpoint,
+  ): Promise<NativeEndpointDriverObservations | undefined> {
+    if (active.state === 'closed') return active.node._finalObservations?.();
     active.state = 'closed';
     if (!active.controller.signal.aborted) active.controller.abort();
     this.#instances.delete(instanceId);
     await active.node.close?.();
+    return active.node._finalObservations?.();
   }
 }
 

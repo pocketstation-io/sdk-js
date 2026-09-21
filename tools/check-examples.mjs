@@ -20,6 +20,7 @@ for (const example of examples) {
 
 for (const example of [
   'advanced-connector.mjs',
+  'advanced-endpoint.mjs',
   'feed-audio.mjs',
   'feed-events.mjs',
   'send-to-connector.mjs',
@@ -35,4 +36,4 @@ for (const example of [
   }
 }
 
-console.log(`examples: PASS (${examples.length} syntax, 4 Core Sessions)`);
+console.log(`examples: PASS (${examples.length} syntax, 5 Core Sessions)`);

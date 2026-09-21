@@ -18,7 +18,7 @@ voice entries never load the native addon.
 | Send PCM or typed signals to application code | `connector()` | `ConnectorManifest`, `ConnectorDriver`, `ConnectorWorker`, `RegisteredConnector`, typed configuration and observations |
 | Process typed media | `defineOperator()` | `OperatorFactory`, `SignalSpec`, `PortSpec` |
 | Add a custom Source | `defineSource()` | `SourceFactory`, `SourceDriver` |
-| Add a custom destination | `defineEndpoint()` | `EndpointFactory`, `EndpointContext` |
+| Add a custom destination | `defineEndpoint()` | `EndpointManifest`, `EndpointProvider`, `PreparedEndpointDriver`, `RunningEndpointDriver`, `RegisteredEndpoint` |
 | Record independent Stems | `stem.record()` | `RecordingOutcome`, `RecordingStemOutcome` |
 | Observe delivery and failures | `running.metrics()` / `running.events` | `SessionMetrics`, `SessionTrace` |
 | Load trusted native code | `session.loadNativeExtensionLibrary()` | Extension descriptor and port types |

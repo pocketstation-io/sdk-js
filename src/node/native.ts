@@ -164,10 +164,16 @@ export interface NativeProviderCall {
 }
 
 export interface NativeEndpointInputDescriptor {
+  sessionId?: string | null;
   endpointId: string;
   connectorId?: string | null;
   routeId: string;
   portName: string;
+  originKind?: string | null;
+  sourceId?: string | null;
+  streamId?: string | null;
+  stemId?: string | null;
+  sessionTimelineOriginNs?: string | null;
 }
 
 export interface NativeEndpointItem {
@@ -186,6 +192,15 @@ export interface NativeProviderResult {
   preparationGroup?: string | null;
   routePreparation?: boolean | null;
   idleEnabled?: boolean | null;
+  endpointObservations?: NativeEndpointDriverObservations | null;
+}
+
+export interface NativeEndpointDriverObservations {
+  framesReceivedTotal: string;
+  framesDeliveredTotal: string;
+  framesDroppedTotal: string;
+  discontinuitiesTotal: string;
+  failuresTotal: string;
 }
 
 export interface NativeSourceContext {

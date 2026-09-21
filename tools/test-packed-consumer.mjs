@@ -47,7 +47,10 @@ try {
     import {
       CapturePermissionLifecycle,
       Capture,
+      EndpointDriverObservations,
       EndpointFactory,
+      EndpointManifest,
+      EndpointProvider,
       DeliveryPolicy,
       END_OF_STREAM,
       EventInput,
@@ -61,7 +64,9 @@ try {
       OutputCancelledError,
       OutputGeneration,
       PortSpec,
+      PreparedEndpointDriver,
       RouteSettings,
+      RunningEndpointDriver,
       Session,
       SessionStartError,
       SidecarMessage,
@@ -265,6 +270,57 @@ try {
     }
     if (connectorFrames[0].samples[0] !== 0.5) {
       throw new Error('packed Connector did not receive generated audio');
+    }
+    let advancedEndpointGate;
+    let advancedEndpointFrames = 0;
+    class PackedRunningEndpoint extends RunningEndpointDriver {
+      receive(delivery) {
+        if (!advancedEndpointGate?.isOpen) {
+          throw new Error('packed advanced Endpoint received before the Core gate opened');
+        }
+        if (delivery.item.kind === 'audio') advancedEndpointFrames += 1;
+      }
+      joinAndFinalize() {
+        return new EndpointDriverObservations({
+          framesReceivedTotal: advancedEndpointFrames,
+          framesDeliveredTotal: advancedEndpointFrames,
+        });
+      }
+    }
+    class PackedPreparedEndpoint extends PreparedEndpointDriver {
+      start(gate) {
+        if (gate.isOpen) throw new Error('packed Core gate opened before Endpoint startup');
+        advancedEndpointGate = gate;
+        return new PackedRunningEndpoint();
+      }
+    }
+    const advancedEndpointSession = new Session({ frameDurationMs: 10 });
+    const advancedEndpointInput = advancedEndpointSession.audioInput('packed advanced Endpoint');
+    const advancedEndpointProvider = new EndpointProvider({
+      manifest: EndpointManifest.audio('dev.pocketstation.endpoint.packed-advanced.v1'),
+      factory: () => new PackedPreparedEndpoint(),
+    });
+    const advancedRegistered = advancedEndpointSession.registerEndpoint(advancedEndpointProvider);
+    advancedEndpointInput.output.send(advancedRegistered.declare({ destination: 'packed' }));
+    advancedEndpointInput.tryWrite(new Float32Array(480).fill(0.125));
+    advancedEndpointInput.close();
+    const advancedRunning = await advancedEndpointSession.start();
+    const advancedDeadline = Date.now() + 1000;
+    while (advancedEndpointFrames !== 1) {
+      if (Date.now() >= advancedDeadline) {
+        throw new Error('packed advanced Endpoint did not receive its Core frame');
+      }
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    const advancedStop = await advancedRunning.stop();
+    const advancedObservations = advancedRegistered.observations();
+    if (
+      !advancedStop.success ||
+      advancedObservations.length !== 1 ||
+      advancedObservations[0].framesDeliveredTotal !== 1n ||
+      !advancedObservations[0].finalized
+    ) {
+      throw new Error('packed advanced Endpoint did not finalize with retained observations');
     }
     const sidecarSession = new Session({ frameDurationMs: 10 });
     const sidecarInput = sidecarSession.audioInput('sidecar proof');
