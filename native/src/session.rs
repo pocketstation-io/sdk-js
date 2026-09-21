@@ -25,7 +25,7 @@ use crate::observations::{
     copy_metrics, copy_recording_outcome, copy_trace_outcome, NativeRecordingOutcome,
     NativeSessionMetrics, NativeTraceRecorderOutcome,
 };
-use crate::provider::{NativeProviderCall, NativeProviderResult};
+use crate::provider::{NativeConnectorManifest, NativeProviderCall, NativeProviderResult};
 use crate::sidecar::{
     error_reason as sidecar_error_reason, poll as poll_sidecar, runtime_error as sidecar_error,
     snapshot as sidecar_snapshot, wait as wait_sidecar, NativeSidecarMessage,
@@ -229,6 +229,26 @@ impl NativeEndpoint {
     #[napi(getter)]
     pub fn session_id(&self) -> String {
         self.session_id.to_string()
+    }
+
+    #[napi(getter)]
+    pub fn connector_id(&self) -> Option<String> {
+        self.handle
+            .connector_id()
+            .map(|value| value.get().to_string())
+    }
+}
+
+#[napi(js_name = "NativeRegisteredConnector")]
+pub struct NativeRegisteredConnector {
+    registered: pocketstation::connector::RegisteredConnector,
+}
+
+#[napi]
+impl NativeRegisteredConnector {
+    #[napi(getter)]
+    pub fn session_id(&self) -> String {
+        self.registered.session_id().get().to_string()
     }
 }
 
@@ -610,6 +630,7 @@ impl NativeSession {
         inputs: Vec<ClassInstance<'_, NativePortSpec>>,
         dispatch: Function<'_, NativeProviderCall, Promise<NativeProviderResult>>,
         deadline_ms: Option<u32>,
+        maximum_batch_items: Option<u32>,
     ) -> Result<()> {
         let inputs = inputs
             .iter()
@@ -623,7 +644,60 @@ impl NativeSession {
                 inputs,
                 dispatch,
                 deadline_ms,
+                maximum_batch_items,
             )
+        })
+    }
+
+    #[napi]
+    #[allow(clippy::too_many_arguments)]
+    pub fn register_connector(
+        &self,
+        manifest: NativeConnectorManifest,
+        inputs: Vec<ClassInstance<'_, NativePortSpec>>,
+        dispatch: Function<'_, NativeProviderCall, Promise<NativeProviderResult>>,
+        deadline_ms: Option<u32>,
+        maximum_batch_items: u32,
+        worker: bool,
+    ) -> Result<NativeRegisteredConnector> {
+        let inputs = inputs
+            .iter()
+            .map(|input| input.as_ref().value.clone())
+            .collect();
+        self.with_session(|session| {
+            crate::provider::register_connector(
+                session,
+                manifest,
+                inputs,
+                dispatch,
+                deadline_ms,
+                maximum_batch_items,
+                worker,
+            )
+            .map(|registered| NativeRegisteredConnector { registered })
+        })
+    }
+
+    #[napi]
+    pub fn connector_endpoint(
+        &self,
+        registered: &NativeRegisteredConnector,
+        configuration: Vec<NativeConfigurationEntry>,
+        route: &NativeRouteSettings,
+    ) -> Result<NativeEndpoint> {
+        self.with_session(|session| {
+            let configuration = crate::provider::connector_configuration(
+                configuration,
+                registered.registered.manifest(),
+            )?;
+            registered
+                .registered
+                .declare_with_route_settings(session, configuration, route.value)
+                .map(|handle| NativeEndpoint {
+                    session_id: self.session_id,
+                    handle,
+                })
+                .map_err(|failure| error("connector.declaration_failed", failure.to_string()))
         })
     }
 

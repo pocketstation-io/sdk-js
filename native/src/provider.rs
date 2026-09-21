@@ -11,8 +11,14 @@ use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi::{Result, Status};
 use napi_derive::napi;
 use pocketstation::connector::{
-    AudioConnector, Connector, ConnectorError, ConnectorErrorCode, ConnectorErrorStage,
-    ConnectorRetryability,
+    AudioConnector, Connector, ConnectorCapability, ConnectorConfiguration,
+    ConnectorConfigurationConstraint, ConnectorConfigurationField,
+    ConnectorConfigurationRequirement, ConnectorConfigurationSchema, ConnectorConfigurationValue,
+    ConnectorConfigurationValueKind, ConnectorContext, ConnectorDeliveryOutcome, ConnectorDriver,
+    ConnectorDriverFactory, ConnectorError, ConnectorErrorCode, ConnectorErrorStage,
+    ConnectorFactory, ConnectorInputDescriptor, ConnectorItem, ConnectorManifest,
+    ConnectorReadinessPolicy, ConnectorRequirement, ConnectorRetryability, ConnectorRunOutcome,
+    ConnectorSecret, ConnectorWorker, RegisteredConnector, ResolvedConnectorConfiguration,
 };
 use pocketstation::graph::NodeConfig;
 use pocketstation::EndpointAudioFrame;
@@ -34,7 +40,7 @@ use pocketstation::{
 
 const PROVIDER_QUEUE_CAPACITY: usize = 16;
 const DEFAULT_PROVIDER_DEADLINE_MS: u32 = 5_000;
-const MAXIMUM_PROVIDER_DEADLINE_MS: u32 = 60_000;
+const MAXIMUM_PROVIDER_DEADLINE_MS: u32 = 300_000;
 const MAXIMUM_PROVIDER_ERROR_BYTES: usize = 4_096;
 static NEXT_PROVIDER_INSTANCE_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -51,6 +57,12 @@ pub struct NativeProviderAudio {
     pub route_enqueued_at_ns: String,
     pub route_received_at_ns: String,
     pub output_generation_id: Option<String>,
+    pub source_generation: u32,
+    pub discontinuity_epoch: String,
+    pub permission_epoch: String,
+    pub clock_id: u32,
+    pub duration_ns: String,
+    pub connector_id: Option<String>,
 }
 
 #[napi(object)]
@@ -66,13 +78,84 @@ pub struct NativeProviderCall {
     pub signal: Option<crate::signals::NativeSignalEnvelope>,
     pub route_id: Option<String>,
     pub endpoint_id: Option<String>,
+    pub endpoint_inputs: Option<Vec<NativeEndpointInputDescriptor>>,
+    pub endpoint_items: Option<Vec<NativeEndpointItem>>,
 }
 
 #[napi(object)]
 pub struct NativeProviderResult {
     pub outcome: Option<String>,
+    pub outcomes: Option<Vec<String>>,
     pub emission: Option<NativeProviderEmission>,
     pub emissions: Option<Vec<NativeProviderEmission>>,
+    pub preparation_group: Option<String>,
+    pub route_preparation: Option<bool>,
+    pub idle_enabled: Option<bool>,
+}
+
+#[napi(object)]
+pub struct NativeConnectorConstraint {
+    pub kind: String,
+    pub minimum: Option<String>,
+    pub maximum: Option<String>,
+    pub values: Option<Vec<String>>,
+}
+
+#[napi(object)]
+pub struct NativeConnectorConfigurationField {
+    pub name: String,
+    pub kind: String,
+    pub requirement: String,
+    pub documentation: String,
+    pub default_value: Option<String>,
+    pub constraints: Option<Vec<NativeConnectorConstraint>>,
+    pub deprecation: Option<String>,
+}
+
+#[napi(object)]
+pub struct NativeConnectorManifest {
+    pub operator_id: String,
+    pub node_type_id: String,
+    pub package_version: String,
+    pub manifest_revision: u32,
+    pub startup_timeout_ms: u32,
+    pub probe_interval_ms: u32,
+    pub success_threshold: u32,
+    pub failure_threshold: u32,
+    pub configuration_revision: u32,
+    pub configuration_fields: Vec<NativeConnectorConfigurationField>,
+    pub capabilities: Vec<NativeConnectorManifestEntry>,
+    pub requirements: Vec<NativeConnectorRequirement>,
+}
+
+#[napi(object)]
+pub struct NativeConnectorManifestEntry {
+    pub id: String,
+    pub documentation: String,
+}
+
+#[napi(object)]
+pub struct NativeConnectorRequirement {
+    pub id: String,
+    pub required: Option<bool>,
+    pub documentation: String,
+}
+
+#[napi(object)]
+pub struct NativeEndpointInputDescriptor {
+    pub endpoint_id: String,
+    pub connector_id: Option<String>,
+    pub route_id: String,
+    pub port_name: String,
+}
+
+#[napi(object)]
+pub struct NativeEndpointItem {
+    pub input_port: String,
+    pub endpoint_id: String,
+    pub route_id: String,
+    pub audio: Option<NativeProviderAudio>,
+    pub signal: Option<crate::signals::NativeSignalEnvelope>,
 }
 
 #[napi(object)]
@@ -342,6 +425,7 @@ pub(crate) fn register_endpoint(
     inputs: Vec<PortSpec>,
     dispatch: Function<'_, NativeProviderCall, Promise<NativeProviderResult>>,
     deadline_ms: Option<u32>,
+    maximum_batch_items: Option<u32>,
 ) -> Result<()> {
     if inputs.is_empty()
         || inputs
@@ -364,6 +448,13 @@ pub(crate) fn register_endpoint(
     )
     .map_err(|failure| crate::errors::error("endpoint.invalid_declaration", failure.to_string()))?;
     let bridge = ProviderBridge::new(dispatch, deadline_ms)?;
+    let maximum_batch_items = maximum_batch_items.unwrap_or(1);
+    if maximum_batch_items == 0 || maximum_batch_items > 1_024 {
+        return Err(crate::errors::error(
+            "endpoint.invalid_batch_size",
+            "JavaScript Endpoint maximumBatchItems must be between 1 and 1024",
+        ));
+    }
     let group = EndpointGroupId::new(format!(
         "javascript-endpoint:{}",
         next_provider_instance()
@@ -376,11 +467,764 @@ pub(crate) fn register_endpoint(
                 descriptor,
                 bridge: bridge.clone(),
             }),
-            Arc::new(JavaScriptEndpointFactory { bridge, group }),
+            Arc::new(JavaScriptEndpointFactory {
+                bridge,
+                group,
+                maximum_batch_items: maximum_batch_items as usize,
+            }),
         )
         .map_err(|failure| {
             crate::errors::error("endpoint.registration_failed", failure.to_string())
         })
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn register_connector(
+    session: &pocketstation::Session,
+    manifest: NativeConnectorManifest,
+    inputs: Vec<PortSpec>,
+    dispatch: Function<'_, NativeProviderCall, Promise<NativeProviderResult>>,
+    deadline_ms: Option<u32>,
+    maximum_batch_items: u32,
+    worker: bool,
+) -> Result<RegisteredConnector> {
+    if maximum_batch_items == 0 || maximum_batch_items > 1_024 {
+        return Err(crate::errors::error(
+            "connector.invalid_contract",
+            "maximumBatchItems must be between 1 and 1024",
+        ));
+    }
+    let manifest = connector_manifest(manifest, inputs)?;
+    let bridge = ProviderBridge::new(dispatch, deadline_ms)?;
+    let connector = if worker {
+        Connector::new(
+            manifest,
+            Arc::new(JavaScriptConnectorFactory {
+                bridge,
+                maximum_batch_items: maximum_batch_items as usize,
+            }),
+        )
+    } else {
+        Connector::with_driver(
+            manifest,
+            Arc::new(JavaScriptConnectorDriverFactory { bridge }),
+        )
+    }
+    .map_err(|failure| crate::errors::error("connector.invalid_contract", failure.to_string()))?;
+    session.register_connector(connector).map_err(|failure| {
+        crate::errors::error("connector.registration_failed", failure.to_string())
+    })
+}
+
+pub(crate) fn connector_configuration(
+    entries: Vec<crate::graph::NativeConfigurationEntry>,
+    manifest: &ConnectorManifest,
+) -> Result<ConnectorConfiguration> {
+    let mut configuration = ConnectorConfiguration::new();
+    for entry in entries {
+        let field = manifest.configuration().field(&entry.key).ok_or_else(|| {
+            crate::errors::error(
+                "connector.configuration.unknown_field",
+                format!("unknown Connector configuration field {}", entry.key),
+            )
+        })?;
+        let sensitive = entry.sensitive.unwrap_or(false);
+        let value = parse_connector_value(field.value_kind(), entry.value, sensitive)?;
+        configuration.insert(entry.key, value);
+    }
+    Ok(configuration)
+}
+
+fn connector_manifest(
+    value: NativeConnectorManifest,
+    inputs: Vec<PortSpec>,
+) -> Result<ConnectorManifest> {
+    if inputs.is_empty()
+        || inputs
+            .iter()
+            .any(|input| input.direction() != pocketstation::PortDirection::Input)
+    {
+        return Err(crate::errors::error(
+            "connector.invalid_contract",
+            "Connector manifest requires at least one input and cannot declare outputs",
+        ));
+    }
+    let fields = value
+        .configuration_fields
+        .into_iter()
+        .map(connector_configuration_field)
+        .collect::<Result<Vec<_>>>()?;
+    let schema = ConnectorConfigurationSchema::new(value.configuration_revision, fields).map_err(
+        |failure| crate::errors::error("connector.invalid_contract", failure.to_string()),
+    )?;
+    let node = NodeDescriptor::new(
+        NodeTypeId::from(value.node_type_id.as_str()),
+        "JavaScript Connector",
+        inputs,
+        Vec::new(),
+        ExecutionPartition::AsyncWorker,
+        ExecutionSafety::NetworkAllowed,
+        true,
+    )
+    .map_err(|failure| crate::errors::error("connector.invalid_contract", failure.to_string()))?;
+    let readiness = ConnectorReadinessPolicy::new(
+        Duration::from_millis(u64::from(value.startup_timeout_ms)),
+        Duration::from_millis(u64::from(value.probe_interval_ms)),
+        value.success_threshold,
+        value.failure_threshold,
+    )
+    .map_err(|failure| crate::errors::error("connector.invalid_contract", failure.to_string()))?;
+    let mut manifest = ConnectorManifest::new(
+        value.manifest_revision,
+        OperatorId::new(value.operator_id),
+        value.package_version,
+        node,
+        schema,
+        readiness,
+    )
+    .map_err(|failure| crate::errors::error("connector.invalid_contract", failure.to_string()))?;
+    for entry in value.capabilities {
+        let capability =
+            ConnectorCapability::new(entry.id, entry.documentation).map_err(|failure| {
+                crate::errors::error("connector.invalid_contract", failure.to_string())
+            })?;
+        manifest = manifest.with_capability(capability);
+    }
+    for entry in value.requirements {
+        let requirement = ConnectorRequirement::new(
+            entry.id,
+            entry.required.unwrap_or(true),
+            entry.documentation,
+        )
+        .map_err(|failure| {
+            crate::errors::error("connector.invalid_contract", failure.to_string())
+        })?;
+        manifest = manifest.with_requirement(requirement);
+    }
+    manifest.validate().map_err(|failure| {
+        crate::errors::error("connector.invalid_contract", failure.to_string())
+    })?;
+    Ok(manifest)
+}
+
+fn connector_configuration_field(
+    value: NativeConnectorConfigurationField,
+) -> Result<ConnectorConfigurationField> {
+    let kind = connector_value_kind(&value.kind)?;
+    let requirement = match value.requirement.as_str() {
+        "required" => ConnectorConfigurationRequirement::Required,
+        "optional" => ConnectorConfigurationRequirement::Optional,
+        "default" => ConnectorConfigurationRequirement::Default(parse_connector_value(
+            kind,
+            value.default_value.ok_or_else(|| {
+                crate::errors::error(
+                    "connector.invalid_contract",
+                    "default Connector field requires a value",
+                )
+            })?,
+            false,
+        )?),
+        _ => {
+            return Err(crate::errors::error(
+                "connector.invalid_contract",
+                "Connector configuration requirement is invalid",
+            ))
+        }
+    };
+    let mut field =
+        ConnectorConfigurationField::new(value.name, kind, requirement, value.documentation);
+    for constraint in value.constraints.unwrap_or_default() {
+        field = field.with_constraint(connector_constraint(constraint)?);
+    }
+    if let Some(deprecation) = value.deprecation {
+        field = field.deprecated(deprecation);
+    }
+    Ok(field)
+}
+
+fn connector_constraint(
+    value: NativeConnectorConstraint,
+) -> Result<ConnectorConfigurationConstraint> {
+    let invalid = || {
+        crate::errors::error(
+            "connector.invalid_contract",
+            "Connector configuration constraint is invalid",
+        )
+    };
+    match value.kind.as_str() {
+        "non-empty" => Ok(ConnectorConfigurationConstraint::NonEmpty),
+        "text-length-bytes" => Ok(ConnectorConfigurationConstraint::TextLengthBytes {
+            minimum: value
+                .minimum
+                .ok_or_else(invalid)?
+                .parse()
+                .map_err(|_| invalid())?,
+            maximum: value
+                .maximum
+                .ok_or_else(invalid)?
+                .parse()
+                .map_err(|_| invalid())?,
+        }),
+        "signed-range" => Ok(ConnectorConfigurationConstraint::SignedRange {
+            minimum: value
+                .minimum
+                .ok_or_else(invalid)?
+                .parse()
+                .map_err(|_| invalid())?,
+            maximum: value
+                .maximum
+                .ok_or_else(invalid)?
+                .parse()
+                .map_err(|_| invalid())?,
+        }),
+        "unsigned-range" => Ok(ConnectorConfigurationConstraint::UnsignedRange {
+            minimum: value
+                .minimum
+                .ok_or_else(invalid)?
+                .parse()
+                .map_err(|_| invalid())?,
+            maximum: value
+                .maximum
+                .ok_or_else(invalid)?
+                .parse()
+                .map_err(|_| invalid())?,
+        }),
+        "one-of" => Ok(ConnectorConfigurationConstraint::OneOf(
+            value.values.ok_or_else(invalid)?,
+        )),
+        _ => Err(invalid()),
+    }
+}
+
+fn connector_value_kind(value: &str) -> Result<ConnectorConfigurationValueKind> {
+    match value {
+        "text" => Ok(ConnectorConfigurationValueKind::Text),
+        "boolean" => Ok(ConnectorConfigurationValueKind::Boolean),
+        "signed-integer" => Ok(ConnectorConfigurationValueKind::SignedInteger),
+        "unsigned-integer" => Ok(ConnectorConfigurationValueKind::UnsignedInteger),
+        "duration-milliseconds" => Ok(ConnectorConfigurationValueKind::DurationMilliseconds),
+        "byte-count" => Ok(ConnectorConfigurationValueKind::ByteCount),
+        "secret" => Ok(ConnectorConfigurationValueKind::Secret),
+        _ => Err(crate::errors::error(
+            "connector.invalid_contract",
+            "Connector configuration value kind is invalid",
+        )),
+    }
+}
+
+fn parse_connector_value(
+    kind: ConnectorConfigurationValueKind,
+    value: String,
+    sensitive: bool,
+) -> Result<ConnectorConfigurationValue> {
+    let invalid = || {
+        crate::errors::error(
+            "connector.configuration.invalid_representation",
+            "Connector configuration value has an invalid representation",
+        )
+    };
+    match (kind, sensitive) {
+        (ConnectorConfigurationValueKind::Text, false) => {
+            Ok(ConnectorConfigurationValue::Text(value))
+        }
+        (ConnectorConfigurationValueKind::Boolean, false) => value
+            .parse()
+            .map(ConnectorConfigurationValue::Boolean)
+            .map_err(|_| invalid()),
+        (ConnectorConfigurationValueKind::SignedInteger, false) => value
+            .parse()
+            .map(ConnectorConfigurationValue::SignedInteger)
+            .map_err(|_| invalid()),
+        (ConnectorConfigurationValueKind::UnsignedInteger, false) => value
+            .parse()
+            .map(ConnectorConfigurationValue::UnsignedInteger)
+            .map_err(|_| invalid()),
+        (ConnectorConfigurationValueKind::DurationMilliseconds, false) => value
+            .parse()
+            .map(ConnectorConfigurationValue::DurationMilliseconds)
+            .map_err(|_| invalid()),
+        (ConnectorConfigurationValueKind::ByteCount, false) => value
+            .parse()
+            .map(ConnectorConfigurationValue::ByteCount)
+            .map_err(|_| invalid()),
+        (ConnectorConfigurationValueKind::Secret, true) => ConnectorSecret::new(value)
+            .map(ConnectorConfigurationValue::Secret)
+            .map_err(|_| invalid()),
+        _ => Err(invalid()),
+    }
+}
+
+fn resolved_connector_configuration(
+    configuration: &ResolvedConnectorConfiguration,
+) -> Vec<crate::graph::NativeConfigurationEntry> {
+    configuration
+        .iter()
+        .map(|(key, value)| {
+            let (encoded, sensitive) = match value {
+                ConnectorConfigurationValue::Text(value) => (value.clone(), false),
+                ConnectorConfigurationValue::Boolean(value) => (value.to_string(), false),
+                ConnectorConfigurationValue::SignedInteger(value) => (value.to_string(), false),
+                ConnectorConfigurationValue::UnsignedInteger(value)
+                | ConnectorConfigurationValue::DurationMilliseconds(value)
+                | ConnectorConfigurationValue::ByteCount(value) => (value.to_string(), false),
+                ConnectorConfigurationValue::Secret(value) => {
+                    (value.expose_secret().to_owned(), true)
+                }
+            };
+            crate::graph::NativeConfigurationEntry {
+                key: key.to_owned(),
+                value: encoded,
+                sensitive: Some(sensitive),
+            }
+        })
+        .collect()
+}
+
+struct JavaScriptConnectorDriverFactory {
+    bridge: ProviderBridge,
+}
+
+impl ConnectorDriverFactory for JavaScriptConnectorDriverFactory {
+    fn preparation_group(
+        &self,
+        route_id: RouteId,
+        configuration: &ResolvedConnectorConfiguration,
+    ) -> std::result::Result<EndpointPreparationGroup, ConnectorError> {
+        connector_preparation_group(
+            &self.bridge,
+            route_id,
+            resolved_connector_configuration(configuration),
+        )
+    }
+
+    fn prepare(
+        &self,
+        inputs: &[ConnectorInputDescriptor],
+    ) -> std::result::Result<Box<dyn ConnectorDriver>, ConnectorError> {
+        let instance_id = next_provider_instance()
+            .map_err(|message| connector_error(ConnectorErrorStage::Prepare, message))?;
+        let descriptors = inputs
+            .iter()
+            .map(native_connector_descriptor)
+            .collect::<Vec<_>>();
+        let configuration = inputs
+            .first()
+            .map(|input| resolved_connector_configuration(input.configuration()))
+            .unwrap_or_default();
+        create_connector_instance(&self.bridge, instance_id, configuration, descriptors)?;
+        let preparation = self
+            .bridge
+            .call(provider_call("endpoint.prepare", Some(instance_id), None))
+            .map_err(|message| connector_error(ConnectorErrorStage::Prepare, message))?;
+        Ok(Box::new(JavaScriptConnectorDriver {
+            bridge: self.bridge.clone(),
+            instance_id,
+            idle_enabled: preparation.idle_enabled.unwrap_or(false),
+            closed: false,
+        }))
+    }
+}
+
+struct JavaScriptConnectorDriver {
+    bridge: ProviderBridge,
+    instance_id: u64,
+    idle_enabled: bool,
+    closed: bool,
+}
+
+impl Drop for JavaScriptConnectorDriver {
+    fn drop(&mut self) {
+        if !self.closed {
+            let _ = cancel_connector_instance(&self.bridge, self.instance_id);
+            self.closed = true;
+        }
+    }
+}
+
+impl ConnectorDriver for JavaScriptConnectorDriver {
+    fn start(&mut self, context: &ConnectorContext) -> std::result::Result<(), ConnectorError> {
+        self.bridge
+            .call(provider_call(
+                "endpoint.start",
+                Some(self.instance_id),
+                None,
+            ))
+            .map_err(|message| connector_error(ConnectorErrorStage::Startup, message))?;
+        let _ = context.set_ready();
+        Ok(())
+    }
+
+    fn deliver(
+        &mut self,
+        item: ConnectorItem<'_>,
+        _context: &ConnectorContext,
+    ) -> std::result::Result<ConnectorDeliveryOutcome, ConnectorError> {
+        let mut request = provider_call("endpoint.receive", Some(self.instance_id), None);
+        let item = native_connector_item(item)?;
+        request.input_port = Some(item.input_port);
+        request.endpoint_id = Some(item.endpoint_id);
+        request.route_id = Some(item.route_id);
+        request.audio = item.audio;
+        request.signal = item.signal;
+        let result = self
+            .bridge
+            .call(request)
+            .map_err(|message| connector_error(ConnectorErrorStage::Delivery, message))?;
+        match result.outcome.as_deref().unwrap_or("delivered") {
+            "delivered" => Ok(ConnectorDeliveryOutcome::Delivered),
+            "dropped" => Ok(ConnectorDeliveryOutcome::Dropped),
+            _ => Err(connector_error(
+                ConnectorErrorStage::Delivery,
+                "JavaScript Connector returned an invalid outcome".to_owned(),
+            )),
+        }
+    }
+
+    fn idle(&mut self, _context: &ConnectorContext) -> std::result::Result<(), ConnectorError> {
+        if !self.idle_enabled {
+            return Ok(());
+        }
+        self.bridge
+            .call(provider_call("endpoint.idle", Some(self.instance_id), None))
+            .map(|_| ())
+            .map_err(|message| connector_error(ConnectorErrorStage::Delivery, message))
+    }
+
+    fn shutdown(
+        &mut self,
+        mode: EndpointShutdownMode,
+        _context: &ConnectorContext,
+    ) -> std::result::Result<(), ConnectorError> {
+        let result = stop_connector_instance(&self.bridge, self.instance_id, mode);
+        self.closed = true;
+        result
+    }
+
+    fn cancel_preparation(mut self: Box<Self>) -> std::result::Result<(), ConnectorError> {
+        let result = cancel_connector_instance(&self.bridge, self.instance_id);
+        self.closed = true;
+        result
+    }
+}
+
+struct JavaScriptConnectorFactory {
+    bridge: ProviderBridge,
+    maximum_batch_items: usize,
+}
+
+impl ConnectorFactory for JavaScriptConnectorFactory {
+    fn preparation_group(
+        &self,
+        route_id: RouteId,
+        configuration: &NodeConfig,
+    ) -> std::result::Result<EndpointPreparationGroup, ConnectorError> {
+        connector_preparation_group(&self.bridge, route_id, node_configuration(configuration))
+    }
+
+    fn prepare(
+        &self,
+        inputs: Vec<EndpointPortInput>,
+    ) -> std::result::Result<Box<dyn ConnectorWorker>, ConnectorError> {
+        let instance_id = next_provider_instance()
+            .map_err(|message| connector_error(ConnectorErrorStage::Prepare, message))?;
+        let descriptors = inputs
+            .iter()
+            .map(|input| NativeEndpointInputDescriptor {
+                endpoint_id: input.context().endpoint_id().get().to_string(),
+                connector_id: input
+                    .context()
+                    .connector_id()
+                    .map(|value| value.get().to_string()),
+                route_id: input.context().route_context().route_id().get().to_string(),
+                port_name: input.port_name().to_owned(),
+            })
+            .collect::<Vec<_>>();
+        let configuration = inputs
+            .first()
+            .map(|input| node_configuration(input.context().node_configuration()))
+            .unwrap_or_default();
+        create_connector_instance(&self.bridge, instance_id, configuration, descriptors)?;
+        let preparation = self
+            .bridge
+            .call(provider_call("endpoint.prepare", Some(instance_id), None))
+            .map_err(|message| connector_error(ConnectorErrorStage::Prepare, message))?;
+        let inputs = inputs
+            .into_iter()
+            .map(|input| {
+                let input_port = input.port_name().to_owned();
+                let endpoint_id = input.context().endpoint_id().get();
+                let connector_id = input.context().connector_id().map(|value| value.get());
+                let route_id = input.context().route_context().route_id().get();
+                let (receiver, _) = input.into_parts();
+                JavaScriptConnectorWorkerInput {
+                    input_port,
+                    endpoint_id,
+                    connector_id,
+                    route_id,
+                    receiver,
+                }
+            })
+            .collect();
+        Ok(Box::new(JavaScriptConnectorWorker {
+            bridge: self.bridge.clone(),
+            instance_id,
+            inputs,
+            maximum_batch_items: self.maximum_batch_items,
+            idle_enabled: preparation.idle_enabled.unwrap_or(false),
+            closed: false,
+        }))
+    }
+}
+
+struct JavaScriptConnectorWorkerInput {
+    input_port: String,
+    endpoint_id: u64,
+    connector_id: Option<u64>,
+    route_id: u64,
+    receiver: EndpointReceiver,
+}
+
+struct JavaScriptConnectorWorker {
+    bridge: ProviderBridge,
+    instance_id: u64,
+    inputs: Vec<JavaScriptConnectorWorkerInput>,
+    maximum_batch_items: usize,
+    idle_enabled: bool,
+    closed: bool,
+}
+
+impl ConnectorWorker for JavaScriptConnectorWorker {
+    fn run(mut self: Box<Self>, context: ConnectorContext) -> ConnectorRunOutcome {
+        let result = self.run_inner(&context);
+        if result.is_err() {
+            let _ = cancel_connector_instance(&self.bridge, self.instance_id);
+        }
+        self.closed = true;
+        ConnectorRunOutcome::new(result)
+    }
+
+    fn cancel_preparation(mut self: Box<Self>) -> std::result::Result<(), ConnectorError> {
+        let result = cancel_connector_instance(&self.bridge, self.instance_id);
+        self.closed = true;
+        result
+    }
+}
+
+impl Drop for JavaScriptConnectorWorker {
+    fn drop(&mut self) {
+        if !self.closed {
+            let _ = cancel_connector_instance(&self.bridge, self.instance_id);
+            self.closed = true;
+        }
+    }
+}
+
+impl JavaScriptConnectorWorker {
+    fn run_inner(&mut self, context: &ConnectorContext) -> std::result::Result<(), ConnectorError> {
+        self.bridge
+            .call(provider_call(
+                "endpoint.start",
+                Some(self.instance_id),
+                None,
+            ))
+            .map_err(|message| connector_error(ConnectorErrorStage::Startup, message))?;
+        let _ = context.set_ready();
+        loop {
+            if context.is_abort_requested() {
+                break;
+            }
+            let mut batch = Vec::with_capacity(self.maximum_batch_items);
+            while batch.len() < self.maximum_batch_items {
+                let mut progressed = false;
+                for input in &mut self.inputs {
+                    if batch.len() >= self.maximum_batch_items {
+                        break;
+                    }
+                    let mut item = NativeEndpointItem {
+                        input_port: input.input_port.clone(),
+                        endpoint_id: input.endpoint_id.to_string(),
+                        route_id: input.route_id.to_string(),
+                        audio: None,
+                        signal: None,
+                    };
+                    let received = match &mut input.receiver {
+                        EndpointReceiver::Audio { receiver, .. } => {
+                            receiver.try_recv().map(|frame| {
+                                item.audio =
+                                    Some(native_audio_with_connector(&frame, input.connector_id));
+                            })
+                        }
+                        EndpointReceiver::Signal(receiver) => {
+                            if let Some(signal) = receiver.try_recv() {
+                                item.signal = Some(
+                                    crate::signals::copy_envelope(&signal).map_err(|message| {
+                                        connector_error(ConnectorErrorStage::Delivery, message)
+                                    })?,
+                                );
+                                Some(())
+                            } else {
+                                None
+                            }
+                        }
+                    };
+                    if received.is_some() {
+                        batch.push(item);
+                        progressed = true;
+                    }
+                }
+                if !progressed {
+                    break;
+                }
+            }
+            let abandoned = self.inputs.iter().all(|input| match &input.receiver {
+                EndpointReceiver::Audio { receiver, .. } => receiver.is_abandoned(),
+                EndpointReceiver::Signal(receiver) => receiver.is_abandoned(),
+            });
+            if batch.is_empty() {
+                if context.shutdown_mode() == Some(EndpointShutdownMode::Drain) && abandoned {
+                    break;
+                }
+                if self.idle_enabled {
+                    self.bridge
+                        .call(provider_call("endpoint.idle", Some(self.instance_id), None))
+                        .map_err(|message| {
+                            connector_error(ConnectorErrorStage::Delivery, message)
+                        })?;
+                }
+                let _ = context.wait_for_stop(Duration::from_millis(1));
+                continue;
+            }
+            let amount = u64::try_from(batch.len()).unwrap_or(u64::MAX);
+            context.record_frame_received(amount);
+            let mut request = provider_call("endpoint.receive_batch", Some(self.instance_id), None);
+            request.endpoint_items = Some(batch);
+            let result = self
+                .bridge
+                .call(request)
+                .map_err(|message| connector_error(ConnectorErrorStage::Delivery, message))?;
+            let (delivered, dropped) = delivery_counts(&result, amount)
+                .map_err(|message| connector_error(ConnectorErrorStage::Delivery, message))?;
+            context.record_frame_delivered(delivered);
+            context.record_frame_dropped(dropped);
+        }
+        let mode = context
+            .shutdown_mode()
+            .unwrap_or(EndpointShutdownMode::Abort);
+        stop_connector_instance(&self.bridge, self.instance_id, mode)
+    }
+}
+
+fn connector_preparation_group(
+    bridge: &ProviderBridge,
+    route_id: RouteId,
+    configuration: Vec<crate::graph::NativeConfigurationEntry>,
+) -> std::result::Result<EndpointPreparationGroup, ConnectorError> {
+    let mut request = provider_call("endpoint.preparation_group", None, Some(configuration));
+    request.route_id = Some(route_id.get().to_string());
+    let result = bridge
+        .call(request)
+        .map_err(|message| connector_error(ConnectorErrorStage::Prepare, message))?;
+    if result.route_preparation.unwrap_or(false) {
+        return Ok(EndpointPreparationGroup::Route(route_id));
+    }
+    match result.preparation_group {
+        Some(group) if !group.trim().is_empty() => Ok(EndpointPreparationGroup::Shared(
+            EndpointGroupId::new(group),
+        )),
+        Some(_) => Err(connector_error(
+            ConnectorErrorStage::Prepare,
+            "JavaScript Connector preparation group cannot be empty".to_owned(),
+        )),
+        None => Ok(EndpointPreparationGroup::Route(route_id)),
+    }
+}
+
+fn native_connector_descriptor(input: &ConnectorInputDescriptor) -> NativeEndpointInputDescriptor {
+    NativeEndpointInputDescriptor {
+        endpoint_id: input.endpoint_id().get().to_string(),
+        connector_id: input.connector_id().map(|value| value.get().to_string()),
+        route_id: input.route_id().get().to_string(),
+        port_name: input.port_name().to_owned(),
+    }
+}
+
+fn native_connector_item(
+    item: ConnectorItem<'_>,
+) -> std::result::Result<NativeEndpointItem, ConnectorError> {
+    match item {
+        ConnectorItem::Audio { input, frame } => Ok(NativeEndpointItem {
+            input_port: input.port_name().to_owned(),
+            endpoint_id: input.endpoint_id().get().to_string(),
+            route_id: input.route_id().get().to_string(),
+            audio: Some(native_audio_with_connector(
+                &frame,
+                input.connector_id().map(|value| value.get()),
+            )),
+            signal: None,
+        }),
+        ConnectorItem::Signal { input, signal } => Ok(NativeEndpointItem {
+            input_port: input.port_name().to_owned(),
+            endpoint_id: input.endpoint_id().get().to_string(),
+            route_id: input.route_id().get().to_string(),
+            audio: None,
+            signal: Some(
+                crate::signals::copy_envelope(&signal)
+                    .map_err(|message| connector_error(ConnectorErrorStage::Delivery, message))?,
+            ),
+        }),
+    }
+}
+
+fn create_connector_instance(
+    bridge: &ProviderBridge,
+    instance_id: u64,
+    configuration: Vec<crate::graph::NativeConfigurationEntry>,
+    descriptors: Vec<NativeEndpointInputDescriptor>,
+) -> std::result::Result<(), ConnectorError> {
+    let mut create = provider_call("endpoint.create", Some(instance_id), Some(configuration));
+    create.endpoint_inputs = Some(descriptors);
+    bridge
+        .call(create)
+        .map(|_| ())
+        .map_err(|message| connector_error(ConnectorErrorStage::Prepare, message))
+}
+
+fn cancel_connector_instance(
+    bridge: &ProviderBridge,
+    instance_id: u64,
+) -> std::result::Result<(), ConnectorError> {
+    bridge
+        .call(provider_call(
+            "endpoint.cancel_preparation",
+            Some(instance_id),
+            None,
+        ))
+        .map(|_| ())
+        .map_err(|message| connector_error(ConnectorErrorStage::Prepare, message))
+}
+
+fn stop_connector_instance(
+    bridge: &ProviderBridge,
+    instance_id: u64,
+    mode: EndpointShutdownMode,
+) -> std::result::Result<(), ConnectorError> {
+    let mut stop = provider_call("endpoint.stop", Some(instance_id), None);
+    stop.shutdown_mode = Some(
+        match mode {
+            EndpointShutdownMode::Drain => "drain",
+            EndpointShutdownMode::Abort => "abort",
+        }
+        .to_owned(),
+    );
+    let stop_result = bridge
+        .call(stop)
+        .map(|_| ())
+        .map_err(|message| connector_error(ConnectorErrorStage::Shutdown, message));
+    let close_result = bridge
+        .call(provider_call("endpoint.close", Some(instance_id), None))
+        .map(|_| ())
+        .map_err(|message| connector_error(ConnectorErrorStage::Shutdown, message));
+    stop_result.and(close_result)
 }
 
 struct JavaScriptEndpointDefinition {
@@ -411,15 +1255,38 @@ impl NodeDefinition for JavaScriptEndpointDefinition {
 struct JavaScriptEndpointFactory {
     bridge: ProviderBridge,
     group: EndpointGroupId,
+    maximum_batch_items: usize,
 }
 
 impl EndpointDriverFactory for JavaScriptEndpointFactory {
     fn preparation_group(
         &self,
-        _route_id: RouteId,
-        _configuration: &NodeConfig,
+        route_id: RouteId,
+        configuration: &NodeConfig,
     ) -> std::result::Result<EndpointPreparationGroup, EndpointFailure> {
-        Ok(EndpointPreparationGroup::Shared(self.group.clone()))
+        let mut request = provider_call(
+            "endpoint.preparation_group",
+            None,
+            Some(node_configuration(configuration)),
+        );
+        request.route_id = Some(route_id.get().to_string());
+        let result = self
+            .bridge
+            .call(request)
+            .map_err(|message| endpoint_failure(EndpointFailureStage::Prepare, message))?;
+        if result.route_preparation.unwrap_or(false) {
+            return Ok(EndpointPreparationGroup::Route(route_id));
+        }
+        match result.preparation_group {
+            Some(group) if !group.trim().is_empty() => Ok(EndpointPreparationGroup::Shared(
+                EndpointGroupId::new(group),
+            )),
+            Some(_) => Err(endpoint_failure(
+                EndpointFailureStage::Prepare,
+                "JavaScript Endpoint preparation group cannot be empty".to_owned(),
+            )),
+            None => Ok(EndpointPreparationGroup::Shared(self.group.clone())),
+        }
     }
 
     fn prepare(
@@ -438,29 +1305,46 @@ impl EndpointDriverFactory for JavaScriptEndpointFactory {
             .first()
             .map(|input| node_configuration(input.context().node_configuration()))
             .unwrap_or_default();
+        let mut create = provider_call("endpoint.create", Some(instance_id), Some(configuration));
+        create.endpoint_inputs = Some(
+            inputs
+                .iter()
+                .map(|input| NativeEndpointInputDescriptor {
+                    endpoint_id: input.context().endpoint_id().get().to_string(),
+                    connector_id: input
+                        .context()
+                        .connector_id()
+                        .map(|value| value.get().to_string()),
+                    route_id: input.context().route_context().route_id().get().to_string(),
+                    port_name: input.port_name().to_owned(),
+                })
+                .collect(),
+        );
         self.bridge
-            .call(provider_call(
-                "endpoint.create",
-                Some(instance_id),
-                Some(configuration),
-            ))
+            .call(create)
             .map_err(|message| endpoint_failure(EndpointFailureStage::Prepare, message))?;
-        if let Err(message) =
-            self.bridge
+        let preparation =
+            match self
+                .bridge
                 .call(provider_call("endpoint.prepare", Some(instance_id), None))
-        {
-            let _ = self.bridge.call(provider_call(
-                "endpoint.cancel_preparation",
-                Some(instance_id),
-                None,
-            ));
-            return Err(endpoint_failure(EndpointFailureStage::Prepare, message));
-        }
+            {
+                Ok(result) => result,
+                Err(message) => {
+                    let _ = self.bridge.call(provider_call(
+                        "endpoint.cancel_preparation",
+                        Some(instance_id),
+                        None,
+                    ));
+                    return Err(endpoint_failure(EndpointFailureStage::Prepare, message));
+                }
+            };
         Ok(Box::new(JavaScriptPreparedEndpoint {
             bridge: self.bridge.clone(),
             instance_id,
             inputs: Some(inputs),
             completed: false,
+            maximum_batch_items: self.maximum_batch_items,
+            idle_enabled: preparation.idle_enabled.unwrap_or(false),
         }))
     }
 }
@@ -470,6 +1354,8 @@ struct JavaScriptPreparedEndpoint {
     instance_id: u64,
     inputs: Option<Vec<EndpointPortInput>>,
     completed: bool,
+    maximum_batch_items: usize,
+    idle_enabled: bool,
 }
 
 impl Drop for JavaScriptPreparedEndpoint {
@@ -519,9 +1405,21 @@ impl PreparedEndpointDriver for JavaScriptPreparedEndpoint {
         let worker_control = Arc::clone(&control);
         let bridge = self.bridge.clone();
         let instance_id = self.instance_id;
+        let maximum_batch_items = self.maximum_batch_items;
+        let idle_enabled = self.idle_enabled;
         let join = std::thread::Builder::new()
             .name("pks-js-endpoint".to_owned())
-            .spawn(move || endpoint_worker(bridge, instance_id, inputs, start_gate, worker_control))
+            .spawn(move || {
+                endpoint_worker(
+                    bridge,
+                    instance_id,
+                    inputs,
+                    start_gate,
+                    worker_control,
+                    maximum_batch_items,
+                    idle_enabled,
+                )
+            })
             .map_err(|failure| {
                 endpoint_failure(EndpointFailureStage::Start, failure.to_string())
             })?;
@@ -645,6 +1543,8 @@ fn endpoint_worker(
     mut inputs: Vec<EndpointWorkerInput>,
     start_gate: Arc<EndpointStartGate>,
     control: Arc<EndpointWorkerControl>,
+    maximum_batch_items: usize,
+    idle_enabled: bool,
 ) -> std::result::Result<(), EndpointFailure> {
     while !start_gate.is_open() {
         if control.shutdown.load(Ordering::Acquire) == 2 {
@@ -657,41 +1557,100 @@ fn endpoint_worker(
         if shutdown == 2 {
             return Ok(());
         }
-        let mut progressed = false;
-        let mut abandoned = true;
-        for input in &mut inputs {
-            let mut request = provider_call("endpoint.receive", Some(instance_id), None);
-            request.input_port = Some(input.port_name.clone());
-            request.endpoint_id = Some(input.endpoint_id.to_string());
-            request.route_id = Some(input.route_id.to_string());
-            match &mut input.receiver {
-                EndpointReceiver::Audio { receiver, .. } => {
-                    abandoned &= receiver.is_abandoned();
-                    if let Some(frame) = receiver.try_recv() {
-                        request.audio = Some(native_audio(&frame));
-                        progressed = true;
-                    } else {
-                        continue;
-                    }
+        let mut batch = Vec::with_capacity(maximum_batch_items);
+        while batch.len() < maximum_batch_items {
+            let mut round_progressed = false;
+            for input in &mut inputs {
+                if batch.len() >= maximum_batch_items {
+                    break;
                 }
-                EndpointReceiver::Signal(receiver) => {
-                    abandoned &= receiver.is_abandoned();
-                    if let Some(signal) = receiver.try_recv() {
-                        request.signal =
-                            Some(crate::signals::copy_envelope(&signal).map_err(|message| {
-                                endpoint_failure(EndpointFailureStage::JoinFinalize, message)
-                            })?);
-                        progressed = true;
-                    } else {
-                        continue;
+                let mut item = NativeEndpointItem {
+                    input_port: input.port_name.clone(),
+                    endpoint_id: input.endpoint_id.to_string(),
+                    route_id: input.route_id.to_string(),
+                    audio: None,
+                    signal: None,
+                };
+                let received = match &mut input.receiver {
+                    EndpointReceiver::Audio { receiver, .. } => {
+                        if let Some(frame) = receiver.try_recv() {
+                            item.audio = Some(native_audio(&frame));
+                            true
+                        } else {
+                            false
+                        }
                     }
+                    EndpointReceiver::Signal(receiver) => {
+                        if let Some(signal) = receiver.try_recv() {
+                            item.signal = Some(crate::signals::copy_envelope(&signal).map_err(
+                                |message| {
+                                    endpoint_failure(EndpointFailureStage::JoinFinalize, message)
+                                },
+                            )?);
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                };
+                if received {
+                    batch.push(item);
+                    round_progressed = true;
                 }
             }
-            update_endpoint_observations(&control, |observations| {
-                observations.frames_received_total =
-                    observations.frames_received_total.saturating_add(1);
-            });
-            if let Err(message) = bridge.call(request) {
+            if !round_progressed {
+                break;
+            }
+        }
+        let abandoned = inputs.iter().all(|input| match &input.receiver {
+            EndpointReceiver::Audio { receiver, .. } => receiver.is_abandoned(),
+            EndpointReceiver::Signal(receiver) => receiver.is_abandoned(),
+        });
+        if shutdown == 1 && abandoned && batch.is_empty() {
+            return Ok(());
+        }
+        if batch.is_empty() {
+            if idle_enabled {
+                bridge
+                    .call(provider_call("endpoint.idle", Some(instance_id), None))
+                    .map_err(|message| {
+                        update_endpoint_observations(&control, |observations| {
+                            observations.failures_total =
+                                observations.failures_total.saturating_add(1);
+                        });
+                        endpoint_failure(EndpointFailureStage::JoinFinalize, message)
+                    })?;
+            }
+            std::thread::sleep(Duration::from_millis(1));
+            continue;
+        }
+        let amount = u64::try_from(batch.len()).unwrap_or(u64::MAX);
+        update_endpoint_observations(&control, |observations| {
+            observations.frames_received_total =
+                observations.frames_received_total.saturating_add(amount);
+        });
+        let mut request = provider_call(
+            if batch.len() == 1 {
+                "endpoint.receive"
+            } else {
+                "endpoint.receive_batch"
+            },
+            Some(instance_id),
+            None,
+        );
+        if batch.len() == 1 {
+            let item = batch.pop().expect("single-item batch is non-empty");
+            request.input_port = Some(item.input_port);
+            request.endpoint_id = Some(item.endpoint_id);
+            request.route_id = Some(item.route_id);
+            request.audio = item.audio;
+            request.signal = item.signal;
+        } else {
+            request.endpoint_items = Some(batch);
+        }
+        let result = match bridge.call(request) {
+            Ok(result) => result,
+            Err(message) => {
                 update_endpoint_observations(&control, |observations| {
                     observations.failures_total = observations.failures_total.saturating_add(1);
                 });
@@ -700,17 +1659,20 @@ fn endpoint_worker(
                     message,
                 ));
             }
+        };
+        let (delivered, dropped) = delivery_counts(&result, amount).map_err(|message| {
             update_endpoint_observations(&control, |observations| {
-                observations.frames_delivered_total =
-                    observations.frames_delivered_total.saturating_add(1);
+                observations.failures_total = observations.failures_total.saturating_add(1);
             });
-        }
-        if shutdown == 1 && abandoned && !progressed {
-            return Ok(());
-        }
-        if !progressed {
-            std::thread::sleep(Duration::from_millis(1));
-        }
+            endpoint_failure(EndpointFailureStage::JoinFinalize, message)
+        })?;
+        update_endpoint_observations(&control, |observations| {
+            observations.frames_delivered_total = observations
+                .frames_delivered_total
+                .saturating_add(delivered);
+            observations.frames_dropped_total =
+                observations.frames_dropped_total.saturating_add(dropped);
+        });
     }
 }
 
@@ -1342,17 +2304,69 @@ fn provider_call(
         signal: None,
         route_id: None,
         endpoint_id: None,
+        endpoint_inputs: None,
+        endpoint_items: None,
     }
 }
 
 fn endpoint_failure(stage: EndpointFailureStage, message: String) -> EndpointFailure {
+    if let Some(encoded) = message.find("PKSCE1:").map(|index| &message[index + 7..]) {
+        let mut fields = encoded.splitn(4, ':');
+        if let (Some(code), Some(_connector_stage), Some(retryability), Some(detail)) =
+            (fields.next(), fields.next(), fields.next(), fields.next())
+        {
+            let retryability = match retryability {
+                "retryable" => EndpointFailureRetryability::Retryable,
+                "retry-after-reconfiguration" => {
+                    EndpointFailureRetryability::ReconfigurationRequired
+                }
+                _ => EndpointFailureRetryability::Never,
+            };
+            return EndpointFailure::new(stage, bounded_message(format!("{code}: {detail}")))
+                .with_external_details(code, retryability);
+        }
+    }
     EndpointFailure::new(stage, bounded_message(message)).with_external_details(
         "javascript.provider_failed",
         EndpointFailureRetryability::Never,
     )
 }
 
+fn delivery_counts(
+    result: &NativeProviderResult,
+    expected: u64,
+) -> std::result::Result<(u64, u64), String> {
+    let outcomes = result.outcomes.as_deref();
+    if let Some(outcomes) = outcomes {
+        if u64::try_from(outcomes.len()).unwrap_or(u64::MAX) != expected {
+            return Err("JavaScript Endpoint returned the wrong number of outcomes".to_owned());
+        }
+        let mut delivered = 0_u64;
+        let mut dropped = 0_u64;
+        for outcome in outcomes {
+            match outcome.as_str() {
+                "delivered" => delivered = delivered.saturating_add(1),
+                "dropped" => dropped = dropped.saturating_add(1),
+                _ => return Err("JavaScript Endpoint returned an invalid outcome".to_owned()),
+            }
+        }
+        return Ok((delivered, dropped));
+    }
+    match result.outcome.as_deref().unwrap_or("delivered") {
+        "delivered" => Ok((expected, 0)),
+        "dropped" => Ok((0, expected)),
+        _ => Err("JavaScript Endpoint returned an invalid outcome".to_owned()),
+    }
+}
+
 fn native_audio(frame: &EndpointAudioFrame) -> NativeProviderAudio {
+    native_audio_with_connector(frame, None)
+}
+
+fn native_audio_with_connector(
+    frame: &EndpointAudioFrame,
+    connector_id: Option<u64>,
+) -> NativeProviderAudio {
     let mut bytes = Vec::with_capacity(frame.samples().len().saturating_mul(4));
     for sample in frame.samples() {
         bytes.extend_from_slice(&sample.to_le_bytes());
@@ -1371,6 +2385,12 @@ fn native_audio(frame: &EndpointAudioFrame) -> NativeProviderAudio {
         output_generation_id: frame
             .output_generation_id()
             .map(|value| value.get().to_string()),
+        source_generation: frame.lineage().source_generation(),
+        discontinuity_epoch: frame.lineage().discontinuity_epoch().to_string(),
+        permission_epoch: frame.lineage().permission_epoch().to_string(),
+        clock_id: frame.lineage().clock_id().get(),
+        duration_ns: frame.lineage().duration_ns().to_string(),
+        connector_id: connector_id.map(|value| value.to_string()),
     }
 }
 
@@ -1420,6 +2440,39 @@ fn parse_u64(
 }
 
 fn connector_error(stage: ConnectorErrorStage, message: String) -> ConnectorError {
+    if let Some(encoded) = message.find("PKSCE1:").map(|index| &message[index + 7..]) {
+        let mut fields = encoded.splitn(4, ':');
+        if let (Some(code), Some(encoded_stage), Some(retryability), Some(detail)) =
+            (fields.next(), fields.next(), fields.next(), fields.next())
+        {
+            let stage = match encoded_stage {
+                "configuration" => ConnectorErrorStage::Configuration,
+                "prepare" => ConnectorErrorStage::Prepare,
+                "startup" => ConnectorErrorStage::Startup,
+                "readiness" => ConnectorErrorStage::Readiness,
+                "delivery" => ConnectorErrorStage::Delivery,
+                "retry" => ConnectorErrorStage::Retry,
+                "shutdown" => ConnectorErrorStage::Shutdown,
+                "join" => ConnectorErrorStage::Join,
+                _ => stage,
+            };
+            let retryability = match retryability {
+                "retryable" => ConnectorRetryability::Retryable,
+                "retry-after-reconfiguration" => ConnectorRetryability::RetryAfterReconfiguration,
+                _ => ConnectorRetryability::Never,
+            };
+            if let Ok(code) = ConnectorErrorCode::new(code) {
+                if let Ok(error) = ConnectorError::new(
+                    code,
+                    stage,
+                    retryability,
+                    bounded_message(detail.to_owned()),
+                ) {
+                    return error;
+                }
+            }
+        }
+    }
     ConnectorError::new(
         ConnectorErrorCode::new("javascript.provider_failed")
             .expect("static Connector error code must be valid"),

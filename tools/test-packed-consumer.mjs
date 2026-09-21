@@ -254,7 +254,12 @@ try {
       await new Promise((resolve) => setTimeout(resolve, 5));
     }
     const providerStop = await runningProvider.stop();
-    if (!providerStop.success) throw new Error('packed provider Session did not stop cleanly');
+    if (!providerStop.success) {
+      throw new Error(
+        'packed provider Session did not stop cleanly: ' +
+        JSON.stringify(providerStop, (_key, value) => typeof value === 'bigint' ? String(value) : value),
+      );
+    }
     if (endpointValues[0].signal.payload.text !== 'PACKED') {
       throw new Error('packed Endpoint did not receive Operator text');
     }

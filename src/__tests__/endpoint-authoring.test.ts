@@ -121,6 +121,41 @@ describe('Endpoint authoring', () => {
     });
   });
 
+  it('ignores incidental values returned by void receive callbacks', async () => {
+    const received: EndpointItem[] = [];
+    const text = SignalSpec.text();
+    const destination = defineEndpoint(
+      {
+        id: 'org.example.endpoint.incidental-return.v1',
+        inputs: [PortSpec.input('text', text)],
+      },
+      (item) => received.push(item),
+    );
+    const source = defineSource({
+      id: 'org.example.source.endpoint-incidental-return.v1',
+      outputs: [PortSpec.output('text', text)],
+      create: () => {
+        let emitted = false;
+        return {
+          next: () => {
+            if (emitted) return undefined;
+            emitted = true;
+            return { output: 'text', data: 'ready', terminal: true };
+          },
+        };
+      },
+    });
+    const session = new Session({ frameDurationMs: 10 });
+    session.source(source).output('text').send(session.endpoint(destination), { input: 'text' });
+
+    const running = await session.start();
+    await waitFor(() => received.length === 1);
+    const outcome = await running.stop();
+
+    expect(outcome.success).toBe(true);
+    expect(outcome.endpointFinalizationFailuresTotal).toBe(0n);
+  });
+
   it('closes an Endpoint whose preparation fails', async () => {
     const lifecycle: string[] = [];
     const endpoint = defineEndpoint({

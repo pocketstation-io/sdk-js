@@ -52,6 +52,13 @@ The function form is useful when a destination needs only one `send` callback.
 Use the class form in the [provider authoring guide](../docs/guides/provider-authoring.md)
 when a connection owns startup and shutdown resources.
 
+The manifest-driven form validates typed configuration, exposes explicit
+readiness and observations, and runs through a reusable registration:
+
+```bash
+node examples/advanced-connector.mjs
+```
+
 ## Publish an application to Relay
 
 Create a RelaySession through your PocketStation control plane, then set the

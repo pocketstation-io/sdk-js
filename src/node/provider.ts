@@ -7,6 +7,8 @@ import {
 } from './connector.js';
 import type {
   NativeConfigurationEntry,
+  NativeEndpointInputDescriptor,
+  NativeEndpointItem,
   NativeProviderCall,
   NativeProviderEmission,
   NativeProviderResult,
@@ -413,17 +415,24 @@ export interface EndpointSignalItem {
 /** One value delivered to an application-owned Endpoint. */
 export type EndpointItem = EndpointAudioItem | EndpointSignalItem;
 
+/** Explicit accounting result for one Endpoint item. */
+export type EndpointDeliveryOutcome = 'delivered' | 'dropped';
+
 /** Function accepted by the concise Endpoint form. */
 export type EndpointReceive = (
   item: EndpointItem,
   context: EndpointContext,
-) => void | Promise<void>;
+) => EndpointDeliveryOutcome | void | Promise<EndpointDeliveryOutcome | void>;
 
 /** State created for one prepared Endpoint instance. */
 export interface EndpointNode {
-  prepare?(context: EndpointContext): void | Promise<void>;
+  prepare?(context: EndpointContext): { readonly idleEnabled?: boolean } | void | Promise<{ readonly idleEnabled?: boolean } | void>;
   start?(context: EndpointContext): void | Promise<void>;
-  receive(item: EndpointItem, context: EndpointContext): void | Promise<void>;
+  receive(item: EndpointItem, context: EndpointContext): EndpointDeliveryOutcome | void | Promise<EndpointDeliveryOutcome | void>;
+  /** Receive one finite native-owned batch when the Endpoint enables batching. */
+  receiveBatch?(items: readonly EndpointItem[], context: EndpointContext): EndpointDeliveryOutcome | readonly EndpointDeliveryOutcome[] | void | Promise<EndpointDeliveryOutcome | readonly EndpointDeliveryOutcome[] | void>;
+  /** Optional finite work invoked only when a prepared Endpoint explicitly enables idle polling. */
+  idle?(context: EndpointContext): void | Promise<void>;
   stop?(mode: 'drain' | 'abort', context: EndpointContext): void | Promise<void>;
   close?(): void | Promise<void>;
 }
@@ -438,14 +447,24 @@ export interface EndpointProviderOptions {
   readonly inputs: readonly PortSpec[];
   /** Maximum duration of each JavaScript lifecycle call. Defaults to 5,000 ms. */
   readonly deadlineMs?: number;
+  /** Maximum items delivered in one callback. Defaults to one; maximum 1,024. */
+  readonly maximumBatchItems?: number;
 }
 
 /** Defines one application-owned Endpoint implementation. */
 export interface EndpointFactoryOptions extends EndpointProviderOptions {
   /** Create independent state for the inputs Core starts together. */
-  readonly create: (configuration: SourceConfiguration) => EndpointNode;
+  readonly create: (
+    configuration: SourceConfiguration,
+    inputs: readonly NativeEndpointInputDescriptor[],
+  ) => EndpointNode;
   /** Reject invalid configuration before any Endpoint resource starts. */
   readonly validate?: (configuration: SourceConfiguration) => void | Promise<void>;
+  /** Select route-local preparation or a stable shared preparation group. */
+  readonly preparationGroup?: (
+    routeId: bigint,
+    configuration: SourceConfiguration,
+  ) => string | undefined;
 }
 
 interface ActiveEndpoint {
@@ -465,6 +484,7 @@ export class EndpointFactory {
   public readonly nodeType: string;
   public readonly inputs: readonly PortSpec[];
   public readonly deadlineMs: number;
+  public readonly maximumBatchItems: number;
   readonly #options: EndpointFactoryOptions;
   readonly #instances = new Map<string, ActiveEndpoint>();
   #sessionId: bigint | undefined;
@@ -475,14 +495,18 @@ export class EndpointFactory {
     this.nodeType = options.nodeType ?? `${options.id}.node`;
     this.inputs = Object.freeze([...options.inputs]);
     this.deadlineMs = options.deadlineMs ?? 5_000;
+    this.maximumBatchItems = options.maximumBatchItems ?? 1;
     if (this.id.trim().length === 0 || this.nodeType.trim().length === 0) {
       throw new TypeError('Endpoint id and nodeType cannot be empty');
     }
     if (this.inputs.length === 0 || this.inputs.some((input) => input.direction !== 'input')) {
       throw new TypeError('An Endpoint needs at least one input PortSpec');
     }
-    if (!Number.isInteger(this.deadlineMs) || this.deadlineMs < 1 || this.deadlineMs > 60_000) {
-      throw new RangeError('deadlineMs must be an integer from 1 through 60000');
+    if (!Number.isInteger(this.deadlineMs) || this.deadlineMs < 1 || this.deadlineMs > 300_000) {
+      throw new RangeError('deadlineMs must be an integer from 1 through 300000');
+    }
+    if (!Number.isInteger(this.maximumBatchItems) || this.maximumBatchItems < 1 || this.maximumBatchItems > 1_024) {
+      throw new RangeError('maximumBatchItems must be an integer from 1 through 1024');
     }
   }
 
@@ -506,6 +530,7 @@ export class EndpointFactory {
       this.inputs.map((input) => input._nativeHandle()),
       this._dispatch,
       this.deadlineMs,
+      this.maximumBatchItems,
     );
     return new EndpointDefinition(this.nodeType, registrationId, { configuration });
   }
@@ -521,6 +546,16 @@ export class EndpointFactory {
   public readonly _dispatch = async (request: NativeProviderCall): Promise<NativeProviderResult> => {
     const configuration = configurationFromNative(request.configuration);
     switch (request.operation) {
+      case 'endpoint.preparation_group': {
+        if (this.#options.preparationGroup === undefined) return {};
+        const group = this.#options.preparationGroup(
+          BigInt(required(request.routeId, 'routeId')),
+          configuration,
+        );
+        return group === undefined
+          ? { routePreparation: true }
+          : { preparationGroup: group };
+      }
       case 'endpoint.validate':
         await this.#options.validate?.(configuration);
         return {};
@@ -528,7 +563,10 @@ export class EndpointFactory {
         const instanceId = required(request.instanceId, 'instanceId');
         if (this.#instances.has(instanceId)) throw new Error('Endpoint instance already exists');
         this.#instances.set(instanceId, {
-          node: this.#options.create(configuration),
+          node: this.#options.create(
+            configuration,
+            Object.freeze([...(request.endpointInputs ?? [])]),
+          ),
           controller: new AbortController(),
           state: 'new',
         });
@@ -538,9 +576,9 @@ export class EndpointFactory {
         const active = this.#active(request);
         if (active.state !== 'new') throw new Error(`Endpoint cannot prepare while ${active.state}`);
         active.state = 'preparing';
-        await active.node.prepare?.({ signal: active.controller.signal });
+        const preparation = await active.node.prepare?.({ signal: active.controller.signal });
         active.state = 'prepared';
-        return {};
+        return { idleEnabled: preparation?.idleEnabled ?? false };
       }
       case 'endpoint.start': {
         const active = this.#active(request);
@@ -554,8 +592,38 @@ export class EndpointFactory {
         if (active.state !== 'running') {
           throw new Error('Endpoint received data outside its running lifetime');
         }
-        await active.node.receive(endpointItem(request), { signal: active.controller.signal });
-        return { outcome: 'delivered' };
+        const outcome = await active.node.receive(endpointItem(request), { signal: active.controller.signal });
+        return { outcome: endpointDeliveryOutcome(outcome) };
+      }
+      case 'endpoint.receive_batch': {
+        const active = this.#active(request);
+        if (active.state !== 'running') {
+          throw new Error('Endpoint received data outside its running lifetime');
+        }
+        const items = Object.freeze((request.endpointItems ?? []).map(endpointItem));
+        if (items.length === 0) throw new Error('Endpoint received an empty batch');
+        if (active.node.receiveBatch !== undefined) {
+          const outcome = await active.node.receiveBatch(items, { signal: active.controller.signal });
+          const outcomes = Array.isArray(outcome)
+            ? outcome.map(endpointDeliveryOutcome)
+            : items.map(() => endpointDeliveryOutcome(outcome));
+          if (outcomes.length !== items.length) throw new Error('Endpoint returned the wrong number of batch outcomes');
+          return { outcomes: [...outcomes] };
+        } else {
+          const outcomes: EndpointDeliveryOutcome[] = [];
+          for (const item of items) {
+            outcomes.push(endpointDeliveryOutcome(
+              await active.node.receive(item, { signal: active.controller.signal }),
+            ));
+          }
+          return { outcomes };
+        }
+      }
+      case 'endpoint.idle': {
+        const active = this.#active(request);
+        if (active.state !== 'running') throw new Error('Endpoint cannot idle outside its running lifetime');
+        await active.node.idle?.({ signal: active.controller.signal });
+        return {};
       }
       case 'endpoint.stop': {
         const active = this.#active(request);
@@ -608,6 +676,17 @@ export class EndpointFactory {
   }
 }
 
+function endpointDeliveryOutcome(value: unknown): EndpointDeliveryOutcome {
+  if (value === 'delivered' || value === 'dropped') return value;
+  if (typeof value === 'string') {
+    throw new TypeError(`Unsupported Endpoint delivery outcome: ${value}`);
+  }
+  // JavaScript callbacks assigned to a void-returning contract may still
+  // return incidental values (for example, Array.push returns a number).
+  // Only the explicit dropped sentinel changes native delivery accounting.
+  return 'delivered';
+}
+
 /** Define an Endpoint with a class/object factory. */
 export function defineEndpoint(options: EndpointFactoryOptions): EndpointFactory;
 /** Define an Endpoint from one receive function. */
@@ -627,7 +706,7 @@ export function defineEndpoint(
   });
 }
 
-function endpointItem(request: NativeProviderCall): EndpointItem {
+function endpointItem(request: NativeProviderCall | NativeEndpointItem): EndpointItem {
   const common = {
     input: required(request.inputPort, 'inputPort'),
     endpointId: BigInt(required(request.endpointId, 'endpointId')),

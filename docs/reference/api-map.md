@@ -15,7 +15,7 @@ voice entries never load the native addon.
 | Add existing PCM | `session.audioInput()` | `AudioInput`, write options and observations |
 | Add application-owned JSON events | `session.eventInput()` | `EventInput`, finite capacity and observations |
 | Replace obsolete generated PCM | `input.beginOutput()` / `output.cancel()` | output identity and route discard metrics |
-| Send PCM to application code | `connector()` | `Connector`, `ConnectorContext` |
+| Send PCM or typed signals to application code | `connector()` | `ConnectorManifest`, `ConnectorDriver`, `ConnectorWorker`, `RegisteredConnector`, typed configuration and observations |
 | Process typed media | `defineOperator()` | `OperatorFactory`, `SignalSpec`, `PortSpec` |
 | Add a custom Source | `defineSource()` | `SourceFactory`, `SourceDriver` |
 | Add a custom destination | `defineEndpoint()` | `EndpointFactory`, `EndpointContext` |
