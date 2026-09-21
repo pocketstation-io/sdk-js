@@ -1118,8 +1118,23 @@ export interface EndpointAudioItem {
 }
 
 // @public
+export type EndpointConfigurationInput = Configuration;
+
+// @public
 export interface EndpointContext {
     readonly signal: AbortSignal;
+}
+
+// @public
+export interface EndpointDeadlines {
+    // (undocumented)
+    readonly deliveryMs?: number;
+    // (undocumented)
+    readonly prepareMs?: number;
+    // (undocumented)
+    readonly shutdownMs?: number;
+    // (undocumented)
+    readonly startMs?: number;
 }
 
 // @public
@@ -1134,6 +1149,60 @@ export class EndpointDefinition {
 
 // @public
 export type EndpointDeliveryOutcome = 'delivered' | 'dropped';
+
+// @public
+export type EndpointDriverBuilder = (inputs: readonly EndpointPortInput[]) => PreparedEndpointDriver | Promise<PreparedEndpointDriver>;
+
+// @public
+export class EndpointDriverError extends PocketStationError {
+    constructor(message: string, options?: {
+        readonly code?: string;
+        readonly stage?: EndpointFailureStage;
+        readonly retryability?: EndpointFailureRetryability;
+        readonly cause?: unknown;
+    });
+    // (undocumented)
+    readonly retryability: EndpointFailureRetryability;
+    // (undocumented)
+    readonly stage: EndpointFailureStage;
+}
+
+// @public
+export interface EndpointDriverFactory {
+    // (undocumented)
+    preparationGroup?(routeId: bigint, configuration: Readonly<EndpointConfigurationInput>): string | undefined;
+    // (undocumented)
+    prepare(inputs: readonly EndpointPortInput[]): PreparedEndpointDriver | Promise<PreparedEndpointDriver>;
+}
+
+// @public
+export interface EndpointDriverItem {
+    // (undocumented)
+    readonly input: EndpointPortInput;
+    // (undocumented)
+    readonly item: EndpointItem;
+}
+
+// @public
+export class EndpointDriverObservations {
+    constructor(options?: {
+        readonly framesReceivedTotal?: bigint | number;
+        readonly framesDeliveredTotal?: bigint | number;
+        readonly framesDroppedTotal?: bigint | number;
+        readonly discontinuitiesTotal?: bigint | number;
+        readonly failuresTotal?: bigint | number;
+    });
+    // (undocumented)
+    readonly discontinuitiesTotal: bigint;
+    // (undocumented)
+    readonly failuresTotal: bigint;
+    // (undocumented)
+    readonly framesDeliveredTotal: bigint;
+    // (undocumented)
+    readonly framesDroppedTotal: bigint;
+    // (undocumented)
+    readonly framesReceivedTotal: bigint;
+}
 
 // @public
 export class EndpointFactory {
@@ -1188,10 +1257,39 @@ export interface EndpointFailureEvent {
 }
 
 // @public
+export const EndpointFailureRetryability: {
+    readonly Never: "never";
+    readonly Retryable: "retryable";
+    readonly ReconfigurationRequired: "reconfiguration-required";
+};
+
+// @public (undocumented)
+export type EndpointFailureRetryability = (typeof EndpointFailureRetryability)[keyof typeof EndpointFailureRetryability];
+
+// @public
 export type EndpointFailureStage = 'prepare' | 'cancel-preparation' | 'start' | 'request-stop' | 'join-finalize';
 
 // @public
 export type EndpointItem = EndpointAudioItem | EndpointSignalItem;
+
+// @public
+export class EndpointManifest {
+    constructor(options: {
+        readonly operatorId: string;
+        readonly inputs: readonly PortSpec[];
+        readonly nodeTypeId?: string;
+    });
+    static audio(operatorId: string, options?: {
+        readonly portName?: string;
+        readonly nodeTypeId?: string;
+    }): EndpointManifest;
+    // (undocumented)
+    readonly inputs: readonly PortSpec[];
+    // (undocumented)
+    readonly nodeTypeId: string;
+    // (undocumented)
+    readonly operatorId: string;
+}
 
 // @public
 export interface EndpointMetrics {
@@ -1215,6 +1313,7 @@ export interface EndpointMetrics {
 export interface EndpointNode {
     // (undocumented)
     close?(): void | Promise<void>;
+    gateOpen?(context: EndpointContext): void | Promise<void>;
     idle?(context: EndpointContext): void | Promise<void>;
     // (undocumented)
     prepare?(context: EndpointContext): {
@@ -1232,6 +1331,75 @@ export interface EndpointNode {
 }
 
 // @public
+export class EndpointPortInput {
+    // (undocumented)
+    readonly context: EndpointPrepareContext;
+    // (undocumented)
+    readonly media: MediaCaps;
+    // (undocumented)
+    readonly portName: string;
+    // (undocumented)
+    readonly routeSettings: RouteSettings;
+    // (undocumented)
+    readonly signal: SignalSpec;
+}
+
+// @public
+export type EndpointPreparationGroup = (routeId: bigint, configuration: Readonly<EndpointConfigurationInput>) => string | undefined;
+
+// @public
+export class EndpointPrepareContext {
+    // (undocumented)
+    readonly configuration: Readonly<EndpointConfigurationInput>;
+    // (undocumented)
+    readonly connectorId?: bigint;
+    // (undocumented)
+    readonly endpointId: bigint;
+    // (undocumented)
+    readonly originKind: string;
+    // (undocumented)
+    readonly routeId: bigint;
+    // (undocumented)
+    readonly sessionId: bigint;
+    // (undocumented)
+    readonly sessionTimelineOriginNs: bigint;
+    // (undocumented)
+    readonly sourceId?: bigint;
+    // (undocumented)
+    readonly stemId?: bigint;
+    // (undocumented)
+    readonly streamId?: bigint;
+}
+
+// @public
+export class EndpointProvider {
+    constructor(options: {
+        readonly manifest: EndpointManifest;
+        readonly factory: EndpointDriverFactory | EndpointDriverBuilder;
+        readonly deadlines?: EndpointDeadlines;
+        readonly maximumBatchItems?: number;
+        readonly idleEnabled?: boolean;
+        readonly validateConfiguration?: (configuration: Readonly<EndpointConfigurationInput>) => void | Promise<void>;
+        readonly preparationGroup?: EndpointPreparationGroup;
+    });
+    // (undocumented)
+    readonly deadlines: Readonly<Required<EndpointDeadlines>>;
+    // (undocumented)
+    readonly factory: EndpointDriverFactory | EndpointDriverBuilder;
+    // (undocumented)
+    readonly idleEnabled: boolean;
+    // (undocumented)
+    readonly manifest: EndpointManifest;
+    // (undocumented)
+    readonly maximumBatchItems: number;
+    observations(): readonly EndpointRuntimeObservations[];
+    // (undocumented)
+    readonly preparationGroup?: EndpointPreparationGroup;
+    // (undocumented)
+    readonly validateConfiguration?: (configuration: Readonly<EndpointConfigurationInput>) => void | Promise<void>;
+}
+
+// @public
 export interface EndpointProviderOptions {
     readonly deadlineMs?: number;
     readonly id: string;
@@ -1242,6 +1410,23 @@ export interface EndpointProviderOptions {
 
 // @public
 export type EndpointReceive = (item: EndpointItem, context: EndpointContext) => EndpointDeliveryOutcome | void | Promise<EndpointDeliveryOutcome | void>;
+
+// @public
+export interface EndpointRuntimeObservations extends EndpointDriverObservations {
+    // (undocumented)
+    readonly endpointIds: readonly bigint[];
+    // (undocumented)
+    readonly finalized: boolean;
+}
+
+// @public
+export const EndpointShutdownMode: {
+    readonly Drain: "drain";
+    readonly Abort: "abort";
+};
+
+// @public (undocumented)
+export type EndpointShutdownMode = (typeof EndpointShutdownMode)[keyof typeof EndpointShutdownMode];
 
 // @public
 export interface EndpointSignalItem {
@@ -1255,6 +1440,12 @@ export interface EndpointSignalItem {
     readonly routeId: bigint;
     // (undocumented)
     readonly signal: SignalEnvelope;
+}
+
+// @public
+export class EndpointStartGate {
+    // (undocumented)
+    get isOpen(): boolean;
 }
 
 // @public
@@ -1793,6 +1984,14 @@ export class PortSpec {
 }
 
 // @public
+export abstract class PreparedEndpointDriver {
+    // (undocumented)
+    cancelPreparation(): void | Promise<void>;
+    // (undocumented)
+    abstract start(gate: EndpointStartGate): RunningEndpointDriver | Promise<RunningEndpointDriver>;
+}
+
+// @public
 export interface ProcessInstanceSelector {
     readonly processId: number;
     readonly stableId: StableSourceId;
@@ -1884,6 +2083,18 @@ export class RegisteredConnector {
     observation(endpoint: Endpoint): ConnectorObservations | undefined;
     // (undocumented)
     observations(): readonly ConnectorRuntimeObservations[];
+    // (undocumented)
+    get sessionId(): bigint;
+}
+
+// @public
+export class RegisteredEndpoint {
+    // (undocumented)
+    declare(configuration?: EndpointConfigurationInput, options?: {
+        readonly routeSettings?: RouteSettings;
+    }): Endpoint;
+    // (undocumented)
+    observations(): readonly EndpointRuntimeObservations[];
     // (undocumented)
     get sessionId(): bigint;
 }
@@ -1999,6 +2210,22 @@ export class RouteSettings {
 }
 
 // @public
+export abstract class RunningEndpointDriver {
+    // (undocumented)
+    idle(): void | Promise<void>;
+    // (undocumented)
+    joinAndFinalize(): EndpointDriverObservations | Promise<EndpointDriverObservations>;
+    // (undocumented)
+    observations(): EndpointDriverObservations | Promise<EndpointDriverObservations>;
+    // (undocumented)
+    abstract receive(delivery: EndpointDriverItem): EndpointDeliveryOutcome | void | Promise<EndpointDeliveryOutcome | void>;
+    // (undocumented)
+    receiveBatch(deliveries: readonly EndpointDriverItem[]): Promise<readonly EndpointDeliveryOutcome[]>;
+    // (undocumented)
+    requestShutdown(_mode: EndpointShutdownMode): void | Promise<void>;
+}
+
+// @public
 export class RunningSession implements AsyncDisposable {
     [Symbol.asyncDispose](): Promise<void>;
     readonly audio: AudioStream;
@@ -2036,12 +2263,13 @@ export class Session {
         configuration?: ConnectorConfigurationInput;
         routeSettings?: RouteSettings;
     }): Endpoint;
-    endpoint(definition: EndpointDefinition | EndpointFactory, configuration?: Configuration): Endpoint;
+    endpoint(definition: EndpointDefinition | EndpointFactory | EndpointProvider, configuration?: Configuration | EndpointConfigurationInput): Endpoint;
     eventInput(name: string, options?: EventInputOptions): EventInput;
     get id(): bigint;
     loadNativeExtensionLibrary(path: string): Promise<NativeExtensionLibrary>;
     operator(operator: Operator | OperatorFactory, configuration?: Configuration): OperatorInstance;
     registerConnector(connector: Connector): RegisteredConnector;
+    registerEndpoint(provider: EndpointProvider): RegisteredEndpoint;
     registerOperator(operator: OperatorFactory): OperatorFactory;
     registerSidecar(process: SidecarProcess): SidecarHandle;
     registerSource(source: SourceFactory): SourceFactory;

@@ -59,6 +59,11 @@ import {
   SidecarSnapshot,
 } from './sidecar.js';
 import { Connector, RegisteredConnector, type ConnectorConfigurationInput } from './connector.js';
+import {
+  EndpointProvider,
+  RegisteredEndpoint,
+  type EndpointConfigurationInput,
+} from './endpoint.js';
 import { EndpointFactory, OperatorFactory, SourceFactory } from './provider.js';
 import {
   _recordingOutcomeFromNative,
@@ -867,6 +872,7 @@ export class Session {
   readonly #frameDurationMs: 10 | 20;
   readonly #connectorEndpoints = new WeakMap<Connector, Endpoint>();
   readonly #registeredConnectors = new WeakMap<Connector, RegisteredConnector>();
+  readonly #registeredEndpoints = new WeakMap<EndpointProvider, RegisteredEndpoint>();
   readonly #registeredSources = new WeakSet<SourceFactory>();
   readonly #registeredOperators = new WeakSet<OperatorFactory>();
   #nextEndpointRegistration = 0;
@@ -1144,6 +1150,31 @@ export class Session {
     return registered;
   }
 
+  /** Register one reusable manifest-driven generic Endpoint. */
+  public registerEndpoint(provider: EndpointProvider): RegisteredEndpoint {
+    const existing = this.#registeredEndpoints.get(provider);
+    if (existing !== undefined) return existing;
+    provider._bind(this.id);
+    const factory = provider._factory();
+    factory._bind(this.id);
+    nativeCallSync(() => factory._register(
+      this.#native,
+      provider.manifest.operatorId,
+      {},
+    ));
+    const registered = new RegisteredEndpoint(
+      this.id,
+      provider,
+      (definition, _configuration, _route) => Endpoint._create(
+        this,
+        nativeCallSync(() => this.#native.endpoint(definition._nativeHandle())),
+      ),
+    );
+    this.#registeredEndpoints.set(provider, registered);
+    this.#providers.add(factory);
+    return registered;
+  }
+
   #allocateConnectorIdentity(): bigint {
     this.#nextConnectorIdentity += 1n;
     return this.#nextConnectorIdentity;
@@ -1179,9 +1210,12 @@ export class Session {
 
   /** Declare one native or application-owned Endpoint implementation. */
   public endpoint(
-    definition: EndpointDefinition | EndpointFactory,
-    configuration: Configuration = {},
+    definition: EndpointDefinition | EndpointFactory | EndpointProvider,
+    configuration: Configuration | EndpointConfigurationInput = {},
   ): Endpoint {
+    if (definition instanceof EndpointProvider) {
+      return this.registerEndpoint(definition).declare(configuration);
+    }
     if (definition instanceof EndpointFactory) {
       definition._bind(this.id);
       this.#nextEndpointRegistration += 1;

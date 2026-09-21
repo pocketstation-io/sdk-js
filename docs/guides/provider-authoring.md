@@ -304,6 +304,79 @@ runtime media systems, such as PCM and typed signals. `create()` must therefore
 return independent state. Inputs of the same kind that belong to one Endpoint
 declaration start together and share that instance.
 
+### Build a reusable manifest-driven Endpoint
+
+Use the advanced contract when the destination owns resources across
+prepare/start/shutdown, needs stable grouping for several declarations, or
+must return final observations. Registration is idempotent within one Session;
+each `declare()` call creates a configured Core Endpoint.
+
+```ts
+import {
+  EndpointDriverObservations,
+  EndpointManifest,
+  EndpointProvider,
+  PreparedEndpointDriver,
+  RunningEndpointDriver,
+} from "pocketstation/node";
+
+class RunningArchive extends RunningEndpointDriver {
+  private received = 0;
+
+  public receive(delivery): void {
+    if (delivery.item.kind === "audio") this.received += 1;
+  }
+
+  public joinAndFinalize(): EndpointDriverObservations {
+    return new EndpointDriverObservations({
+      framesReceivedTotal: this.received,
+      framesDeliveredTotal: this.received,
+    });
+  }
+}
+
+class PreparedArchive extends PreparedEndpointDriver {
+  public start(gate): RunningEndpointDriver {
+    if (gate.isOpen) throw new Error("start transaction opened too early");
+    return new RunningArchive();
+  }
+}
+
+const archive = new EndpointProvider({
+  manifest: EndpointManifest.audio("com.acme.endpoint.archive.v1"),
+  factory: () => new PreparedArchive(),
+  maximumBatchItems: 32,
+  deadlines: {
+    prepareMs: 5_000,
+    startMs: 5_000,
+    deliveryMs: 30_000,
+    shutdownMs: 5_000,
+  },
+});
+
+const registered = session.registerEndpoint(archive);
+application.send(registered.declare({ region: "local" }));
+```
+
+Core owns the bounded input receivers, route metrics, delivery accounting, and
+the start transaction. JavaScript receives push deliveries through
+`receive()` or finite `receiveBatch()` calls; the SDK deliberately does not
+add a second JavaScript media queue. `EndpointPortInput` retains the exact
+Session, Endpoint, route, Source, Stream, Stem, timeline-origin, signal, media,
+route-policy, and configuration context for its input.
+
+The gate passed to `start()` stays closed until every Session component has
+started, then opens before the first delivery. `requestShutdown()` and
+`joinAndFinalize()` provide ordered cleanup. `EndpointDriverError` retains a
+stable code, lifecycle stage, and retry guidance in the terminal Session
+result. `RegisteredEndpoint.observations()` retains immutable driver counters
+after finalization.
+
+`preparationGroup` may return one stable key when several compatible routes
+must share one prepared driver. Otherwise each route is prepared independently.
+The same `EndpointProvider` object cannot be shared across Sessions because its
+active runtimes and cancellation ownership are Session-scoped.
+
 ## Lifecycle and failure behavior
 
 The Session performs the lifecycle in this order:

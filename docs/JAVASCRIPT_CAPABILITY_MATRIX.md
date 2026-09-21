@@ -14,13 +14,12 @@ cases visible. Browser tests that replace the service with mocked fetch remain
 The last accepted Lab-owned cross-repository audit expands the current Python
 package into 3,674 individually addressable public API, member/signature,
 test-behavior, workflow, and package rows. Its strict parity gate currently
-**fails**: 1,007 rows are classified equivalent or idiomatically equivalent
-and 2,667 remain gaps. A declaration-name match is intentionally not counted
+**fails**: 1,594 rows are classified equivalent or idiomatically equivalent
+and 2,080 remain gaps. A declaration-name match is intentionally not counted
 as semantic parity.
 
 This table is therefore a product-area summary, not a substitute for that
-row-level ledger. Event ingress was implemented after that accepted checkpoint
-and is not included in those totals yet.
+row-level ledger.
 
 | Area | Rust 1.1.10 | Python 0.1.4 | JavaScript now |
 |---|---|---|---|
@@ -41,7 +40,7 @@ and is not included in those totals yet.
 | Typed signals and `BusSubscription` | `REAL` | `REAL` | `REAL`; Core-backed audio, text, and bytes, lineage, derivation, one-reader ownership, explicit timeout/end, close, and queue metrics pass |
 | Operators with named typed ports | `REAL` | `REAL` | `REAL` for off-realtime JavaScript implementations; validation, create, prepare, process, flush, cancel, close, named outputs, lineage, and exact PCM reentry pass through Core |
 | Route settings, media requirements, and delivery policy | `REAL` | `REAL` | `REAL` for declaration, native validation, compatibility, and negotiation |
-| Built-in and custom Endpoints | `REAL` | `REAL` | `REAL` for component tests; Node audio, recording, open native declarations, and class/function JavaScript Endpoints with audio or typed inputs execute through Core lifecycle and outcomes |
+| Built-in and custom Endpoints | `REAL` | `REAL` | `REAL` for component tests; concise and manifest-driven JavaScript Endpoints execute audio or typed inputs through Core-owned receivers, exact route/source provenance, the transactional start gate, shared or route-local preparation, finite batches and deadlines, structured failure, rollback, joined cleanup, and retained observations |
 | Concise and manifest-driven Connector authoring | `REAL` | `REAL` | `REAL` for component tests; typed/default/secret configuration, reusable declaration, shared or route-local preparation, driver and finite native-owned batch worker forms, per-stage deadlines, readiness/health/recovery control, structured failures, immutable observations, source lineage, cancellation, and joined cleanup execute through Core |
 | Source and Operator authoring | `REAL` | `REAL` | `REAL` for component tests; typed Source identity and timing plus off-realtime Operator processing execute through Core; JavaScript PCM input remains `AudioInput` |
 | Recording and per-stem outcomes | `REAL` | `REAL` | `REAL` for component tests; final state, files, per-Stem delivery, errors, and discontinuities pass from Core without numeric precision loss |

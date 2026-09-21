@@ -59,6 +59,20 @@ readiness and observations, and runs through a reusable registration:
 node examples/advanced-connector.mjs
 ```
 
+## Create a reusable Endpoint
+
+Use the advanced Endpoint contract when one destination needs named typed
+inputs, explicit prepare/start/shutdown ownership, finite native-owned batches,
+or final driver observations:
+
+```bash
+node examples/advanced-endpoint.mjs
+```
+
+The deterministic example needs no capture permission or audio device. It
+proves the Core-controlled start gate, source-aware delivery, joined cleanup,
+and retained observations through a manifest-driven registration.
+
 ## Publish an application to Relay
 
 Create a RelaySession through your PocketStation control plane, then set the

@@ -1,5 +1,43 @@
 # JavaScript SDK progress
 
+## W21 Python/JavaScript parity slice — Endpoint control plane
+
+- Status: `SAFE-TO-MERGE` for `pocketstation.endpoint_authoring` and
+  `pocketstation.aio.endpoint_authoring`; the neutral Lab ledger reports 71/71
+  and 76/76 strict-equivalent rows respectively. Whole-SDK Python parity
+  remains false at 1,594/3,674 rows and is not claimed.
+- The public Node API now exposes manifest-driven Endpoint registration,
+  reusable configured declarations, exact Session/Endpoint/route and
+  Source/Stream/Stem context, signal/media/route metadata, shared or
+  route-local preparation, the real Core start gate, finite native-owned
+  batches, per-stage deadlines, explicit delivery outcomes, structured
+  failure stage/retryability, rollback, shutdown, joined finalization, and
+  immutable observations.
+- Core continues to own every bounded receiver and the abandonment/drain loop.
+  JavaScript receives push callbacks instead of duplicating Python's polling
+  receiver and adding a second media queue. Explicit drops and thrown driver
+  failures feed Core accounting; final driver counters are validated as u64,
+  returned across the native boundary, and retained in Core terminal metrics.
+- Eleven direct tests cover complete provenance, configuration including an
+  explicit secret, transactional gate order, shared grouping, finite batches,
+  drops, typed signals, structured delivery and request-stop failures,
+  transactional rollback, start timeout cleanup, registration reuse,
+  cross-Session rejection, validation, route overrides, and final Core
+  observations. The complete SDK gate passes 24 suites / 226 tests; 15 native
+  Rust tests, API extraction, documentation, five executable Core examples,
+  package exports, and the isolated installed-tarball consumer also pass.
+- This is component evidence on the local macOS build. It introduces no
+  provider implementation, extra media queue, mock, scaffold, loopback-only
+  product path, release, deployment, push, outreach, physical-device claim, or
+  Windows/Linux execution claim.
+- Staff review: `PASS`. The boundary is generic Endpoint authoring in the Node
+  SDK plus its native Core bridge; the product-proof line enabled is reusable
+  source-aware multi-input destinations. CODE_PROTOCOL gates run: TypeScript
+  typecheck, Rust format/Clippy/tests, bounded hot-path review, full tests, API,
+  docs, examples, exports, packed consumer, and diff check. Scaffold inventory:
+  n/a. The npm registry audit endpoint remains externally blocked by the
+  host's local certificate issuer and no dependency changed in this slice.
+
 ## W21 Python/JavaScript parity slice — Connector control plane
 
 - Status: `SAFE-TO-MERGE` for `pocketstation.connector` and

@@ -111,6 +111,27 @@ export {
   type ConnectorWorkerBuilder,
 } from './connector.js';
 export {
+  EndpointDriverError,
+  EndpointDriverObservations,
+  EndpointFailureRetryability,
+  EndpointManifest,
+  EndpointPortInput,
+  EndpointPrepareContext,
+  EndpointProvider,
+  EndpointShutdownMode,
+  EndpointStartGate,
+  PreparedEndpointDriver,
+  RegisteredEndpoint,
+  RunningEndpointDriver,
+  type EndpointConfigurationInput,
+  type EndpointDeadlines,
+  type EndpointDriverBuilder,
+  type EndpointDriverFactory,
+  type EndpointDriverItem,
+  type EndpointPreparationGroup,
+  type EndpointRuntimeObservations,
+} from './endpoint.js';
+export {
   EndpointFactory,
   OperatorFactory,
   SourceFactory,
