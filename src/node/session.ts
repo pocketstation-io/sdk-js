@@ -64,6 +64,7 @@ import {
   RegisteredEndpoint,
   type EndpointConfigurationInput,
 } from './endpoint.js';
+import { OperatorProvider, RegisteredOperator } from './operator.js';
 import { EndpointFactory, OperatorFactory, SourceFactory } from './provider.js';
 import {
   _recordingOutcomeFromNative,
@@ -873,6 +874,7 @@ export class Session {
   readonly #connectorEndpoints = new WeakMap<Connector, Endpoint>();
   readonly #registeredConnectors = new WeakMap<Connector, RegisteredConnector>();
   readonly #registeredEndpoints = new WeakMap<EndpointProvider, RegisteredEndpoint>();
+  readonly #registeredOperatorProviders = new WeakMap<OperatorProvider, RegisteredOperator>();
   readonly #registeredSources = new WeakSet<SourceFactory>();
   readonly #registeredOperators = new WeakSet<OperatorFactory>();
   #nextEndpointRegistration = 0;
@@ -1182,9 +1184,12 @@ export class Session {
 
   /** Declare one configured Operator and select its named ports. */
   public operator(
-    operator: Operator | OperatorFactory,
+    operator: Operator | OperatorFactory | OperatorProvider,
     configuration: Configuration = {},
   ): OperatorInstance {
+    if (operator instanceof OperatorProvider) {
+      return this.registerOperator(operator).declare(configuration);
+    }
     if (operator instanceof OperatorFactory) this.registerOperator(operator);
     if (!(operator instanceof OperatorFactory) && Object.keys(configuration).length !== 0) {
       throw new TypeError('Pass configuration to the Operator constructor or supply an OperatorFactory');
@@ -1199,7 +1204,30 @@ export class Session {
   }
 
   /** Register one reusable JavaScript Operator implementation. */
-  public registerOperator(operator: OperatorFactory): OperatorFactory {
+  public registerOperator(operator: OperatorFactory): OperatorFactory;
+  /** Register one manifest-driven JavaScript Operator implementation. */
+  public registerOperator(operator: OperatorProvider): RegisteredOperator;
+  public registerOperator(
+    operator: OperatorFactory | OperatorProvider,
+  ): OperatorFactory | RegisteredOperator {
+    if (operator instanceof OperatorProvider) {
+      const existing = this.#registeredOperatorProviders.get(operator);
+      if (existing !== undefined) return existing;
+      const factory = operator._factory();
+      factory._bind(this.id);
+      nativeCallSync(() => factory._register(this.#native));
+      const registered = new RegisteredOperator(
+        this.id,
+        operator,
+        (declaration) => OperatorInstance._create(
+          this,
+          nativeCallSync(() => this.#native.operator(declaration._nativeHandle())),
+        ),
+      );
+      this.#registeredOperatorProviders.set(operator, registered);
+      this.#providers.add(factory);
+      return registered;
+    }
     if (this.#registeredOperators.has(operator)) return operator;
     operator._bind(this.id);
     nativeCallSync(() => operator._register(this.#native));

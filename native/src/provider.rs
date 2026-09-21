@@ -32,10 +32,11 @@ use pocketstation::{
     EndpointStartGate, ExecutionPartition, ExecutionSafety, MediaCaps, NodeDefinition,
     NodeDescriptor, NodeError, NodeTypeId, OperatorCancellationPolicy, OperatorDeadlinePolicy,
     OperatorFailurePolicy, OperatorId, OperatorOutputRolePolicy, OperatorPermissionPolicy,
-    PortSpec, PreparedEndpointDriver, RouteId, RunningEndpointDriver, SampleFormat, SampleSpec,
-    SignalDerivation, SignalEnvelope, SignalLineage, SignalPayload, SignalTiming,
-    SourceCancellation, SourceConfiguration, SourceDriver, SourceDriverError, SourceEmission,
-    SourceFactory, SourceManifest, SourcePrepareContext, SourceSessionContext,
+    PortDirection, PortPrepareContext, PortSpec, PreparedEndpointDriver, RouteId,
+    RunningEndpointDriver, SampleFormat, SampleSpec, SignalDerivation, SignalEnvelope,
+    SignalLineage, SignalPayload, SignalTiming, SourceCancellation, SourceConfiguration,
+    SourceDriver, SourceDriverError, SourceEmission, SourceFactory, SourceManifest,
+    SourcePrepareContext, SourceSessionContext,
 };
 
 const PROVIDER_QUEUE_CAPACITY: usize = 16;
@@ -80,6 +81,7 @@ pub struct NativeProviderCall {
     pub endpoint_id: Option<String>,
     pub endpoint_inputs: Option<Vec<NativeEndpointInputDescriptor>>,
     pub endpoint_items: Option<Vec<NativeEndpointItem>>,
+    pub operator_context: Option<NativeOperatorPrepareContext>,
 }
 
 #[napi(object)]
@@ -186,6 +188,61 @@ pub struct NativeSourceContext {
     pub session_id: Option<String>,
     pub source_id: Option<String>,
     pub outputs: Vec<NativeSourceOutput>,
+}
+
+#[napi(object)]
+pub struct NativeOperatorSignalSpec {
+    pub kind: String,
+    pub format: Option<String>,
+    pub custom_id: Option<String>,
+    pub role: Option<String>,
+    pub schema: Option<String>,
+}
+
+#[napi(object)]
+pub struct NativeOperatorMediaCaps {
+    pub kind: String,
+    pub format: Option<String>,
+    pub sample_rate_hz: Option<u32>,
+    pub frame_samples: Option<u32>,
+    pub channel_layout: Option<String>,
+}
+
+#[napi(object)]
+pub struct NativeOperatorDeliveryPolicy {
+    pub clock: String,
+    pub latency_budget_ms: Option<u32>,
+    pub jitter_budget_ms: Option<u32>,
+    pub backpressure: String,
+    pub delivery: String,
+    pub loss: String,
+    pub copy_policy: String,
+    pub observability: String,
+    pub max_payload_bytes: Option<u32>,
+}
+
+#[napi(object)]
+pub struct NativeOperatorRouteSettings {
+    pub media: NativeOperatorMediaCaps,
+    pub delivery: NativeOperatorDeliveryPolicy,
+}
+
+#[napi(object)]
+pub struct NativeOperatorPortContext {
+    pub edge_id: Option<String>,
+    pub port_name: String,
+    pub direction: String,
+    pub capacity_signals: u32,
+    pub signal: NativeOperatorSignalSpec,
+    pub media: NativeOperatorMediaCaps,
+    pub route_settings: NativeOperatorRouteSettings,
+}
+
+#[napi(object)]
+pub struct NativeOperatorPrepareContext {
+    pub execution_partition: String,
+    pub inputs: Vec<NativeOperatorPortContext>,
+    pub outputs: Vec<NativeOperatorPortContext>,
 }
 
 #[napi(object)]
@@ -373,10 +430,30 @@ pub(crate) fn register_operator(
     inputs: Vec<PortSpec>,
     outputs: Vec<PortSpec>,
     queue_capacity: u32,
+    process_timeout_ms: u32,
+    network_allowed: bool,
+    filesystem_allowed: bool,
+    drain_queued: bool,
+    continue_on_failure: bool,
+    terminal_roles: Vec<String>,
     dispatch: Function<'_, NativeProviderCall, Promise<NativeProviderResult>>,
     deadline_ms: Option<u32>,
 ) -> Result<()> {
-    let deadline_ms = deadline_ms.unwrap_or(DEFAULT_PROVIDER_DEADLINE_MS);
+    let bridge_deadline_ms = deadline_ms.unwrap_or(DEFAULT_PROVIDER_DEADLINE_MS);
+    let input_media = common_operator_media(&inputs, "input")?;
+    let output_media = common_operator_media(&outputs, "output")?;
+    if inputs
+        .iter()
+        .any(|port| port.direction() != PortDirection::Input)
+        || outputs
+            .iter()
+            .any(|port| port.direction() != PortDirection::Output)
+    {
+        return Err(crate::errors::error(
+            "operator.invalid_contract",
+            "Operator inputs and outputs must use their corresponding port directions",
+        ));
+    }
     let node_type_id = format!("{operator_id}.node");
     let node = NodeDescriptor::new(
         NodeTypeId::from(node_type_id.as_str()),
@@ -384,10 +461,10 @@ pub(crate) fn register_operator(
         inputs,
         outputs,
         ExecutionPartition::AsyncWorker,
-        ExecutionSafety::NetworkAllowed,
+        ExecutionSafety::AllocationAllowed,
         true,
     )
-    .map_err(|failure| crate::errors::error("operator.invalid_declaration", failure.to_string()))?;
+    .map_err(|failure| crate::errors::error("operator.invalid_contract", failure.to_string()))?;
     let roles = node
         .outputs()
         .iter()
@@ -398,29 +475,47 @@ pub(crate) fn register_operator(
         revision,
         generation,
         node,
+        if matches!(input_media, MediaCaps::Audio(_)) {
+            pocketstation::RouteSettings::realtime_audio()
+                .with_media(input_media)
+                .with_copy_policy(CopyPolicy::CopyToBranchPool)
+        } else {
+            pocketstation::RouteSettings::bounded_async()
+                .with_media(input_media)
+                .with_backpressure(BackpressurePolicy::DropNewest)
+                .with_copy_policy(CopyPolicy::CopyToBranchPool)
+        },
         pocketstation::RouteSettings::bounded_async()
-            .with_backpressure(BackpressurePolicy::DropNewest)
+            .with_media(output_media)
             .with_copy_policy(CopyPolicy::CopyToBranchPool),
-        pocketstation::RouteSettings::bounded_async(),
         usize::try_from(queue_capacity).unwrap_or(usize::MAX),
         OperatorPermissionPolicy {
-            network_allowed: true,
-            filesystem_allowed: true,
+            network_allowed,
+            filesystem_allowed,
         },
-        OperatorDeadlinePolicy {
-            process_timeout_ms: deadline_ms,
+        OperatorDeadlinePolicy { process_timeout_ms },
+        if drain_queued {
+            OperatorCancellationPolicy::DrainQueued
+        } else {
+            OperatorCancellationPolicy::DiscardQueued
         },
-        OperatorCancellationPolicy::DiscardQueued,
-        OperatorFailurePolicy::StopWorker,
+        if continue_on_failure {
+            OperatorFailurePolicy::Continue
+        } else {
+            OperatorFailurePolicy::StopWorker
+        },
         OperatorOutputRolePolicy {
             allowed: roles,
-            terminal: Vec::new(),
+            terminal: terminal_roles
+                .into_iter()
+                .map(pocketstation::SemanticRole::new)
+                .collect(),
         },
     )
-    .map_err(|failure| crate::errors::error("operator.invalid_declaration", failure.to_string()))?;
+    .map_err(|failure| crate::errors::error("operator.invalid_contract", failure.to_string()))?;
     let audio_output = operator_audio_output(&manifest)?;
     let output_ports = manifest.output_ports().cloned().collect();
-    let bridge = ProviderBridge::new(dispatch, Some(deadline_ms))?;
+    let bridge = ProviderBridge::new(dispatch, Some(bridge_deadline_ms))?;
     session
         .register_operator(Arc::new(JavaScriptOperatorFactory {
             manifest,
@@ -431,6 +526,28 @@ pub(crate) fn register_operator(
         .map_err(|failure| {
             crate::errors::error("operator.registration_failed", failure.to_string())
         })
+}
+
+fn common_operator_media(ports: &[PortSpec], kind: &str) -> Result<MediaCaps> {
+    let media = ports
+        .first()
+        .ok_or_else(|| {
+            crate::errors::error(
+                "operator.invalid_contract",
+                format!("Operator requires at least one {kind} port"),
+            )
+        })?
+        .media();
+    if ports
+        .iter()
+        .any(|port| !port.media().is_compatible_with(&media))
+    {
+        // The concise pre-manifest JavaScript helper historically supported
+        // heterogeneous outputs. The manifest-driven API rejects them before
+        // registration, while this `Any` edge keeps that compatibility path.
+        return Ok(MediaCaps::Any);
+    }
+    Ok(media)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1833,15 +1950,14 @@ struct JavaScriptOperatorNode {
 impl AsyncNode for JavaScriptOperatorNode {
     fn prepare<'a>(
         &'a mut self,
-        _context: &'a AsyncOperatorPrepareContext,
+        context: &'a AsyncOperatorPrepareContext,
     ) -> AsyncNodeFuture<'a, std::result::Result<(), NodeError>> {
         Box::pin(async move {
+            let mut request = provider_call("operator.prepare", Some(self.instance_id), None);
+            request.operator_context =
+                Some(native_operator_prepare_context(context).map_err(NodeError::Prepare)?);
             self.bridge
-                .call_async(provider_call(
-                    "operator.prepare",
-                    Some(self.instance_id),
-                    None,
-                ))
+                .call_async(request)
                 .await
                 .map(|_| ())
                 .map_err(NodeError::Prepare)
@@ -1929,6 +2045,89 @@ impl AsyncNode for JavaScriptOperatorNode {
                 .map(|_| ())
                 .map_err(NodeError::Process)
         })
+    }
+}
+
+fn native_operator_prepare_context(
+    context: &AsyncOperatorPrepareContext,
+) -> std::result::Result<NativeOperatorPrepareContext, String> {
+    let port =
+        |value: &PortPrepareContext| -> std::result::Result<NativeOperatorPortContext, String> {
+            Ok(NativeOperatorPortContext {
+                edge_id: value
+                    .edge_id()
+                    .map(|edge| u64::from(edge.index()).to_string()),
+                port_name: value.port_name().to_owned(),
+                direction: match value.direction() {
+                    PortDirection::Input => "input",
+                    PortDirection::Output => "output",
+                }
+                .to_owned(),
+                capacity_signals: value
+                    .capacity_signals()
+                    .try_into()
+                    .map_err(|_| "Operator prepared capacity exceeds u32".to_owned())?,
+                signal: native_operator_signal(value.signal()),
+                media: native_operator_media(value.media()),
+                route_settings: native_operator_route(value.route_settings()),
+            })
+        };
+    Ok(NativeOperatorPrepareContext {
+        execution_partition: "async-worker".to_owned(),
+        inputs: context
+            .inputs()
+            .iter()
+            .map(port)
+            .collect::<std::result::Result<_, _>>()?,
+        outputs: context
+            .outputs()
+            .iter()
+            .map(port)
+            .collect::<std::result::Result<_, _>>()?,
+    })
+}
+
+fn native_operator_signal(value: &pocketstation::SignalSpec) -> NativeOperatorSignalSpec {
+    let value = crate::graph::NativeSignalSpec {
+        value: value.clone(),
+    };
+    NativeOperatorSignalSpec {
+        kind: value.kind().to_owned(),
+        format: value.format().map(str::to_owned),
+        custom_id: value.custom_id(),
+        role: value.role(),
+        schema: value.schema(),
+    }
+}
+
+fn native_operator_media(value: MediaCaps) -> NativeOperatorMediaCaps {
+    let value = crate::graph::NativeMediaCaps { value };
+    NativeOperatorMediaCaps {
+        kind: value.kind().to_owned(),
+        format: value.format().map(str::to_owned),
+        sample_rate_hz: value.sample_rate_hz(),
+        frame_samples: value.frame_samples(),
+        channel_layout: value.channel_layout().map(str::to_owned),
+    }
+}
+
+fn native_operator_route(value: pocketstation::RouteSettings) -> NativeOperatorRouteSettings {
+    let delivery = crate::graph::NativeDeliveryPolicy {
+        value: value.delivery_policy(),
+    };
+    NativeOperatorRouteSettings {
+        media: native_operator_media(value.media()),
+        delivery: NativeOperatorDeliveryPolicy {
+            clock: delivery.clock().to_owned(),
+            latency_budget_ms: delivery.latency_budget_ms(),
+            jitter_budget_ms: delivery.jitter_budget_ms(),
+            backpressure: delivery.backpressure().to_owned(),
+            delivery: delivery.delivery().to_owned(),
+            loss: delivery.loss().to_owned(),
+            copy_policy: delivery.copy_policy().to_owned(),
+            observability: delivery.observability().to_owned(),
+            max_payload_bytes: delivery.max_payload_bytes(),
+        },
     }
 }
 
@@ -2079,13 +2278,13 @@ fn operator_audio_output(
     };
     let sample_rate_hz = caps.sample_rate_hz.ok_or_else(|| {
         crate::errors::error(
-            "operator.invalid_declaration",
+            "operator.invalid_contract",
             "Operator PCM output needs an exact sample rate",
         )
     })?;
     let frame_samples = caps.frame_samples.ok_or_else(|| {
         crate::errors::error(
-            "operator.invalid_declaration",
+            "operator.invalid_contract",
             "Operator PCM output needs an exact frame size",
         )
     })?;
@@ -2094,11 +2293,37 @@ fn operator_audio_output(
         ChannelLayout::Stereo => 2,
         ChannelLayout::Any => {
             return Err(crate::errors::error(
-                "operator.invalid_declaration",
+                "operator.invalid_contract",
                 "Operator PCM output needs a concrete channel layout",
             ))
         }
     };
+    let samples_per_frame = frame_samples
+        .checked_mul(usize::from(channels))
+        .ok_or_else(|| {
+            crate::errors::error(
+                "operator.invalid_contract",
+                "Operator PCM frame size exceeds the platform limit",
+            )
+        })?;
+    let payload_bytes = samples_per_frame
+        .checked_mul(std::mem::size_of::<f32>())
+        .ok_or_else(|| {
+            crate::errors::error(
+                "operator.invalid_contract",
+                "Operator PCM payload size exceeds the platform limit",
+            )
+        })?;
+    if manifest
+        .output_route_settings()
+        .max_payload_bytes()
+        .is_some_and(|maximum| payload_bytes > maximum)
+    {
+        return Err(crate::errors::error(
+            "operator.invalid_contract",
+            "Operator PCM frame exceeds its output edge payload bound",
+        ));
+    }
     Ok(Some(OperatorAudioOutputSpec {
         sample_spec: SampleSpec::new(sample_rate_hz, channels, SampleFormat::F32Interleaved),
         frame_samples_per_channel: frame_samples,
@@ -2382,6 +2607,7 @@ fn provider_call(
         endpoint_id: None,
         endpoint_inputs: None,
         endpoint_items: None,
+        operator_context: None,
     }
 }
 

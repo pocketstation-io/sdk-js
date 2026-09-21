@@ -133,6 +133,7 @@ export {
 } from './endpoint.js';
 export {
   EndpointFactory,
+  OperatorEmission,
   OperatorFactory,
   SourceFactory,
   defineEndpoint,
@@ -148,7 +149,7 @@ export {
   type EndpointReceive,
   type EndpointSignalItem,
   type OperatorContext,
-  type OperatorEmission,
+  type OperatorEmissionInput,
   type OperatorFactoryOptions,
   type OperatorNode,
   type SourceContext,
@@ -157,6 +158,20 @@ export {
   type SourceFactoryOptions,
   type SourcePrepareContext,
 } from './provider.js';
+export {
+  OperatorDeadlines,
+  OperatorManifest,
+  OperatorPortContext,
+  OperatorPrepareContext,
+  OperatorProvider,
+  RegisteredOperator,
+  operator,
+  type AuthoredOperatorNode,
+  type OperatorConfigValidator,
+  type OperatorHandler,
+  type OperatorNodeBuilder,
+  type OperatorNodeFactory,
+} from './operator.js';
 export {
   EventStream,
   type EndpointFailure,

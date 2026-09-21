@@ -18,13 +18,16 @@ for (const example of examples) {
   }
 }
 
-for (const example of [
+const coreExamples = [
   'advanced-connector.mjs',
   'advanced-endpoint.mjs',
+  'advanced-operator.mjs',
   'feed-audio.mjs',
   'feed-events.mjs',
   'send-to-connector.mjs',
-]) {
+];
+
+for (const example of coreExamples) {
   const executed = spawnSync(process.execPath, [join(root, 'examples', example)], {
     cwd: root,
     encoding: 'utf8',
@@ -36,4 +39,4 @@ for (const example of [
   }
 }
 
-console.log(`examples: PASS (${examples.length} syntax, 5 Core Sessions)`);
+console.log(`examples: PASS (${examples.length} syntax, ${coreExamples.length} Core Sessions)`);

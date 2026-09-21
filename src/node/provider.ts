@@ -1,5 +1,5 @@
 import type { Configuration, PortSpec } from './graph.js';
-import { EndpointDefinition, Operator } from './graph.js';
+import { EndpointDefinition, Operator, SignalSpec } from './graph.js';
 import { _envelopeFromNative, type SignalEnvelope } from './signals.js';
 import {
   _audioFrameFromNative,
@@ -13,6 +13,7 @@ import type {
   NativeProviderCall,
   NativeProviderEmission,
   NativeProviderResult,
+  NativeOperatorPrepareContext,
   NativeSessionHandle,
   NativeSourceContext,
 } from './native.js';
@@ -205,13 +206,62 @@ export interface OperatorContext {
   readonly signal: AbortSignal;
 }
 
-/** One value emitted by an application-owned Operator. */
-export interface OperatorEmission {
-  /** Declared output name. */
-  readonly output: string;
+/** One value emitted by an application-owned Operator. Core attaches lineage and derivation. */
+export class OperatorEmission {
+  /** Declared output name, or a uniquely matching output inferred from `signal`. */
+  public readonly output?: string;
   /** Text, opaque bytes, or one complete interleaved float32 PCM frame. */
-  readonly data: string | Uint8Array | Float32Array;
+  public readonly data: string | Uint8Array | Float32Array;
+  /** Exact typed signal carried by this emission. */
+  public readonly signal?: SignalSpec;
+
+  public constructor(options: {
+    readonly data: string | Uint8Array | Float32Array;
+    readonly signal?: SignalSpec;
+    readonly output?: string;
+  }) {
+    if (options.output === undefined && options.signal === undefined) {
+      throw new TypeError('Operator emission needs an output name or SignalSpec');
+    }
+    this.output = options.output;
+    this.data = typeof options.data === 'string'
+      ? options.data
+      : options.data instanceof Float32Array
+        ? new Float32Array(options.data)
+        : new Uint8Array(options.data);
+    this.signal = options.signal;
+    validateOperatorEmission(this);
+    Object.freeze(this);
+  }
+
+  public static audio(
+    samples: Float32Array,
+    options: { readonly signal: SignalSpec; readonly output?: string },
+  ): OperatorEmission {
+    return new OperatorEmission({ data: samples, ...options });
+  }
+
+  public static text(
+    payload: string,
+    options: { readonly signal: SignalSpec; readonly output?: string },
+  ): OperatorEmission {
+    return new OperatorEmission({ data: payload, ...options });
+  }
+
+  public static bytes(
+    payload: Uint8Array,
+    options: { readonly signal: SignalSpec; readonly output?: string },
+  ): OperatorEmission {
+    return new OperatorEmission({ data: payload, ...options });
+  }
 }
+
+/** Structural shorthand retained for concise `defineOperator()` implementations. */
+export type OperatorEmissionInput = OperatorEmission | {
+  readonly output: string;
+  readonly data: string | Uint8Array | Float32Array;
+  readonly signal?: SignalSpec;
+};
 
 /** State created for one configured Operator instance. */
 export interface OperatorNode {
@@ -220,8 +270,8 @@ export interface OperatorNode {
     input: SignalEnvelope,
     inputPort: string,
     context: OperatorContext,
-  ): readonly OperatorEmission[] | Promise<readonly OperatorEmission[]>;
-  flush?(context: OperatorContext): readonly OperatorEmission[] | Promise<readonly OperatorEmission[]>;
+  ): readonly OperatorEmissionInput[] | Promise<readonly OperatorEmissionInput[]>;
+  flush?(context: OperatorContext): readonly OperatorEmissionInput[] | Promise<readonly OperatorEmissionInput[]>;
   cancel?(context: OperatorContext): void | Promise<void>;
   close?(): void | Promise<void>;
 }
@@ -231,7 +281,7 @@ export interface OperatorFactoryOptions {
   readonly id: string;
   readonly inputs: readonly PortSpec[];
   readonly outputs: readonly PortSpec[];
-  readonly create: (configuration: SourceConfiguration) => OperatorNode;
+  readonly create: (configuration: SourceConfiguration) => OperatorNode | Promise<OperatorNode>;
   readonly validate?: (configuration: SourceConfiguration) => void | Promise<void>;
   readonly revision?: number;
   readonly generation?: number;
@@ -239,6 +289,18 @@ export interface OperatorFactoryOptions {
   readonly queueCapacity?: number;
   /** Maximum duration of each JavaScript lifecycle call. Defaults to 5,000 ms. */
   readonly deadlineMs?: number;
+  /** Core-enforced processing deadline. Defaults to 30 seconds. */
+  readonly processTimeoutMs?: number;
+  readonly networkAllowed?: boolean;
+  readonly filesystemAllowed?: boolean;
+  readonly drainQueued?: boolean;
+  readonly continueOnFailure?: boolean;
+  readonly terminalRoles?: readonly string[];
+  /** @internal */
+  readonly prepareContext?: (
+    context: NativeOperatorPrepareContext,
+    signal: AbortSignal,
+  ) => OperatorContext;
 }
 
 interface ActiveOperator {
@@ -255,6 +317,12 @@ export class OperatorFactory {
   public readonly generation: number;
   public readonly queueCapacity: number;
   public readonly deadlineMs: number;
+  public readonly processTimeoutMs: number;
+  public readonly networkAllowed: boolean;
+  public readonly filesystemAllowed: boolean;
+  public readonly drainQueued: boolean;
+  public readonly continueOnFailure: boolean;
+  public readonly terminalRoles: readonly string[];
   readonly #options: OperatorFactoryOptions;
   readonly #instances = new Map<string, ActiveOperator>();
   #sessionId: bigint | undefined;
@@ -268,12 +336,21 @@ export class OperatorFactory {
     this.generation = options.generation ?? 1;
     this.queueCapacity = options.queueCapacity ?? 8;
     this.deadlineMs = options.deadlineMs ?? 5_000;
+    this.processTimeoutMs = options.processTimeoutMs ?? 30_000;
+    this.networkAllowed = options.networkAllowed ?? false;
+    this.filesystemAllowed = options.filesystemAllowed ?? false;
+    this.drainQueued = options.drainQueued ?? false;
+    this.continueOnFailure = options.continueOnFailure ?? false;
+    this.terminalRoles = Object.freeze([...(options.terminalRoles ?? [])]);
     requirePositiveInteger('revision', this.revision);
     requirePositiveInteger('generation', this.generation);
     requirePositiveInteger('queueCapacity', this.queueCapacity);
     if (this.queueCapacity > 1024) throw new RangeError('queueCapacity cannot exceed 1024');
-    if (!Number.isInteger(this.deadlineMs) || this.deadlineMs < 1 || this.deadlineMs > 60_000) {
-      throw new RangeError('deadlineMs must be an integer from 1 through 60000');
+    if (!Number.isInteger(this.deadlineMs) || this.deadlineMs < 1 || this.deadlineMs > 300_000) {
+      throw new RangeError('deadlineMs must be an integer from 1 through 300000');
+    }
+    if (!Number.isInteger(this.processTimeoutMs) || this.processTimeoutMs < 1 || this.processTimeoutMs > 300_000) {
+      throw new RangeError('processTimeoutMs must be an integer from 1 through 300000');
     }
     if (this.inputs.length === 0 || this.outputs.length === 0) {
       throw new TypeError('An Operator needs at least one input and one output');
@@ -283,6 +360,12 @@ export class OperatorFactory {
     }
     if (this.outputs.some((port) => port.direction !== 'output')) {
       throw new TypeError('Operator outputs must be output PortSpecs');
+    }
+    const outputRoles = new Set(this.outputs.map((port) => port.signal.role).filter((role): role is string => role !== undefined));
+    for (const role of this.terminalRoles) {
+      if (role.trim().length === 0 || !outputRoles.has(role)) {
+        throw new TypeError(`Terminal Operator role ${JSON.stringify(role)} is not a declared output role`);
+      }
     }
   }
 
@@ -308,6 +391,12 @@ export class OperatorFactory {
       this.inputs.map((port) => port._nativeHandle()),
       this.outputs.map((port) => port._nativeHandle()),
       this.queueCapacity,
+      this.processTimeoutMs,
+      this.networkAllowed,
+      this.filesystemAllowed,
+      this.drainQueued,
+      this.continueOnFailure,
+      [...this.terminalRoles],
       this._dispatch,
       this.deadlineMs,
     );
@@ -331,14 +420,20 @@ export class OperatorFactory {
         const instanceId = required(request.instanceId, 'instanceId');
         if (this.#instances.has(instanceId)) throw new Error('Operator instance already exists');
         this.#instances.set(instanceId, {
-          node: this.#options.create(configuration),
+          node: await this.#options.create(configuration),
           controller: new AbortController(),
         });
         return {};
       }
       case 'operator.prepare': {
         const active = this.#active(request);
-        await active.node.prepare?.({ signal: active.controller.signal });
+        const context = this.#options.prepareContext === undefined
+          ? { signal: active.controller.signal }
+          : this.#options.prepareContext(
+            requiredValue(request.operatorContext, 'Operator prepare context'),
+            active.controller.signal,
+          );
+        await active.node.prepare?.(context);
         return {};
       }
       case 'operator.process': {
@@ -349,12 +444,12 @@ export class OperatorFactory {
           request.inputPort ?? 'input',
           { signal: active.controller.signal },
         );
-        return { emissions: emissions.map(operatorEmissionToNative) };
+        return { emissions: emissions.map((value) => operatorEmissionToNative(value, this.outputs)) };
       }
       case 'operator.flush': {
         const active = this.#active(request);
         const emissions = (await active.node.flush?.({ signal: active.controller.signal })) ?? [];
-        return { emissions: emissions.map(operatorEmissionToNative) };
+        return { emissions: emissions.map((value) => operatorEmissionToNative(value, this.outputs)) };
       }
       case 'operator.cancel': {
         const active = this.#active(request);
@@ -777,13 +872,18 @@ function emissionToNative(value: SourceEmission): NativeProviderEmission {
     : { ...common, payloadKind: 'bytes', bytes: Buffer.from(value.data) };
 }
 
-function operatorEmissionToNative(value: OperatorEmission): NativeProviderEmission {
+function operatorEmissionToNative(
+  value: OperatorEmissionInput,
+  outputs: readonly PortSpec[],
+): NativeProviderEmission {
+  validateOperatorEmission(value);
+  const output = resolveOperatorOutput(value, outputs);
   if (typeof value.data === 'string') {
-    return { output: value.output, payloadKind: 'text', text: value.data };
+    return { output, payloadKind: 'text', text: value.data };
   }
   if (value.data instanceof Float32Array) {
     return {
-      output: value.output,
+      output,
       payloadKind: 'audio',
       samplesF32Le: Buffer.from(
         value.data.buffer,
@@ -792,7 +892,56 @@ function operatorEmissionToNative(value: OperatorEmission): NativeProviderEmissi
       ),
     };
   }
-  return { output: value.output, payloadKind: 'bytes', bytes: Buffer.from(value.data) };
+  return { output, payloadKind: 'bytes', bytes: Buffer.from(value.data) };
+}
+
+function validateOperatorEmission(value: {
+  readonly data: string | Uint8Array | Float32Array;
+  readonly signal?: SignalSpec;
+}): void {
+  if (value.signal === undefined) return;
+  const kind = value.signal.kind;
+  if (typeof value.data === 'string' && kind !== 'text' && kind !== 'any') {
+    throw new TypeError('Operator text emission does not match its SignalSpec');
+  }
+  if (value.data instanceof Float32Array && kind !== 'pcm-audio' && kind !== 'any') {
+    throw new TypeError('Operator audio emission does not match its SignalSpec');
+  }
+  if (
+    typeof value.data !== 'string'
+    && !(value.data instanceof Float32Array)
+    && kind !== 'binary'
+    && kind !== 'any'
+  ) {
+    throw new TypeError('Operator bytes emission does not match its SignalSpec');
+  }
+}
+
+function resolveOperatorOutput(
+  value: OperatorEmissionInput,
+  outputs: readonly PortSpec[],
+): string {
+  if (value.output !== undefined) {
+    const output = outputs.find((candidate) => candidate.name === value.output);
+    if (output === undefined) {
+      throw new TypeError(`Operator emitted undeclared output ${JSON.stringify(value.output)}`);
+    }
+    if (value.signal !== undefined && !output.signal.isCompatibleWith(value.signal)) {
+      throw new TypeError(`Operator output ${JSON.stringify(value.output)} does not accept the emission SignalSpec`);
+    }
+    return value.output;
+  }
+  if (value.signal === undefined) {
+    throw new TypeError('Operator emission needs an output name or SignalSpec');
+  }
+  const matches = outputs.filter((candidate) =>
+    candidate.signal.wireId === value.signal?.wireId
+    || candidate.signal.isCompatibleWith(value.signal as SignalSpec),
+  );
+  if (matches.length !== 1) {
+    throw new TypeError(`Operator emission SignalSpec matches ${matches.length} outputs; declare output explicitly`);
+  }
+  return matches[0]!.name;
 }
 
 function configurationFromNative(
@@ -805,6 +954,11 @@ function configurationFromNative(
 
 function required(value: string | null | undefined, name: string): string {
   if (value == null || value.length === 0) throw new Error(`${name} is unavailable`);
+  return value;
+}
+
+function requiredValue<T>(value: T | null | undefined, name: string): T {
+  if (value == null) throw new Error(`${name} is unavailable`);
   return value;
 }
 

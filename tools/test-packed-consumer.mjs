@@ -61,6 +61,9 @@ try {
       ExtensionPort,
       MediaCaps,
       Operator,
+      OperatorEmission,
+      OperatorManifest,
+      OperatorProvider,
       OutputCancelledError,
       OutputGeneration,
       PortSpec,
@@ -270,6 +273,61 @@ try {
     }
     if (connectorFrames[0].samples[0] !== 0.5) {
       throw new Error('packed Connector did not receive generated audio');
+    }
+    const advancedOperatorSession = new Session();
+    const requestSignal = SignalSpec.text('utf8', { role: 'packed.request' });
+    const resultSignal = SignalSpec.text('utf8', { role: 'packed.result' });
+    const advancedOperatorFeed = defineSource({
+      id: 'dev.pocketstation.source.packed-advanced-operator.v1',
+      outputs: [PortSpec.output('request', requestSignal)],
+      create: () => {
+        let sent = false;
+        return { next: () => {
+          if (sent) return undefined;
+          sent = true;
+          return { output: 'request', data: 'advanced' };
+        } };
+      },
+    });
+    let advancedOperatorPrepared;
+    const advancedOperatorProvider = OperatorProvider.withNode(
+      new OperatorManifest({
+        operatorId: 'dev.pocketstation.operator.packed-advanced.v1',
+        inputs: [PortSpec.input('request', requestSignal)],
+        outputs: [PortSpec.output('result', resultSignal)],
+        terminalRoles: ['packed.result'],
+      }),
+      async () => ({
+        prepare: (context) => { advancedOperatorPrepared = context; },
+        process: async (inputPort, envelope) => {
+          if (inputPort !== 'request') throw new Error('packed advanced Operator lost its input port');
+          return [OperatorEmission.text(envelope.payload.text.toUpperCase(), {
+            signal: resultSignal,
+          })];
+        },
+      }),
+    );
+    const advancedOperatorRegistered = advancedOperatorSession.registerOperator(
+      advancedOperatorProvider,
+    );
+    const advancedOperatorInstance = advancedOperatorRegistered.declare();
+    advancedOperatorSession.source(advancedOperatorFeed).output('request')
+      .connect(advancedOperatorInstance.input('request'));
+    const advancedOperatorSubscription = advancedOperatorSession.subscribe(
+      advancedOperatorInstance.output('result'),
+      { signal: resultSignal },
+    );
+    const advancedOperatorRunning = await advancedOperatorSession.start();
+    const advancedOperatorResult = await advancedOperatorRunning
+      .signals(advancedOperatorSubscription)
+      .read({ timeoutMs: 1000 });
+    const advancedOperatorStop = await advancedOperatorRunning.stop();
+    if (
+      !advancedOperatorStop.success ||
+      advancedOperatorResult?.payload?.text !== 'ADVANCED' ||
+      advancedOperatorPrepared?.executionPartition !== 'async-worker'
+    ) {
+      throw new Error('packed advanced Operator lost lifecycle, context, or output');
     }
     let advancedEndpointGate;
     let advancedEndpointFrames = 0;

@@ -1,5 +1,43 @@
 # JavaScript SDK progress
 
+## W21 Python/JavaScript parity slice — Operator control plane
+
+- Status: `SAFE-TO-MERGE` for `pocketstation.operator_authoring` and
+  `pocketstation.aio.operator_authoring`; the neutral Lab ledger reports 50/50
+  and 49/49 equivalent rows respectively. Whole-SDK Python parity remains
+  false at 1,703/3,674 rows and is not claimed.
+- The public Node API now exposes manifest-driven reusable Operator
+  registration, exact Core policy, configured declarations, synchronous or
+  asynchronous factories and handlers, per-stage finite deadlines, compiled
+  prepare context, typed emissions, and convenience function authoring.
+  JavaScript's single Promise-native surface covers Python's synchronous and
+  asyncio facades.
+- The native bridge now preserves the actual graph-compiled edge identity,
+  capacity, signal, media, and complete route delivery policy. It rejects any
+  future compiled route policy that cannot be represented exactly rather than
+  reconstructing an approximation. Core retains ownership of worker queues,
+  processing deadlines, permission/cancellation/failure policy, derivation,
+  audio pools, reentry, fan-out, and recording.
+- Five advanced tests plus the existing concise tests cover lifecycle,
+  compiled context, configuration and secrets, handler/factory forms,
+  registration reuse, async execution, output inference, derivation,
+  terminal roles, exact PCM contracts, owned typed-array copies, payload and
+  frame bounds, native-pool saturation, generated-audio reentry, and multistem
+  recording. The complete gate passes 25 suites / 231 tests; 15 native Rust
+  tests, API extraction, documentation, eight syntax examples / six Core
+  examples, package exports, the isolated installed-tarball consumer, and the
+  dependency audit also pass.
+- This is local macOS component evidence. It introduces no provider
+  implementation, extra media queue, mock, scaffold, loopback-only product
+  path, release, deployment, push, outreach, physical-device claim, or
+  Windows/Linux execution claim.
+- Staff review: `PASS`. Product-proof line enabled: application-owned typed
+  computation over source-aware stems without leaving Core's bounded graph.
+  Architecture boundary: Node Operator authoring and its native Core bridge.
+  CODE_PROTOCOL gates: TypeScript, Rust formatting/Clippy/tests, full Jest,
+  API, docs, examples, exports, packed consumer, dependency audit, parity
+  audit, and diff checks. Scaffold inventory: n/a.
+
 ## W21 Python/JavaScript parity slice — Endpoint control plane
 
 - Status: `SAFE-TO-MERGE` for `pocketstation.endpoint_authoring` and
