@@ -273,6 +273,16 @@ export interface AuthoredOperatorNode {
 }
 
 // @public
+export interface AuthoredSourceDriver {
+    // (undocumented)
+    close?(): void | Promise<void>;
+    // (undocumented)
+    next(cancellation: SourceCancellation): SourceEmission | undefined | Promise<SourceEmission | undefined>;
+    // (undocumented)
+    prepare?(context: SourcePrepareContext): void | Promise<void>;
+}
+
+// @public
 export interface AuthorizationOptions {
     readonly applicationPolicy?: ApplicationPolicyObservation;
     readonly osPermission?: PermissionObservation;
@@ -2313,6 +2323,16 @@ export class RegisteredOperator {
 }
 
 // @public
+export class RegisteredSource {
+    // (undocumented)
+    declare(configuration?: SourceConfiguration_2): SourceInstance;
+    // (undocumented)
+    get sessionId(): bigint;
+    // (undocumented)
+    get sourceTypeId(): string;
+}
+
+// @public
 export interface RelayIceServer {
     readonly urls: string | readonly string[];
 }
@@ -2487,9 +2507,10 @@ export class Session {
     registerOperator(operator: OperatorProvider): RegisteredOperator;
     registerSidecar(process: SidecarProcess): SidecarHandle;
     registerSource(source: SourceFactory): SourceFactory;
+    registerSource(source: SourceProvider): RegisteredSource;
     relay(options: RelayPublisherOptions): RelayPublisher;
     run(work: (running: RunningSession) => void | Promise<void>): Promise<StopResult>;
-    source(source: string | SourceFactory, configuration?: SourceConfiguration): SourceInstance;
+    source(source: string | SourceFactory | SourceProvider, configuration?: SourceConfiguration): SourceInstance;
     start(): Promise<RunningSession>;
     subscribe(stream: SourceOutput | DerivedStream, options: {
         signal: SignalSpec;
@@ -2963,7 +2984,24 @@ export class Source {
 }
 
 // @public
+export function source(manifest: SourceManifest, options?: {
+    readonly validateConfig?: SourceConfigValidator;
+    readonly deadlines?: SourceDeadlines;
+}): (factory: SourceIterableFactory) => SourceProvider;
+
+// @public
+export class SourceCancellation {
+    // (undocumented)
+    get cancelled(): boolean;
+    // (undocumented)
+    readonly signal: AbortSignal;
+}
+
+// @public
 export type SourceConfiguration = Readonly<Record<string, string>>;
+
+// @public (undocumented)
+export type SourceConfigValidator = (configuration: SourceConfiguration_2) => void | Promise<void>;
 
 // @public
 export interface SourceContext {
@@ -2971,17 +3009,66 @@ export interface SourceContext {
 }
 
 // @public
+export class SourceDeadlines {
+    constructor(options?: {
+        readonly createMs?: number;
+        readonly prepareMs?: number;
+        readonly nextMs?: number;
+        readonly closeMs?: number;
+    });
+    // (undocumented)
+    readonly closeMs: number;
+    // (undocumented)
+    readonly createMs: number;
+    // (undocumented)
+    readonly nextMs: number;
+    // (undocumented)
+    readonly prepareMs: number;
+}
+
+// @public
 export interface SourceDriver {
     // (undocumented)
     close?(): void | Promise<void>;
     // (undocumented)
-    next(context: SourceContext): SourceEmission | undefined | Promise<SourceEmission | undefined>;
+    next(context: SourceContext): SourceEmissionInput | undefined | Promise<SourceEmissionInput | undefined>;
     // (undocumented)
-    prepare?(context: SourcePrepareContext): void | Promise<void>;
+    prepare?(context: SourceDriverPrepareContext): void | Promise<void>;
+}
+
+// @public (undocumented)
+export type SourceDriverBuilder = (configuration: SourceConfiguration_2) => AuthoredSourceDriver | Promise<AuthoredSourceDriver>;
+
+// @public
+export interface SourceDriverFactory {
+    // (undocumented)
+    create(configuration: SourceConfiguration_2): AuthoredSourceDriver | Promise<AuthoredSourceDriver>;
+    // (undocumented)
+    validateConfig?(configuration: SourceConfiguration_2): void | Promise<void>;
 }
 
 // @public
-export interface SourceEmission {
+export interface SourceDriverPrepareContext extends SourceContext {
+    // (undocumented)
+    readonly outputs: readonly {
+        readonly name: string;
+        readonly streamId: bigint;
+    }[];
+    // (undocumented)
+    readonly sessionId?: bigint;
+    // (undocumented)
+    readonly sourceId?: bigint;
+    // (undocumented)
+    readonly sourceTypeId: string;
+}
+
+// @public
+export class SourceEmission {
+    constructor(options: SourceEmissionOptions);
+    // (undocumented)
+    static bytes(output: string, payload: Uint8Array, options: Omit<SourceEmissionOptions, 'output' | 'data'> & {
+        readonly signal: SignalSpec;
+    }): SourceEmission;
     // (undocumented)
     readonly clockId?: number;
     readonly data: string | Uint8Array;
@@ -2994,6 +3081,41 @@ export interface SourceEmission {
     readonly output: string;
     // (undocumented)
     readonly policyEpoch?: bigint;
+    // (undocumented)
+    readonly signal?: SignalSpec;
+    // (undocumented)
+    readonly sourceGeneration?: number;
+    // (undocumented)
+    readonly sourceTimestampNs?: bigint;
+    // (undocumented)
+    readonly terminal?: boolean;
+    // (undocumented)
+    static text(output: string, payload: string, options: Omit<SourceEmissionOptions, 'output' | 'data'> & {
+        readonly signal: SignalSpec;
+    }): SourceEmission;
+}
+
+// @public (undocumented)
+export type SourceEmissionInput = SourceEmission | SourceEmissionOptions;
+
+// @public (undocumented)
+export interface SourceEmissionOptions {
+    // (undocumented)
+    readonly clockId?: number;
+    // (undocumented)
+    readonly data: string | Uint8Array;
+    // (undocumented)
+    readonly discontinuityEpoch?: bigint;
+    // (undocumented)
+    readonly durationNs?: bigint;
+    // (undocumented)
+    readonly observedTimestampNs?: bigint;
+    // (undocumented)
+    readonly output: string;
+    // (undocumented)
+    readonly policyEpoch?: bigint;
+    // (undocumented)
+    readonly signal?: SignalSpec;
     // (undocumented)
     readonly sourceGeneration?: number;
     // (undocumented)
@@ -3019,7 +3141,7 @@ export class SourceFactory {
 
 // @public
 export interface SourceFactoryOptions {
-    readonly create: (configuration: SourceConfiguration_2) => SourceDriver;
+    readonly create: (configuration: SourceConfiguration_2) => SourceDriver | Promise<SourceDriver>;
     readonly deadlineMs?: number;
     readonly generation?: number;
     readonly id: string;
@@ -3059,8 +3181,29 @@ export class SourceInstance {
     get sourceId(): bigint;
 }
 
+// @public (undocumented)
+export type SourceIterableFactory = (configuration: SourceConfiguration_2) => Iterable<SourceEmission> | AsyncIterable<SourceEmission>;
+
 // @public
 export type SourceKind = 'application' | 'output-device' | 'input-device' | 'system-mix';
+
+// @public
+export class SourceManifest {
+    constructor(options: {
+        readonly sourceTypeId: string;
+        readonly outputs: readonly PortSpec[];
+        readonly revision?: number;
+        readonly implementationGeneration?: number;
+    });
+    // (undocumented)
+    readonly implementationGeneration: number;
+    // (undocumented)
+    readonly outputs: readonly PortSpec[];
+    // (undocumented)
+    readonly revision: number;
+    // (undocumented)
+    readonly sourceTypeId: string;
+}
 
 // @public
 export interface SourceMetrics {
@@ -3128,18 +3271,56 @@ export class SourceOutput {
 }
 
 // @public
-export interface SourcePrepareContext extends SourceContext {
+export class SourceOutputIdentity {
+    get name(): string;
     // (undocumented)
-    readonly outputs: readonly {
-        readonly name: string;
-        readonly streamId: bigint;
-    }[];
+    readonly outputPort: string;
+    // (undocumented)
+    readonly streamId: bigint;
+}
+
+// @public
+export class SourcePrepareContext {
+    // (undocumented)
+    readonly outputs: readonly SourceOutputIdentity[];
     // (undocumented)
     readonly sessionId?: bigint;
+    // (undocumented)
+    readonly signal: AbortSignal;
     // (undocumented)
     readonly sourceId?: bigint;
     // (undocumented)
     readonly sourceTypeId: string;
+}
+
+// @public
+export class SourceProvider {
+    constructor(options: {
+        readonly manifest: SourceManifest;
+        readonly factory: SourceDriverFactory | SourceDriverBuilder;
+        readonly deadlines?: SourceDeadlines;
+        readonly validateConfig?: SourceConfigValidator;
+    });
+    // (undocumented)
+    readonly deadlines: SourceDeadlines;
+    // (undocumented)
+    readonly factory: SourceDriverFactory | SourceDriverBuilder;
+    // (undocumented)
+    static fromAsyncIterable(manifest: SourceManifest, factory: SourceIterableFactory, options?: {
+        readonly validateConfig?: SourceConfigValidator;
+        readonly deadlines?: SourceDeadlines;
+    }): SourceProvider;
+    // (undocumented)
+    static fromIterable(manifest: SourceManifest, factory: SourceIterableFactory, options?: {
+        readonly validateConfig?: SourceConfigValidator;
+        readonly deadlines?: SourceDeadlines;
+    }): SourceProvider;
+    // (undocumented)
+    readonly manifest: SourceManifest;
+    // (undocumented)
+    static withDriver(manifest: SourceManifest, factory: SourceDriverFactory | SourceDriverBuilder, options?: {
+        readonly deadlines?: SourceDeadlines;
+    }): SourceProvider;
 }
 
 // @public

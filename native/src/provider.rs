@@ -6,7 +6,7 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use futures::future::{select, Either};
-use napi::bindgen_prelude::{Buffer, Function, Promise};
+use napi::bindgen_prelude::{Buffer, ClassInstance, Function, Promise};
 use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi::{Result, Status};
 use napi_derive::napi;
@@ -188,6 +188,30 @@ pub struct NativeSourceContext {
     pub session_id: Option<String>,
     pub source_id: Option<String>,
     pub outputs: Vec<NativeSourceOutput>,
+}
+
+#[napi(js_name = "NativeSourceManifest")]
+#[derive(Clone)]
+pub struct NativeSourceManifest {
+    pub(crate) value: SourceManifest,
+}
+
+#[napi]
+impl NativeSourceManifest {
+    #[napi(constructor)]
+    pub fn new(
+        source_type_id: String,
+        outputs: Vec<ClassInstance<'_, crate::graph::NativePortSpec>>,
+        revision: u32,
+        implementation_generation: u32,
+    ) -> Result<Self> {
+        let outputs = outputs
+            .iter()
+            .map(|output| output.as_ref().value.clone())
+            .collect();
+        build_source_manifest(source_type_id, revision, implementation_generation, outputs)
+            .map(|value| Self { value })
+    }
 }
 
 #[napi(object)]
@@ -388,25 +412,34 @@ pub(crate) fn audio_connector(
 
 pub(crate) fn register_source(
     session: &pocketstation::Session,
+    manifest: SourceManifest,
+    dispatch: Function<'_, NativeProviderCall, Promise<NativeProviderResult>>,
+    deadline_ms: Option<u32>,
+) -> Result<()> {
+    let bridge = ProviderBridge::new(dispatch, deadline_ms)?;
+    session
+        .register_source(Arc::new(JavaScriptSourceFactory { manifest, bridge }))
+        .map_err(|failure| crate::errors::error("source.registration_failed", failure.to_string()))
+}
+
+fn build_source_manifest(
     source_type_id: String,
     revision: u32,
     generation: u32,
     outputs: Vec<pocketstation::PortSpec>,
-    dispatch: Function<'_, NativeProviderCall, Promise<NativeProviderResult>>,
-    deadline_ms: Option<u32>,
-) -> Result<()> {
+) -> Result<SourceManifest> {
     if outputs.iter().any(|output| {
         output.direction() != pocketstation::PortDirection::Output
             || output.signal().class().is_audio()
     }) {
         return Err(crate::errors::error(
-            "source.invalid_declaration",
+            "source.invalid_contract",
             "JavaScript Sources emit typed non-PCM signals; use Session.audioInput() for application-owned PCM",
         ));
     }
-    let manifest = SourceManifest::new(
+    SourceManifest::new(
         pocketstation::SourceTypeId::new(source_type_id).map_err(|failure| {
-            crate::errors::error("source.invalid_declaration", failure.to_string())
+            crate::errors::error("source.invalid_contract", failure.to_string())
         })?,
         revision,
         generation,
@@ -414,11 +447,7 @@ pub(crate) fn register_source(
         ExecutionPartition::BlockingWorker,
         ExecutionSafety::AllocationAllowed,
     )
-    .map_err(|failure| crate::errors::error("source.invalid_declaration", failure.to_string()))?;
-    let bridge = ProviderBridge::new(dispatch, deadline_ms)?;
-    session
-        .register_source(Arc::new(JavaScriptSourceFactory { manifest, bridge }))
-        .map_err(|failure| crate::errors::error("source.registration_failed", failure.to_string()))
+    .map_err(|failure| crate::errors::error("source.invalid_contract", failure.to_string()))
 }
 
 #[allow(clippy::too_many_arguments)]

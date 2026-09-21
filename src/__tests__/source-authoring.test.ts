@@ -6,18 +6,18 @@ import {
   SourceFactory,
   defineSource,
   type SourceDriver,
-  type SourcePrepareContext,
+  type SourceDriverPrepareContext,
 } from '../node/index.js';
 
 describe('Source authoring', () => {
   it('runs a class through Core with source identity, timing, and exact cleanup', async () => {
     const lifecycle: string[] = [];
-    let prepared: SourcePrepareContext | undefined;
+    let prepared: SourceDriverPrepareContext | undefined;
 
     class TranscriptFeed implements SourceDriver {
       #index = 0;
 
-      public prepare(context: SourcePrepareContext): void {
+      public prepare(context: SourceDriverPrepareContext): void {
         prepared = context;
         lifecycle.push('prepare');
       }

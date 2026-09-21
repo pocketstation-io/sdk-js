@@ -2,6 +2,17 @@ import { createRequire } from 'node:module';
 
 export interface NativeSourceHandle {}
 
+export interface NativeSourceManifestHandle {}
+
+interface NativeSourceManifestConstructor {
+  new (
+    sourceTypeId: string,
+    outputs: NativePortSpecHandle[],
+    revision: number,
+    implementationGeneration: number,
+  ): NativeSourceManifestHandle;
+}
+
 export interface NativeSourceConstructor {
   application(nameOrApplicationId: string): NativeSourceHandle;
   applicationName(name: string): NativeSourceHandle;
@@ -1161,10 +1172,7 @@ export interface NativeSessionHandle {
     configuration: NativeConfigurationEntry[],
   ): NativeSourceInstanceHandle;
   registerSource(
-    sourceTypeId: string,
-    revision: number,
-    generation: number,
-    outputs: NativePortSpecHandle[],
+    manifest: NativeSourceManifestHandle,
     dispatch: (request: NativeProviderCall) => Promise<NativeProviderResult>,
     deadlineMs?: number,
   ): void;
@@ -1234,6 +1242,7 @@ interface NativeSessionConstructor {
 
 export interface NativeAddon {
   NativeSource: NativeSourceConstructor;
+  NativeSourceManifest: NativeSourceManifestConstructor;
   NativeSession: NativeSessionConstructor;
   NativeSessionTrace: NativeSessionTraceConstructor;
   NativeCapturePermissionLifecycle: NativeCapturePermissionLifecycleConstructor;

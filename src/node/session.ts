@@ -65,6 +65,7 @@ import {
   type EndpointConfigurationInput,
 } from './endpoint.js';
 import { OperatorProvider, RegisteredOperator } from './operator.js';
+import { RegisteredSource, SourceProvider } from './source.js';
 import { EndpointFactory, OperatorFactory, SourceFactory } from './provider.js';
 import {
   _recordingOutcomeFromNative,
@@ -875,6 +876,7 @@ export class Session {
   readonly #registeredConnectors = new WeakMap<Connector, RegisteredConnector>();
   readonly #registeredEndpoints = new WeakMap<EndpointProvider, RegisteredEndpoint>();
   readonly #registeredOperatorProviders = new WeakMap<OperatorProvider, RegisteredOperator>();
+  readonly #registeredSourceProviders = new WeakMap<SourceProvider, RegisteredSource>();
   readonly #registeredSources = new WeakSet<SourceFactory>();
   readonly #registeredOperators = new WeakSet<OperatorFactory>();
   #nextEndpointRegistration = 0;
@@ -939,9 +941,12 @@ export class Session {
 
   /** Declare one instance of an externally registered Source. */
   public source(
-    source: string | SourceFactory,
+    source: string | SourceFactory | SourceProvider,
     configuration: SourceConfiguration = {},
   ): SourceInstance {
+    if (source instanceof SourceProvider) {
+      return this.registerSource(source).declare(configuration);
+    }
     const sourceTypeId = typeof source === 'string' ? source : source.id;
     if (source instanceof SourceFactory) this.registerSource(source);
     const entries = Object.entries(configuration)
@@ -954,7 +959,27 @@ export class Session {
   }
 
   /** Register one reusable JavaScript Source implementation. */
-  public registerSource(source: SourceFactory): SourceFactory {
+  public registerSource(source: SourceFactory): SourceFactory;
+  /** Register one manifest-driven JavaScript Source implementation. */
+  public registerSource(source: SourceProvider): RegisteredSource;
+  public registerSource(
+    source: SourceFactory | SourceProvider,
+  ): SourceFactory | RegisteredSource {
+    if (source instanceof SourceProvider) {
+      const existing = this.#registeredSourceProviders.get(source);
+      if (existing !== undefined) return existing;
+      const factory = source._factory();
+      factory._bind(this.id);
+      nativeCallSync(() => factory._register(this.#native));
+      const registered = new RegisteredSource(
+        this.id,
+        source,
+        (configuration) => this.source(source.manifest.sourceTypeId, configuration),
+      );
+      this.#registeredSourceProviders.set(source, registered);
+      this.#providers.add(factory);
+      return registered;
+    }
     if (this.#registeredSources.has(source)) return source;
     source._bind(this.id);
     nativeCallSync(() => source._register(this.#native));

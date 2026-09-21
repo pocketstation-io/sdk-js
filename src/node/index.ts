@@ -135,6 +135,7 @@ export {
   EndpointFactory,
   OperatorEmission,
   OperatorFactory,
+  SourceEmission,
   SourceFactory,
   defineEndpoint,
   defineOperator,
@@ -154,9 +155,10 @@ export {
   type OperatorNode,
   type SourceContext,
   type SourceDriver,
-  type SourceEmission,
+  type SourceDriverPrepareContext,
+  type SourceEmissionInput,
+  type SourceEmissionOptions,
   type SourceFactoryOptions,
-  type SourcePrepareContext,
 } from './provider.js';
 export {
   OperatorDeadlines,
@@ -172,6 +174,21 @@ export {
   type OperatorNodeBuilder,
   type OperatorNodeFactory,
 } from './operator.js';
+export {
+  RegisteredSource,
+  SourceCancellation,
+  SourceDeadlines,
+  SourceManifest,
+  SourceOutputIdentity,
+  SourcePrepareContext,
+  SourceProvider,
+  source,
+  type AuthoredSourceDriver,
+  type SourceConfigValidator,
+  type SourceDriverBuilder,
+  type SourceDriverFactory,
+  type SourceIterableFactory,
+} from './source.js';
 export {
   EventStream,
   type EndpointFailure,

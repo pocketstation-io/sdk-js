@@ -22,6 +22,7 @@ const coreExamples = [
   'advanced-connector.mjs',
   'advanced-endpoint.mjs',
   'advanced-operator.mjs',
+  'advanced-source.mjs',
   'feed-audio.mjs',
   'feed-events.mjs',
   'send-to-connector.mjs',

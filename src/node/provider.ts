@@ -5,18 +5,21 @@ import {
   _audioFrameFromNative,
   type ConnectorAudioFrame,
 } from './connector.js';
-import type {
-  NativeConfigurationEntry,
-  NativeEndpointDriverObservations,
-  NativeEndpointInputDescriptor,
-  NativeEndpointItem,
-  NativeProviderCall,
-  NativeProviderEmission,
-  NativeProviderResult,
-  NativeOperatorPrepareContext,
-  NativeSessionHandle,
-  NativeSourceContext,
+import {
+  nativeAddon,
+  type NativeConfigurationEntry,
+  type NativeEndpointDriverObservations,
+  type NativeEndpointInputDescriptor,
+  type NativeEndpointItem,
+  type NativeOperatorPrepareContext,
+  type NativeProviderCall,
+  type NativeProviderEmission,
+  type NativeProviderResult,
+  type NativeSessionHandle,
+  type NativeSourceContext,
+  type NativeSourceManifestHandle,
 } from './native.js';
+import { nativeCallSync } from './errors.js';
 
 /** String configuration supplied when a Source is declared. */
 export type SourceConfiguration = Readonly<Record<string, string>>;
@@ -28,7 +31,7 @@ export interface SourceContext {
 }
 
 /** Source and stream identities assigned by Core before production begins. */
-export interface SourcePrepareContext extends SourceContext {
+export interface SourceDriverPrepareContext extends SourceContext {
   readonly sourceTypeId: string;
   readonly sessionId?: bigint;
   readonly sourceId?: bigint;
@@ -39,11 +42,62 @@ export interface SourcePrepareContext extends SourceContext {
 }
 
 /** One typed value emitted by an application-owned Source. */
-export interface SourceEmission {
+export class SourceEmission {
   /** Declared output name. */
-  readonly output: string;
+  public readonly output: string;
   /** UTF-8 text or opaque bytes. PCM belongs in `Session.audioInput()`. */
+  public readonly data: string | Uint8Array;
+  public readonly signal?: SignalSpec;
+  public readonly sourceTimestampNs?: bigint;
+  public readonly observedTimestampNs?: bigint;
+  public readonly durationNs?: bigint;
+  public readonly sourceGeneration?: number;
+  public readonly discontinuityEpoch?: bigint;
+  public readonly policyEpoch?: bigint;
+  public readonly clockId?: number;
+  public readonly terminal?: boolean;
+
+  public constructor(options: SourceEmissionOptions) {
+    this.output = exactText(options.output, 'Source emission output');
+    this.data = typeof options.data === 'string' ? options.data : new Uint8Array(options.data);
+    this.signal = options.signal;
+    this.sourceTimestampNs = optionalU64(options.sourceTimestampNs, 'sourceTimestampNs');
+    this.observedTimestampNs = optionalU64(options.observedTimestampNs, 'observedTimestampNs');
+    this.durationNs = optionalU64(options.durationNs, 'durationNs');
+    this.sourceGeneration = options.sourceGeneration ?? 1;
+    requirePositiveInteger('sourceGeneration', this.sourceGeneration);
+    this.discontinuityEpoch = optionalU64(options.discontinuityEpoch ?? 0n, 'discontinuityEpoch');
+    this.policyEpoch = optionalU64(options.policyEpoch ?? 0n, 'policyEpoch');
+    this.clockId = options.clockId ?? 1;
+    if (!Number.isInteger(this.clockId) || this.clockId < 0 || this.clockId > 0xffff_ffff) {
+      throw new RangeError('clockId must be a u32 integer');
+    }
+    this.terminal = options.terminal ?? false;
+    validateSourceEmission(this);
+    Object.freeze(this);
+  }
+
+  public static text(
+    output: string,
+    payload: string,
+    options: Omit<SourceEmissionOptions, 'output' | 'data'> & { readonly signal: SignalSpec },
+  ): SourceEmission {
+    return new SourceEmission({ output, data: payload, ...options });
+  }
+
+  public static bytes(
+    output: string,
+    payload: Uint8Array,
+    options: Omit<SourceEmissionOptions, 'output' | 'data'> & { readonly signal: SignalSpec },
+  ): SourceEmission {
+    return new SourceEmission({ output, data: payload, ...options });
+  }
+}
+
+export interface SourceEmissionOptions {
+  readonly output: string;
   readonly data: string | Uint8Array;
+  readonly signal?: SignalSpec;
   readonly sourceTimestampNs?: bigint;
   readonly observedTimestampNs?: bigint;
   readonly durationNs?: bigint;
@@ -54,10 +108,12 @@ export interface SourceEmission {
   readonly terminal?: boolean;
 }
 
+export type SourceEmissionInput = SourceEmission | SourceEmissionOptions;
+
 /** State created for one declared Source instance. */
 export interface SourceDriver {
-  prepare?(context: SourcePrepareContext): void | Promise<void>;
-  next(context: SourceContext): SourceEmission | undefined | Promise<SourceEmission | undefined>;
+  prepare?(context: SourceDriverPrepareContext): void | Promise<void>;
+  next(context: SourceContext): SourceEmissionInput | undefined | Promise<SourceEmissionInput | undefined>;
   close?(): void | Promise<void>;
 }
 
@@ -68,7 +124,7 @@ export interface SourceFactoryOptions {
   /** Typed non-PCM outputs produced by each instance. */
   readonly outputs: readonly PortSpec[];
   /** Create independent state for one Session declaration. */
-  readonly create: (configuration: SourceConfiguration) => SourceDriver;
+  readonly create: (configuration: SourceConfiguration) => SourceDriver | Promise<SourceDriver>;
   /** Reject invalid configuration before any Source resource starts. */
   readonly validate?: (configuration: SourceConfiguration) => void | Promise<void>;
   /** Additive declaration revision. Defaults to one. */
@@ -77,6 +133,13 @@ export interface SourceFactoryOptions {
   readonly generation?: number;
   /** Maximum duration of each JavaScript lifecycle call. Defaults to 5,000 ms. */
   readonly deadlineMs?: number;
+  /** @internal */
+  readonly prepareContext?: (
+    context: NativeSourceContext,
+    signal: AbortSignal,
+  ) => SourceDriverPrepareContext;
+  /** @internal Reuse an already Core-validated manifest. */
+  readonly nativeManifest?: NativeSourceManifestHandle;
 }
 
 interface ActiveSource {
@@ -92,6 +155,7 @@ export class SourceFactory {
   public readonly generation: number;
   public readonly deadlineMs: number;
   readonly #options: SourceFactoryOptions;
+  readonly #manifest: NativeSourceManifestHandle;
   readonly #instances = new Map<string, ActiveSource>();
   #sessionId: bigint | undefined;
 
@@ -104,8 +168,8 @@ export class SourceFactory {
     this.deadlineMs = options.deadlineMs ?? 5_000;
     requirePositiveInteger('revision', this.revision);
     requirePositiveInteger('generation', this.generation);
-    if (!Number.isInteger(this.deadlineMs) || this.deadlineMs < 1 || this.deadlineMs > 60_000) {
-      throw new RangeError('deadlineMs must be an integer from 1 through 60000');
+    if (!Number.isInteger(this.deadlineMs) || this.deadlineMs < 1 || this.deadlineMs > 300_000) {
+      throw new RangeError('deadlineMs must be an integer from 1 through 300000');
     }
     if (this.outputs.length === 0) {
       throw new TypeError('A Source needs at least one output');
@@ -115,6 +179,14 @@ export class SourceFactory {
         'JavaScript Sources emit typed non-PCM signals; use Session.audioInput() for application-owned PCM',
       );
     }
+    this.#manifest = options.nativeManifest ?? nativeCallSync(
+      () => new (nativeAddon().NativeSourceManifest)(
+        this.id,
+        this.outputs.map((output) => output._nativeHandle()),
+        this.revision,
+        this.generation,
+      ),
+    );
   }
 
   /** @internal */
@@ -128,10 +200,7 @@ export class SourceFactory {
   /** @internal */
   public _register(native: NativeSessionHandle): void {
     native.registerSource(
-      this.id,
-      this.revision,
-      this.generation,
-      this.outputs.map((output) => output._nativeHandle()),
+      this.#manifest,
       this._dispatch,
       this.deadlineMs,
     );
@@ -156,13 +225,22 @@ export class SourceFactory {
       case 'source.create': {
         const instanceId = required(request.instanceId, 'instanceId');
         if (this.#instances.has(instanceId)) throw new Error('Source instance already exists');
-        const driver = this.#options.create(configuration);
+        const driver = await this.#options.create(configuration);
         this.#instances.set(instanceId, { driver, controller: new AbortController() });
         return {};
       }
       case 'source.prepare': {
         const active = this.#active(request);
-        await active.driver.prepare?.(sourceContext(request.sourceContext, active.controller.signal));
+        try {
+          const nativeContext = requiredValue(request.sourceContext, 'Source prepare context');
+          const context = this.#options.prepareContext === undefined
+            ? sourceContext(nativeContext, active.controller.signal)
+            : this.#options.prepareContext(nativeContext, active.controller.signal);
+          await active.driver.prepare?.(context);
+        } catch (error) {
+          if (!active.controller.signal.aborted) active.controller.abort(error);
+          throw error;
+        }
         return {};
       }
       case 'source.next': {
@@ -170,8 +248,13 @@ export class SourceFactory {
         if (request.cancelled === true && !active.controller.signal.aborted) {
           active.controller.abort();
         }
-        const emission = await active.driver.next({ signal: active.controller.signal });
-        return emission === undefined ? {} : { emission: emissionToNative(emission) };
+        try {
+          const emission = await active.driver.next({ signal: active.controller.signal });
+          return emission === undefined ? {} : { emission: emissionToNative(emission, this.outputs) };
+        } catch (error) {
+          if (!active.controller.signal.aborted) active.controller.abort(error);
+          throw error;
+        }
       }
       case 'source.close': {
         const instanceId = required(request.instanceId, 'instanceId');
@@ -840,7 +923,7 @@ function endpointItem(request: NativeProviderCall | NativeEndpointItem): Endpoin
   throw new Error('Endpoint delivery contains neither audio nor a typed signal');
 }
 
-function sourceContext(value: NativeSourceContext | null | undefined, signal: AbortSignal): SourcePrepareContext {
+function sourceContext(value: NativeSourceContext | null | undefined, signal: AbortSignal): SourceDriverPrepareContext {
   if (value == null) throw new Error('Source prepare context is unavailable');
   return Object.freeze({
     sourceTypeId: value.sourceTypeId,
@@ -855,7 +938,18 @@ function sourceContext(value: NativeSourceContext | null | undefined, signal: Ab
   });
 }
 
-function emissionToNative(value: SourceEmission): NativeProviderEmission {
+function emissionToNative(
+  value: SourceEmissionInput,
+  outputs: readonly PortSpec[],
+): NativeProviderEmission {
+  validateSourceEmission(value);
+  const output = outputs.find((candidate) => candidate.name === value.output);
+  if (output === undefined) {
+    throw new TypeError(`Source emitted undeclared output ${JSON.stringify(value.output)}`);
+  }
+  if (value.signal !== undefined && !output.signal.isCompatibleWith(value.signal)) {
+    throw new TypeError(`Source output ${JSON.stringify(value.output)} does not accept the emission SignalSpec`);
+  }
   const common = {
     output: value.output,
     sourceTimestampNs: value.sourceTimestampNs?.toString(),
@@ -870,6 +964,20 @@ function emissionToNative(value: SourceEmission): NativeProviderEmission {
   return typeof value.data === 'string'
     ? { ...common, payloadKind: 'text', text: value.data }
     : { ...common, payloadKind: 'bytes', bytes: Buffer.from(value.data) };
+}
+
+function validateSourceEmission(value: {
+  readonly data: string | Uint8Array;
+  readonly signal?: SignalSpec;
+}): void {
+  if (value.signal === undefined) return;
+  const kind = value.signal.kind;
+  if (typeof value.data === 'string' && kind !== 'text' && kind !== 'any') {
+    throw new TypeError('Source emission payload does not match its SignalSpec');
+  }
+  if (typeof value.data !== 'string' && kind !== 'binary' && kind !== 'any') {
+    throw new TypeError('Source emission payload does not match its SignalSpec');
+  }
 }
 
 function operatorEmissionToNative(
@@ -959,6 +1067,21 @@ function required(value: string | null | undefined, name: string): string {
 
 function requiredValue<T>(value: T | null | undefined, name: string): T {
   if (value == null) throw new Error(`${name} is unavailable`);
+  return value;
+}
+
+function exactText(value: string, name: string): string {
+  if (value.length === 0 || value.trim() !== value) {
+    throw new TypeError(`${name} must be non-empty and exact`);
+  }
+  return value;
+}
+
+function optionalU64(value: bigint | undefined, name: string): bigint | undefined {
+  if (value === undefined) return undefined;
+  if (value < 0n || value > 0xffff_ffff_ffff_ffffn) {
+    throw new RangeError(`${name} must be a u64 bigint`);
+  }
   return value;
 }
 
