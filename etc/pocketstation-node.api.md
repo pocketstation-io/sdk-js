@@ -259,6 +259,20 @@ export class AudioStream implements AsyncIterable<AudioFrame> {
 }
 
 // @public
+export interface AuthoredOperatorNode {
+    // (undocumented)
+    cancel?(): void | Promise<void>;
+    // (undocumented)
+    close?(): void | Promise<void>;
+    // (undocumented)
+    flush?(): readonly OperatorEmissionInput[] | Promise<readonly OperatorEmissionInput[]>;
+    // (undocumented)
+    prepare?(context: OperatorPrepareContext): void | Promise<void>;
+    // (undocumented)
+    process(inputPort: string, envelope: SignalEnvelope): readonly OperatorEmissionInput[] | Promise<readonly OperatorEmissionInput[]>;
+}
+
+// @public
 export interface AuthorizationOptions {
     readonly applicationPolicy?: ApplicationPolicyObservation;
     readonly osPermission?: PermissionObservation;
@@ -1740,22 +1754,83 @@ export class Operator {
 }
 
 // @public
+export function operator(manifest: OperatorManifest, options?: {
+    readonly validateConfig?: OperatorConfigValidator;
+    readonly deadlines?: OperatorDeadlines;
+}): (handler: OperatorHandler) => OperatorProvider;
+
+// @public (undocumented)
+export type OperatorConfigValidator = (configuration: Readonly<Record<string, string>>) => void | Promise<void>;
+
+// @public
 export interface OperatorContext {
     readonly signal: AbortSignal;
 }
 
 // @public
-export interface OperatorEmission {
-    readonly data: string | Uint8Array | Float32Array;
-    readonly output: string;
+export class OperatorDeadlines {
+    constructor(options?: {
+        readonly createMs?: number;
+        readonly prepareMs?: number;
+        readonly processMs?: number;
+        readonly closeMs?: number;
+    });
+    // (undocumented)
+    readonly closeMs: number;
+    // (undocumented)
+    readonly createMs: number;
+    // (undocumented)
+    readonly prepareMs: number;
+    // (undocumented)
+    readonly processMs: number;
 }
+
+// @public
+export class OperatorEmission {
+    constructor(options: {
+        readonly data: string | Uint8Array | Float32Array;
+        readonly signal?: SignalSpec;
+        readonly output?: string;
+    });
+    // (undocumented)
+    static audio(samples: Float32Array, options: {
+        readonly signal: SignalSpec;
+        readonly output?: string;
+    }): OperatorEmission;
+    // (undocumented)
+    static bytes(payload: Uint8Array, options: {
+        readonly signal: SignalSpec;
+        readonly output?: string;
+    }): OperatorEmission;
+    readonly data: string | Uint8Array | Float32Array;
+    readonly output?: string;
+    readonly signal?: SignalSpec;
+    // (undocumented)
+    static text(payload: string, options: {
+        readonly signal: SignalSpec;
+        readonly output?: string;
+    }): OperatorEmission;
+}
+
+// @public
+export type OperatorEmissionInput = OperatorEmission | {
+    readonly output: string;
+    readonly data: string | Uint8Array | Float32Array;
+    readonly signal?: SignalSpec;
+};
 
 // @public
 export class OperatorFactory {
     constructor(options: OperatorFactoryOptions);
     configured(configuration?: Configuration): Operator;
     // (undocumented)
+    readonly continueOnFailure: boolean;
+    // (undocumented)
     readonly deadlineMs: number;
+    // (undocumented)
+    readonly drainQueued: boolean;
+    // (undocumented)
+    readonly filesystemAllowed: boolean;
     // (undocumented)
     readonly generation: number;
     // (undocumented)
@@ -1763,18 +1838,30 @@ export class OperatorFactory {
     // (undocumented)
     readonly inputs: readonly PortSpec[];
     // (undocumented)
+    readonly networkAllowed: boolean;
+    // (undocumented)
     readonly outputs: readonly PortSpec[];
+    // (undocumented)
+    readonly processTimeoutMs: number;
     // (undocumented)
     readonly queueCapacity: number;
     // (undocumented)
     readonly revision: number;
+    // (undocumented)
+    readonly terminalRoles: readonly string[];
 }
 
 // @public
 export interface OperatorFactoryOptions {
     // (undocumented)
-    readonly create: (configuration: SourceConfiguration_2) => OperatorNode;
+    readonly continueOnFailure?: boolean;
+    // (undocumented)
+    readonly create: (configuration: SourceConfiguration_2) => OperatorNode | Promise<OperatorNode>;
     readonly deadlineMs?: number;
+    // (undocumented)
+    readonly drainQueued?: boolean;
+    // (undocumented)
+    readonly filesystemAllowed?: boolean;
     // (undocumented)
     readonly generation?: number;
     // (undocumented)
@@ -1782,13 +1869,21 @@ export interface OperatorFactoryOptions {
     // (undocumented)
     readonly inputs: readonly PortSpec[];
     // (undocumented)
+    readonly networkAllowed?: boolean;
+    // (undocumented)
     readonly outputs: readonly PortSpec[];
+    readonly processTimeoutMs?: number;
     readonly queueCapacity?: number;
     // (undocumented)
     readonly revision?: number;
     // (undocumented)
+    readonly terminalRoles?: readonly string[];
+    // (undocumented)
     readonly validate?: (configuration: SourceConfiguration_2) => void | Promise<void>;
 }
+
+// @public (undocumented)
+export type OperatorHandler = (inputPort: string, envelope: SignalEnvelope) => readonly OperatorEmissionInput[] | Promise<readonly OperatorEmissionInput[]>;
 
 // @public
 export class OperatorInput {
@@ -1808,6 +1903,48 @@ export class OperatorInstance {
     get id(): bigint;
     input(name: string): OperatorInput;
     output(name: string): DerivedStream;
+}
+
+// @public
+export class OperatorManifest {
+    constructor(options: {
+        readonly operatorId: string;
+        readonly inputs: readonly PortSpec[];
+        readonly outputs: readonly PortSpec[];
+        readonly revision?: number;
+        readonly implementationGeneration?: number;
+        readonly queueCapacitySignals?: number;
+        readonly processTimeoutMs?: number;
+        readonly networkAllowed?: boolean;
+        readonly filesystemAllowed?: boolean;
+        readonly drainQueued?: boolean;
+        readonly continueOnFailure?: boolean;
+        readonly terminalRoles?: readonly string[];
+    });
+    // (undocumented)
+    readonly continueOnFailure: boolean;
+    // (undocumented)
+    readonly drainQueued: boolean;
+    // (undocumented)
+    readonly filesystemAllowed: boolean;
+    // (undocumented)
+    readonly implementationGeneration: number;
+    // (undocumented)
+    readonly inputs: readonly PortSpec[];
+    // (undocumented)
+    readonly networkAllowed: boolean;
+    // (undocumented)
+    readonly operatorId: string;
+    // (undocumented)
+    readonly outputs: readonly PortSpec[];
+    // (undocumented)
+    readonly processTimeoutMs: number;
+    // (undocumented)
+    readonly queueCapacitySignals: number;
+    // (undocumented)
+    readonly revision: number;
+    // (undocumented)
+    readonly terminalRoles: readonly string[];
 }
 
 // @public
@@ -1831,11 +1968,77 @@ export interface OperatorNode {
     // (undocumented)
     close?(): void | Promise<void>;
     // (undocumented)
-    flush?(context: OperatorContext): readonly OperatorEmission[] | Promise<readonly OperatorEmission[]>;
+    flush?(context: OperatorContext): readonly OperatorEmissionInput[] | Promise<readonly OperatorEmissionInput[]>;
     // (undocumented)
     prepare?(context: OperatorContext): void | Promise<void>;
     // (undocumented)
-    process(input: SignalEnvelope, inputPort: string, context: OperatorContext): readonly OperatorEmission[] | Promise<readonly OperatorEmission[]>;
+    process(input: SignalEnvelope, inputPort: string, context: OperatorContext): readonly OperatorEmissionInput[] | Promise<readonly OperatorEmissionInput[]>;
+}
+
+// @public (undocumented)
+export type OperatorNodeBuilder = (configuration: Readonly<Record<string, string>>) => AuthoredOperatorNode | Promise<AuthoredOperatorNode>;
+
+// @public
+export interface OperatorNodeFactory {
+    // (undocumented)
+    create(configuration: Readonly<Record<string, string>>): AuthoredOperatorNode | Promise<AuthoredOperatorNode>;
+    // (undocumented)
+    validateConfig?(configuration: Readonly<Record<string, string>>): void | Promise<void>;
+}
+
+// @public
+export class OperatorPortContext {
+    // (undocumented)
+    readonly capacitySignals: number;
+    // (undocumented)
+    readonly direction: PortDirection;
+    // (undocumented)
+    readonly edgeId?: bigint;
+    // (undocumented)
+    readonly media: MediaCaps;
+    // (undocumented)
+    readonly portName: string;
+    // (undocumented)
+    readonly routeSettings: RouteSettings;
+    // (undocumented)
+    readonly signal: SignalSpec;
+}
+
+// @public
+export class OperatorPrepareContext implements OperatorContext {
+    // (undocumented)
+    readonly executionPartition: string;
+    // (undocumented)
+    readonly inputs: readonly OperatorPortContext[];
+    // (undocumented)
+    readonly outputs: readonly OperatorPortContext[];
+    // (undocumented)
+    readonly signal: AbortSignal;
+}
+
+// @public
+export class OperatorProvider {
+    constructor(options: {
+        readonly manifest: OperatorManifest;
+        readonly factory: OperatorNodeFactory | OperatorNodeBuilder;
+        readonly deadlines?: OperatorDeadlines;
+        readonly validateConfig?: OperatorConfigValidator;
+    });
+    // (undocumented)
+    readonly deadlines: OperatorDeadlines;
+    // (undocumented)
+    readonly factory: OperatorNodeFactory | OperatorNodeBuilder;
+    // (undocumented)
+    static fromHandler(manifest: OperatorManifest, handler: OperatorHandler, options?: {
+        readonly validateConfig?: OperatorConfigValidator;
+        readonly deadlines?: OperatorDeadlines;
+    }): OperatorProvider;
+    // (undocumented)
+    readonly manifest: OperatorManifest;
+    // (undocumented)
+    static withNode(manifest: OperatorManifest, factory: OperatorNodeFactory | OperatorNodeBuilder, options?: {
+        readonly deadlines?: OperatorDeadlines;
+    }): OperatorProvider;
 }
 
 // @public
@@ -2100,6 +2303,16 @@ export class RegisteredEndpoint {
 }
 
 // @public
+export class RegisteredOperator {
+    // (undocumented)
+    declare(configuration?: Configuration): OperatorInstance;
+    // (undocumented)
+    get operatorId(): string;
+    // (undocumented)
+    get sessionId(): bigint;
+}
+
+// @public
 export interface RelayIceServer {
     readonly urls: string | readonly string[];
 }
@@ -2267,10 +2480,11 @@ export class Session {
     eventInput(name: string, options?: EventInputOptions): EventInput;
     get id(): bigint;
     loadNativeExtensionLibrary(path: string): Promise<NativeExtensionLibrary>;
-    operator(operator: Operator | OperatorFactory, configuration?: Configuration): OperatorInstance;
+    operator(operator: Operator | OperatorFactory | OperatorProvider, configuration?: Configuration): OperatorInstance;
     registerConnector(connector: Connector): RegisteredConnector;
     registerEndpoint(provider: EndpointProvider): RegisteredEndpoint;
     registerOperator(operator: OperatorFactory): OperatorFactory;
+    registerOperator(operator: OperatorProvider): RegisteredOperator;
     registerSidecar(process: SidecarProcess): SidecarHandle;
     registerSource(source: SourceFactory): SourceFactory;
     relay(options: RelayPublisherOptions): RelayPublisher;

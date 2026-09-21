@@ -161,6 +161,56 @@ export interface NativeProviderCall {
   endpointId?: string | null;
   endpointInputs?: NativeEndpointInputDescriptor[] | null;
   endpointItems?: NativeEndpointItem[] | null;
+  operatorContext?: NativeOperatorPrepareContext | null;
+}
+
+export interface NativeOperatorPortContext {
+  edgeId?: string | null;
+  portName: string;
+  direction: string;
+  capacitySignals: number;
+  signal: NativeOperatorSignalSpec;
+  media: NativeOperatorMediaCaps;
+  routeSettings: NativeOperatorRouteSettings;
+}
+
+export interface NativeOperatorSignalSpec {
+  kind: string;
+  format?: string | null;
+  customId?: string | null;
+  role?: string | null;
+  schema?: string | null;
+}
+
+export interface NativeOperatorMediaCaps {
+  kind: string;
+  format?: string | null;
+  sampleRateHz?: number | null;
+  frameSamples?: number | null;
+  channelLayout?: string | null;
+}
+
+export interface NativeOperatorDeliveryPolicy {
+  clock: string;
+  latencyBudgetMs?: number | null;
+  jitterBudgetMs?: number | null;
+  backpressure: string;
+  delivery: string;
+  loss: string;
+  copyPolicy: string;
+  observability: string;
+  maxPayloadBytes?: number | null;
+}
+
+export interface NativeOperatorRouteSettings {
+  media: NativeOperatorMediaCaps;
+  delivery: NativeOperatorDeliveryPolicy;
+}
+
+export interface NativeOperatorPrepareContext {
+  executionPartition: string;
+  inputs: NativeOperatorPortContext[];
+  outputs: NativeOperatorPortContext[];
 }
 
 export interface NativeEndpointInputDescriptor {
@@ -1125,6 +1175,12 @@ export interface NativeSessionHandle {
     inputs: NativePortSpecHandle[],
     outputs: NativePortSpecHandle[],
     queueCapacity: number,
+    processTimeoutMs: number,
+    networkAllowed: boolean,
+    filesystemAllowed: boolean,
+    drainQueued: boolean,
+    continueOnFailure: boolean,
+    terminalRoles: string[],
     dispatch: (request: NativeProviderCall) => Promise<NativeProviderResult>,
     deadlineMs?: number,
   ): void;

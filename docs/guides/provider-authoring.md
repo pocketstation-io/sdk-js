@@ -13,6 +13,7 @@ Choose the smallest API that fits the work:
 | Feed PCM already produced by JavaScript into a Session | `AudioInput` |
 | Produce text, events, metrics, control data, or bytes | `SourceFactory` |
 | Transform typed input into typed output or generated PCM | `OperatorFactory` |
+| Publish a reusable Operator with explicit Core policy and compiled edge context | `OperatorProvider` |
 | Receive several named audio or signal inputs in one destination | `EndpointFactory` |
 
 Provider packages can expose these classes from their own npm packages.
@@ -257,6 +258,67 @@ const securedOperator = session.operator(normalize, {
   token: secret(process.env.PROVIDER_TOKEN ?? ""),
 });
 ```
+
+### Build a reusable manifest-driven Operator
+
+Use `OperatorProvider` when the implementation needs the complete contract
+rather than the concise `defineOperator()` defaults. The manifest controls
+revision and implementation generation, Core queue capacity, Core's process
+deadline, network/filesystem permission declarations, drain/discard policy,
+failure continuation, and terminal output roles. None of these values is
+silently widened by the JavaScript binding.
+
+```ts
+import {
+  OperatorEmission,
+  OperatorManifest,
+  OperatorProvider,
+  PortSpec,
+  SignalSpec,
+} from "pocketstation/node";
+
+const request = SignalSpec.text("utf8", { role: "request" });
+const result = SignalSpec.text("utf8", { role: "result.final" });
+
+const uppercase = OperatorProvider.withNode(
+  new OperatorManifest({
+    operatorId: "com.acme.operator.uppercase.v1",
+    inputs: [PortSpec.input("request", request)],
+    outputs: [PortSpec.output("result", result)],
+    processTimeoutMs: 5_000,
+    terminalRoles: ["result.final"],
+  }),
+  async () => ({
+    prepare(context) {
+      // These are the actual graph-compiled edges and capacities.
+      console.log(context.inputs[0]?.edgeId, context.inputs[0]?.capacitySignals);
+    },
+    async process(inputPort, envelope) {
+      if (inputPort !== "request" || envelope.payload.kind !== "text") return [];
+      return [OperatorEmission.text(envelope.payload.text.toUpperCase(), {
+        signal: result,
+      })];
+    },
+  }),
+);
+
+const registered = session.registerOperator(uppercase);
+const instance = registered.declare({ language: "en" });
+```
+
+JavaScript is asynchronous by default, so one API covers the synchronous and
+asyncio Python authoring forms. `OperatorDeadlines` bounds create, prepare,
+process/flush, cancel, and close separately; its process deadline may not
+exceed the Core manifest deadline. `OperatorEmission` copies bytes and PCM at
+construction, validates payload versus `SignalSpec`, and can infer a unique
+output from that signal. Core still owns derivation, input lineage, the bounded
+worker queue, the PCM output pool, generated-audio reentry, and recording.
+
+An Operator is not ready merely because its factory returned. `prepare()` sees
+the compiled input/output port names, edge identities, directions, capacities,
+signals, media, and route settings before processing starts. Wrong PCM frame
+sizes, non-concrete PCM output formats, payloads larger than the route bound,
+and native pool exhaustion terminate explicitly instead of becoming silence.
 
 The provider's `validate()` and `create()` functions receive the original
 string values. Provider code must not place credentials in its own errors,
