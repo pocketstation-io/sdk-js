@@ -58,7 +58,7 @@ import {
   SidecarProcess,
   SidecarSnapshot,
 } from './sidecar.js';
-import { Connector } from './connector.js';
+import { Connector, RegisteredConnector, type ConnectorConfigurationInput } from './connector.js';
 import { EndpointFactory, OperatorFactory, SourceFactory } from './provider.js';
 import {
   _recordingOutcomeFromNative,
@@ -220,6 +220,16 @@ export class Endpoint {
   /** Session-local Endpoint identity. */
   public get id(): bigint {
     return BigInt(this.#native.id);
+  }
+
+  /** Session identity that owns this Endpoint. */
+  public get sessionId(): bigint {
+    return BigInt(this.#native.sessionId);
+  }
+
+  /** Core-assigned Connector identity, when this is a Connector destination. */
+  public get connectorId(): bigint | undefined {
+    return this.#native.connectorId == null ? undefined : BigInt(this.#native.connectorId);
   }
 
   /** @internal */
@@ -856,9 +866,11 @@ export class Session {
   readonly #channels: 1 | 2;
   readonly #frameDurationMs: 10 | 20;
   readonly #connectorEndpoints = new WeakMap<Connector, Endpoint>();
+  readonly #registeredConnectors = new WeakMap<Connector, RegisteredConnector>();
   readonly #registeredSources = new WeakSet<SourceFactory>();
   readonly #registeredOperators = new WeakSet<OperatorFactory>();
   #nextEndpointRegistration = 0;
+  #nextConnectorIdentity = 0n;
   readonly #providers = new Set<{ _abort(reason?: unknown): void }>();
 
   /** Create a Session declaration. No capture resource is opened yet. */
@@ -1061,17 +1073,26 @@ export class Session {
   }
 
   /** Declare one destination implemented by application-owned JavaScript. */
-  public destination(connector: Connector): Endpoint {
+  public destination(connector: Connector, options: { configuration?: ConnectorConfigurationInput; routeSettings?: RouteSettings } = {}): Endpoint {
     const existing = this.#connectorEndpoints.get(connector);
-    if (existing !== undefined) return existing;
-    connector._bind(this.id);
+    if (existing !== undefined) {
+      if (options.configuration !== undefined || options.routeSettings !== undefined) throw new TypeError('A cached Connector destination cannot be redeclared with different options; use registerConnector().declare()');
+      return existing;
+    }
+    if (connector._isAdvanced()) {
+      const endpoint = this.registerConnector(connector).declare(options.configuration, { routeSettings: options.routeSettings });
+      this.#connectorEndpoints.set(connector, endpoint);
+      return endpoint;
+    }
+    if (options.configuration !== undefined) throw new TypeError('Concise Connectors do not accept configuration');
+    connector._bind(this.id, this.#allocateConnectorIdentity());
     const endpoint = Endpoint._create(
       this,
       nativeCallSync(() =>
         this.#native.audioConnector(
           connector._dispatch,
           connector._deadline(),
-          RouteSettings.realtimeAudio()
+          (options.routeSettings ?? RouteSettings.realtimeAudio())
             .withDelivery(
               DeliveryPolicy.realtimeAudio().withJitterBudgetMs(
                 connector._capacityFrames() * this.#frameDurationMs,
@@ -1084,6 +1105,48 @@ export class Session {
     this.#connectorEndpoints.set(connector, endpoint);
     this.#providers.add(connector);
     return endpoint;
+  }
+
+  /** Register one reusable manifest-driven Connector with this Session draft. */
+  public registerConnector(connector: Connector): RegisteredConnector {
+    const existing = this.#registeredConnectors.get(connector);
+    if (existing !== undefined) return existing;
+    if (!connector._isAdvanced()) {
+      throw new TypeError('registerConnector() requires a manifest-driven Connector');
+    }
+    connector._bind(this.id, this.#allocateConnectorIdentity());
+    const options = connector._endpointFactoryOptions();
+    const factory = new EndpointFactory(options);
+    factory._bind(this.id);
+    const nativeRegistered = nativeCallSync(() => this.#native.registerConnector(
+      connector.manifest._nativeManifest(),
+      connector.manifest.inputs.map((input) => input._nativeHandle()),
+      factory._dispatch,
+      options.deadlineMs,
+      options.maximumBatchItems ?? 1,
+      connector._usesWorker(),
+    ));
+    const registered = new RegisteredConnector(
+      this.id,
+      connector,
+      (configuration, route) => Endpoint._create(
+        this,
+        nativeCallSync(() => this.#native.connectorEndpoint(
+          nativeRegistered,
+          connector.manifest.configuration._nativeEntries(configuration),
+          route._nativeHandle(),
+        )),
+      ),
+    );
+    this.#registeredConnectors.set(connector, registered);
+    this.#providers.add(connector);
+    this.#providers.add(factory);
+    return registered;
+  }
+
+  #allocateConnectorIdentity(): bigint {
+    this.#nextConnectorIdentity += 1n;
+    return this.#nextConnectorIdentity;
   }
 
   /** Declare one configured Operator and select its named ports. */

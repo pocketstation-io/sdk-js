@@ -78,6 +78,43 @@ interface NativeCapturePermissionLifecycleConstructor {
 export interface NativeEndpointHandle {
   readonly id: string;
   readonly sessionId: string;
+  readonly connectorId?: string | null;
+}
+
+export interface NativeRegisteredConnectorHandle {
+  readonly sessionId: string;
+}
+
+export interface NativeConnectorConstraint {
+  kind: string;
+  minimum?: string | null;
+  maximum?: string | null;
+  values?: string[] | null;
+}
+
+export interface NativeConnectorConfigurationField {
+  name: string;
+  kind: string;
+  requirement: string;
+  documentation: string;
+  defaultValue?: string | null;
+  constraints?: NativeConnectorConstraint[] | null;
+  deprecation?: string | null;
+}
+
+export interface NativeConnectorManifest {
+  operatorId: string;
+  nodeTypeId: string;
+  packageVersion: string;
+  manifestRevision: number;
+  startupTimeoutMs: number;
+  probeIntervalMs: number;
+  successThreshold: number;
+  failureThreshold: number;
+  configurationRevision: number;
+  configurationFields: NativeConnectorConfigurationField[];
+  capabilities: { id: string; documentation: string }[];
+  requirements: { id: string; required?: boolean; documentation: string }[];
 }
 
 export interface NativeRelayDestinationOptions {
@@ -102,6 +139,12 @@ export interface NativeProviderAudio {
   routeEnqueuedAtNs: string;
   routeReceivedAtNs: string;
   outputGenerationId?: string | null;
+  sourceGeneration: number;
+  discontinuityEpoch: string;
+  permissionEpoch: string;
+  clockId: number;
+  durationNs: string;
+  connectorId?: string | null;
 }
 
 export interface NativeProviderCall {
@@ -116,12 +159,33 @@ export interface NativeProviderCall {
   signal?: NativeSignalEnvelope | null;
   routeId?: string | null;
   endpointId?: string | null;
+  endpointInputs?: NativeEndpointInputDescriptor[] | null;
+  endpointItems?: NativeEndpointItem[] | null;
+}
+
+export interface NativeEndpointInputDescriptor {
+  endpointId: string;
+  connectorId?: string | null;
+  routeId: string;
+  portName: string;
+}
+
+export interface NativeEndpointItem {
+  inputPort: string;
+  endpointId: string;
+  routeId: string;
+  audio?: NativeProviderAudio | null;
+  signal?: NativeSignalEnvelope | null;
 }
 
 export interface NativeProviderResult {
   outcome?: string | null;
+  outcomes?: string[] | null;
   emission?: NativeProviderEmission | null;
   emissions?: NativeProviderEmission[] | null;
+  preparationGroup?: string | null;
+  routePreparation?: boolean | null;
+  idleEnabled?: boolean | null;
 }
 
 export interface NativeSourceContext {
@@ -1055,7 +1119,21 @@ export interface NativeSessionHandle {
     inputs: NativePortSpecHandle[],
     dispatch: (request: NativeProviderCall) => Promise<NativeProviderResult>,
     deadlineMs?: number,
+    maximumBatchItems?: number,
   ): void;
+  registerConnector(
+    manifest: NativeConnectorManifest,
+    inputs: NativePortSpecHandle[],
+    dispatch: (request: NativeProviderCall) => Promise<NativeProviderResult>,
+    deadlineMs: number | undefined,
+    maximumBatchItems: number,
+    worker: boolean,
+  ): NativeRegisteredConnectorHandle;
+  connectorEndpoint(
+    registered: NativeRegisteredConnectorHandle,
+    configuration: NativeConfigurationEntry[],
+    route: NativeRouteSettingsHandle,
+  ): NativeEndpointHandle;
   registerSidecar(spec: NativeSidecarProcessSpec): string;
   loadNativeExtensionLibrary(path: string): Promise<NativeExtensionLibrary>;
   subscribeDerived(

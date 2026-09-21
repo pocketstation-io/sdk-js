@@ -34,6 +34,9 @@ export interface AudioCaps {
 }
 
 // @public
+export type AudioConnectorHandler = (frame: ConnectorAudioFrame, context: ConnectorContext) => ConnectorDeliveryOutcome | void | Promise<ConnectorDeliveryOutcome | void>;
+
+// @public
 export interface AudioFrame {
     readonly channelCount: number;
     readonly clock: ClockDomainDescriptor;
@@ -436,41 +439,572 @@ export type ConfigurationValue = string | SecretValue;
 // @public
 export abstract class Connector {
     protected constructor(options?: ConnectorOptions);
+    // Warning: (ae-forgotten-export) The symbol "AdvancedConnector" needs to be exported by the entry point index.d.ts
+    get factory(): AdvancedConnector['factory'];
+    // (undocumented)
+    static fromAudioHandler(operatorId: string, handler: AudioConnectorHandler, options: {
+        packageVersion: string;
+        portName?: string;
+        deadlines?: ConnectorDeadlines;
+    }): Connector;
+    // (undocumented)
+    static fromHandler(manifest: ConnectorManifest, handler: ConnectorHandler, options?: {
+        deadlines?: ConnectorDeadlines;
+    }): Connector;
+    get manifest(): ConnectorManifest;
+    // (undocumented)
     abstract send(frame: ConnectorAudioFrame, context: ConnectorContext): void | Promise<void>;
+    // (undocumented)
     start(_context: ConnectorContext): void | Promise<void>;
-    stop(_mode: 'drain' | 'abort', _context: ConnectorContext): void | Promise<void>;
+    // (undocumented)
+    stop(_mode: ConnectorShutdownMode, _context: ConnectorContext): void | Promise<void>;
+    // (undocumented)
+    static withDriver(manifest: ConnectorManifest, factory: ConnectorDriverFactory | ConnectorDriverBuilder, options?: {
+        deadlines?: ConnectorDeadlines;
+    }): Connector;
+    // (undocumented)
+    static withWorker(manifest: ConnectorManifest, factory: ConnectorFactory | ConnectorWorkerBuilder, options?: {
+        maximumBatchItems?: number;
+        deadlines?: ConnectorDeadlines;
+    }): Connector;
 }
 
 // @public
 export function connector(send: ConnectorSend, options?: ConnectorOptions): Connector;
 
 // @public
+export function connector(manifest: ConnectorManifest, options?: {
+    deadlines?: ConnectorDeadlines;
+}): (handler: ConnectorHandler) => Connector;
+
+// @public
 export interface ConnectorAudioFrame {
+    // (undocumented)
     readonly channels: number;
+    // (undocumented)
+    readonly clockId: number;
+    // (undocumented)
+    readonly connectorId?: bigint;
+    // (undocumented)
+    readonly discontinuityEpoch: bigint;
+    // (undocumented)
+    readonly durationNs: bigint;
+    // (undocumented)
+    readonly endpointEnqueuedAtNs?: bigint;
+    // (undocumented)
+    readonly endpointId?: bigint;
+    // (undocumented)
     readonly outputGenerationId?: bigint;
+    // (undocumented)
+    readonly permissionEpoch: bigint;
+    // (undocumented)
+    readonly polledAtNs?: bigint;
+    // (undocumented)
     readonly routeEnqueuedAtNs: bigint;
+    // (undocumented)
+    readonly routeId?: bigint;
+    // (undocumented)
     readonly routeReceivedAtNs: bigint;
+    // (undocumented)
     readonly sampleRateHz: number;
+    // (undocumented)
     readonly samples: Float32Array;
+    // (undocumented)
     readonly sequenceNumber: bigint;
+    // (undocumented)
+    readonly sourceGeneration: number;
+    // (undocumented)
     readonly sourceId: bigint;
+    // (undocumented)
     readonly streamId: bigint;
+    // (undocumented)
     readonly timestampNs: bigint;
 }
 
 // @public
-export interface ConnectorContext {
+export type ConnectorBatchOutcome = ConnectorDeliveryOutcome | readonly ConnectorDeliveryOutcome[] | void;
+
+// @public
+export interface ConnectorCapability {
+    // (undocumented)
+    readonly documentation: string;
+    // (undocumented)
+    readonly id: string;
+}
+
+// @public
+export class ConnectorConfigurationConstraint {
+    // (undocumented)
+    static nonEmpty(): ConnectorConfigurationConstraint;
+    // (undocumented)
+    static oneOf(values: readonly string[]): ConnectorConfigurationConstraint;
+    // (undocumented)
+    static signedRange(minimum: bigint | number, maximum: bigint | number): ConnectorConfigurationConstraint;
+    // (undocumented)
+    static textLengthBytes(minimum: number, maximum: number): ConnectorConfigurationConstraint;
+    // (undocumented)
+    static unsignedRange(minimum: bigint | number, maximum: bigint | number): ConnectorConfigurationConstraint;
+}
+
+// @public
+export class ConnectorConfigurationField {
+    constructor(options: ConnectorConfigurationFieldOptions);
+    // (undocumented)
+    readonly constraints: readonly ConnectorConfigurationConstraint[];
+    // (undocumented)
+    readonly default?: ConnectorConfigurationValue;
+    // (undocumented)
+    readonly deprecation?: string;
+    // (undocumented)
+    readonly documentation: string;
+    // (undocumented)
+    readonly kind: ConnectorConfigurationValueKind;
+    // (undocumented)
+    readonly name: string;
+    // (undocumented)
+    readonly requirement: ConnectorConfigurationRequirement;
+}
+
+// @public
+export interface ConnectorConfigurationFieldOptions {
+    // (undocumented)
+    readonly constraints?: readonly ConnectorConfigurationConstraint[];
+    // (undocumented)
+    readonly default?: ConnectorConfigurationValue | string | boolean | number | bigint;
+    // (undocumented)
+    readonly deprecation?: string;
+    // (undocumented)
+    readonly documentation: string;
+    // (undocumented)
+    readonly kind: ConnectorConfigurationValueKind;
+    // (undocumented)
+    readonly name: string;
+    // (undocumented)
+    readonly requirement?: ConnectorConfigurationRequirement;
+}
+
+// @public
+export type ConnectorConfigurationInput = Readonly<Record<string, ConnectorConfigurationValue | string | boolean | number | bigint>>;
+
+// @public
+export const ConnectorConfigurationRequirement: {
+    readonly Required: "required";
+    readonly Optional: "optional";
+    readonly Default: "default";
+};
+
+// @public (undocumented)
+export type ConnectorConfigurationRequirement = (typeof ConnectorConfigurationRequirement)[keyof typeof ConnectorConfigurationRequirement];
+
+// @public
+export class ConnectorConfigurationSchema {
+    constructor(fields?: readonly ConnectorConfigurationField[], revision?: number);
+    configuration(values?: ConnectorConfigurationInput): Readonly<Record<string, ConnectorConfigurationValue>>;
+    // (undocumented)
+    readonly fields: readonly ConnectorConfigurationField[];
+    // (undocumented)
+    readonly revision: number;
+}
+
+// @public
+export class ConnectorConfigurationValue {
+    // (undocumented)
+    static boolean(value: boolean): ConnectorConfigurationValue;
+    // (undocumented)
+    static byteCount(value: bigint | number): ConnectorConfigurationValue;
+    // (undocumented)
+    static durationMilliseconds(value: bigint | number): ConnectorConfigurationValue;
+    exposeSecret(): string;
+    // (undocumented)
+    get kind(): ConnectorConfigurationValueKind;
+    // (undocumented)
+    static secret(value: string): ConnectorConfigurationValue;
+    // (undocumented)
+    static signedInteger(value: bigint | number): ConnectorConfigurationValue;
+    // (undocumented)
+    static text(value: string): ConnectorConfigurationValue;
+    // (undocumented)
+    toString(): string;
+    // (undocumented)
+    static unsignedInteger(value: bigint | number): ConnectorConfigurationValue;
+    get value(): string | boolean | bigint;
+}
+
+// @public
+export const ConnectorConfigurationValueKind: {
+    readonly Text: "text";
+    readonly Boolean: "boolean";
+    readonly SignedInteger: "signed-integer";
+    readonly UnsignedInteger: "unsigned-integer";
+    readonly DurationMilliseconds: "duration-milliseconds";
+    readonly ByteCount: "byte-count";
+    readonly Secret: "secret";
+};
+
+// @public (undocumented)
+export type ConnectorConfigurationValueKind = (typeof ConnectorConfigurationValueKind)[keyof typeof ConnectorConfigurationValueKind];
+
+// @public
+export class ConnectorContext {
+    // (undocumented)
+    recordRetry(): void;
+    // (undocumented)
+    setConnected(): boolean;
+    // (undocumented)
+    setDegraded(reasonCode: string): boolean;
+    // (undocumented)
+    setHealthy(): boolean;
+    // (undocumented)
+    setNotReady(reasonCode?: string): boolean;
+    // (undocumented)
+    setReady(): boolean;
+    // (undocumented)
+    setReconnecting(reasonCode: string): boolean;
+    // (undocumented)
+    get shutdownMode(): ConnectorShutdownMode | undefined;
     readonly signal: AbortSignal;
+    // (undocumented)
+    get stopRequested(): boolean;
+}
+
+// @public
+export interface ConnectorDeadlines {
+    // (undocumented)
+    readonly deliveryMs?: number;
+    // (undocumented)
+    readonly prepareMs?: number;
+    // (undocumented)
+    readonly shutdownMs?: number;
+    // (undocumented)
+    readonly startMs?: number;
+}
+
+// @public
+export const ConnectorDeliveryOutcome: {
+    readonly Delivered: "delivered";
+    readonly Dropped: "dropped";
+};
+
+// @public (undocumented)
+export type ConnectorDeliveryOutcome = (typeof ConnectorDeliveryOutcome)[keyof typeof ConnectorDeliveryOutcome];
+
+// @public
+export const ConnectorDeliveryReadiness: {
+    readonly NotReady: "not-ready";
+    readonly Ready: "ready";
+};
+
+// @public (undocumented)
+export type ConnectorDeliveryReadiness = (typeof ConnectorDeliveryReadiness)[keyof typeof ConnectorDeliveryReadiness];
+
+// @public
+export abstract class ConnectorDriver {
+    // (undocumented)
+    cancelPreparation(): void | Promise<void>;
+    // (undocumented)
+    abstract deliver(item: ConnectorItem, context: ConnectorContext): ConnectorDeliveryOutcome | void | Promise<ConnectorDeliveryOutcome | void>;
+    // (undocumented)
+    idle(_context: ConnectorContext): void | Promise<void>;
+    // (undocumented)
+    shutdown(_mode: ConnectorShutdownMode, _context: ConnectorContext): void | Promise<void>;
+    // (undocumented)
+    start(context: ConnectorContext): void | Promise<void>;
+}
+
+// @public
+export type ConnectorDriverBuilder = (inputs: readonly ConnectorInputDescriptor[]) => ConnectorDriver | Promise<ConnectorDriver>;
+
+// @public
+export interface ConnectorDriverFactory {
+    // (undocumented)
+    preparationGroup?(routeId: bigint, configuration: Readonly<Record<string, ConnectorConfigurationValue>>): string | undefined;
+    // (undocumented)
+    prepare(inputs: readonly ConnectorInputDescriptor[]): ConnectorDriver | Promise<ConnectorDriver>;
+}
+
+// @public
+export class ConnectorError extends PocketStationError {
+    constructor(message: string, options: {
+        code: string;
+        stage: ConnectorErrorStage;
+        retryability?: ConnectorRetryability;
+        cause?: unknown;
+    });
+    // (undocumented)
+    readonly retryability: ConnectorRetryability;
+    // (undocumented)
+    readonly stage: ConnectorErrorStage;
+}
+
+// @public
+export interface ConnectorErrorSnapshot {
+    // (undocumented)
+    readonly code: string;
+    // (undocumented)
+    readonly message: string;
+    // (undocumented)
+    readonly retryability: ConnectorRetryability;
+    // (undocumented)
+    readonly stage: ConnectorErrorStage;
+}
+
+// @public
+export const ConnectorErrorStage: {
+    readonly Configuration: "configuration";
+    readonly Prepare: "prepare";
+    readonly Startup: "startup";
+    readonly Readiness: "readiness";
+    readonly Delivery: "delivery";
+    readonly Retry: "retry";
+    readonly Shutdown: "shutdown";
+    readonly Join: "join";
+};
+
+// @public (undocumented)
+export type ConnectorErrorStage = (typeof ConnectorErrorStage)[keyof typeof ConnectorErrorStage];
+
+// @public
+export interface ConnectorFactory {
+    // (undocumented)
+    preparationGroup?(routeId: bigint, configuration: Readonly<Record<string, ConnectorConfigurationValue>>): string | undefined;
+    // (undocumented)
+    prepare(inputs: readonly ConnectorInputDescriptor[]): ConnectorWorker | Promise<ConnectorWorker>;
+}
+
+// @public
+export type ConnectorHandler = (item: ConnectorItem, context: ConnectorContext) => ConnectorDeliveryOutcome | void | Promise<ConnectorDeliveryOutcome | void>;
+
+// @public
+export const ConnectorHealth: {
+    readonly Healthy: "healthy";
+    readonly Degraded: "degraded";
+};
+
+// @public (undocumented)
+export type ConnectorHealth = (typeof ConnectorHealth)[keyof typeof ConnectorHealth];
+
+// @public
+export interface ConnectorInputDescriptor {
+    // (undocumented)
+    readonly configuration: Readonly<Record<string, ConnectorConfigurationValue>>;
+    // (undocumented)
+    readonly connectorId?: bigint;
+    // (undocumented)
+    readonly endpointId: bigint;
+    // (undocumented)
+    readonly media: MediaCaps;
+    // (undocumented)
+    readonly portName: string;
+    // (undocumented)
+    readonly routeId: bigint;
+    // (undocumented)
+    readonly routeSettings: RouteSettings;
+    // (undocumented)
+    readonly signal: SignalSpec;
+    // (undocumented)
+    readonly signalWireId: string;
+}
+
+// @public
+export type ConnectorItem = {
+    readonly kind: 'audio';
+    readonly input: ConnectorInputDescriptor;
+    readonly audio: ConnectorAudioFrame;
+    readonly signal?: undefined;
+} | {
+    readonly kind: 'signal';
+    readonly input: ConnectorInputDescriptor;
+    readonly signal: SignalEnvelope;
+    readonly audio?: undefined;
+};
+
+// @public
+export class ConnectorManifest {
+    constructor(options: ConnectorManifestOptions);
+    static audio(operatorId: string, options: {
+        packageVersion: string;
+        configuration?: ConnectorConfigurationSchema;
+        portName?: string;
+        multiplicity?: 'one' | 'many';
+    }): ConnectorManifest;
+    // (undocumented)
+    readonly capabilities: readonly ConnectorCapability[];
+    // (undocumented)
+    readonly configuration: ConnectorConfigurationSchema;
+    // (undocumented)
+    readonly failureThreshold: number;
+    // (undocumented)
+    readonly inputs: readonly PortSpec[];
+    // (undocumented)
+    readonly manifestRevision: number;
+    // (undocumented)
+    readonly nodeTypeId: string;
+    // (undocumented)
+    readonly operatorId: string;
+    // (undocumented)
+    readonly packageVersion: string;
+    // (undocumented)
+    readonly probeIntervalMs: number;
+    // (undocumented)
+    readonly requirements: readonly ConnectorRequirement[];
+    // (undocumented)
+    readonly startupTimeoutMs: number;
+    // (undocumented)
+    readonly successThreshold: number;
+}
+
+// @public
+export interface ConnectorManifestOptions {
+    // (undocumented)
+    readonly capabilities?: readonly ConnectorCapability[];
+    // (undocumented)
+    readonly configuration?: ConnectorConfigurationSchema;
+    // (undocumented)
+    readonly failureThreshold?: number;
+    // (undocumented)
+    readonly inputs: readonly PortSpec[];
+    // (undocumented)
+    readonly manifestRevision?: number;
+    // (undocumented)
+    readonly nodeTypeId?: string;
+    // (undocumented)
+    readonly operatorId: string;
+    // (undocumented)
+    readonly packageVersion: string;
+    // (undocumented)
+    readonly probeIntervalMs?: number;
+    // (undocumented)
+    readonly requirements?: readonly ConnectorRequirement[];
+    // (undocumented)
+    readonly startupTimeoutMs?: number;
+    // (undocumented)
+    readonly successThreshold?: number;
+}
+
+// @public
+export interface ConnectorObservations {
+    // (undocumented)
+    readonly failuresTotal: bigint;
+    // (undocumented)
+    readonly lastError?: ConnectorErrorSnapshot;
+    // (undocumented)
+    readonly reconnectsTotal: bigint;
+    // (undocumented)
+    readonly retryAttemptsTotal: bigint;
+    // (undocumented)
+    readonly serviceStatus: ConnectorServiceStatus;
+    // (undocumented)
+    readonly statusTransitionsTotal: bigint;
 }
 
 // @public
 export interface ConnectorOptions {
+    // (undocumented)
     readonly capacityFrames?: number;
+    // (undocumented)
     readonly deadlineMs?: number;
 }
 
 // @public
+export type ConnectorPreparationGroup = (routeId: bigint, configuration: Readonly<Record<string, ConnectorConfigurationValue>>) => string | undefined;
+
+// @public
+export const ConnectorRecovery: {
+    readonly Idle: "idle";
+    readonly Reconnecting: "reconnecting";
+};
+
+// @public (undocumented)
+export type ConnectorRecovery = (typeof ConnectorRecovery)[keyof typeof ConnectorRecovery];
+
+// @public
+export interface ConnectorRequirement {
+    // (undocumented)
+    readonly documentation: string;
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly required?: boolean;
+}
+
+// @public
+export const ConnectorRetryability: {
+    readonly Never: "never";
+    readonly Retryable: "retryable";
+    readonly RetryAfterReconfiguration: "retry-after-reconfiguration";
+};
+
+// @public (undocumented)
+export type ConnectorRetryability = (typeof ConnectorRetryability)[keyof typeof ConnectorRetryability];
+
+// @public
+export interface ConnectorRuntimeObservations {
+    // (undocumented)
+    readonly connector: ConnectorObservations;
+    // (undocumented)
+    readonly discontinuitiesTotal: bigint;
+    // (undocumented)
+    readonly endpointFailuresTotal: bigint;
+    // (undocumented)
+    readonly endpointIds: readonly bigint[];
+    // (undocumented)
+    readonly framesDeliveredTotal: bigint;
+    // (undocumented)
+    readonly framesDroppedTotal: bigint;
+    // (undocumented)
+    readonly framesReceivedTotal: bigint;
+}
+
+// @public
 export type ConnectorSend = (frame: ConnectorAudioFrame, context: ConnectorContext) => void | Promise<void>;
+
+// @public
+export interface ConnectorServiceStatus {
+    // (undocumented)
+    readonly acceptsDelivery: boolean;
+    // (undocumented)
+    readonly deliveryReadiness: ConnectorDeliveryReadiness;
+    // (undocumented)
+    readonly health: ConnectorHealth;
+    // (undocumented)
+    readonly healthReasonCode?: string;
+    // (undocumented)
+    readonly lastTransitionElapsedNs: bigint;
+    // (undocumented)
+    readonly readinessReasonCode?: string;
+    // (undocumented)
+    readonly recovery: ConnectorRecovery;
+    // (undocumented)
+    readonly recoveryReasonCode?: string;
+    // (undocumented)
+    readonly revision: bigint;
+}
+
+// @public
+export const ConnectorShutdownMode: {
+    readonly Drain: "drain";
+    readonly Abort: "abort";
+};
+
+// @public (undocumented)
+export type ConnectorShutdownMode = (typeof ConnectorShutdownMode)[keyof typeof ConnectorShutdownMode];
+
+// @public
+export abstract class ConnectorWorker {
+    // (undocumented)
+    cancelPreparation(): void | Promise<void>;
+    // (undocumented)
+    abstract deliverBatch(items: readonly ConnectorItem[], context: ConnectorContext): ConnectorBatchOutcome | Promise<ConnectorBatchOutcome>;
+    // (undocumented)
+    idle(_context: ConnectorContext): void | Promise<void>;
+    // (undocumented)
+    shutdown(_mode: ConnectorShutdownMode, _context: ConnectorContext): void | Promise<void>;
+    // (undocumented)
+    start(context: ConnectorContext): void | Promise<void>;
+}
+
+// @public
+export type ConnectorWorkerBuilder = (inputs: readonly ConnectorInputDescriptor[]) => ConnectorWorker | Promise<ConnectorWorker>;
 
 // @public
 export function defineEndpoint(options: EndpointFactoryOptions): EndpointFactory;
@@ -564,7 +1098,9 @@ export class EndOfStream {
 
 // @public
 export class Endpoint {
+    get connectorId(): bigint | undefined;
     get id(): bigint;
+    get sessionId(): bigint;
 }
 
 // @public
@@ -597,6 +1133,9 @@ export class EndpointDefinition {
 }
 
 // @public
+export type EndpointDeliveryOutcome = 'delivered' | 'dropped';
+
+// @public
 export class EndpointFactory {
     constructor(options: EndpointFactoryOptions);
     // (undocumented)
@@ -606,13 +1145,17 @@ export class EndpointFactory {
     // (undocumented)
     readonly inputs: readonly PortSpec[];
     // (undocumented)
+    readonly maximumBatchItems: number;
+    // (undocumented)
     readonly nodeType: string;
 }
 
 // @public
 export interface EndpointFactoryOptions extends EndpointProviderOptions {
     // Warning: (ae-forgotten-export) The symbol "SourceConfiguration_2" needs to be exported by the entry point index.d.ts
-    readonly create: (configuration: SourceConfiguration_2) => EndpointNode;
+    // Warning: (ae-forgotten-export) The symbol "NativeEndpointInputDescriptor" needs to be exported by the entry point index.d.ts
+    readonly create: (configuration: SourceConfiguration_2, inputs: readonly NativeEndpointInputDescriptor[]) => EndpointNode;
+    readonly preparationGroup?: (routeId: bigint, configuration: SourceConfiguration_2) => string | undefined;
     readonly validate?: (configuration: SourceConfiguration_2) => void | Promise<void>;
 }
 
@@ -672,10 +1215,16 @@ export interface EndpointMetrics {
 export interface EndpointNode {
     // (undocumented)
     close?(): void | Promise<void>;
+    idle?(context: EndpointContext): void | Promise<void>;
     // (undocumented)
-    prepare?(context: EndpointContext): void | Promise<void>;
+    prepare?(context: EndpointContext): {
+        readonly idleEnabled?: boolean;
+    } | void | Promise<{
+        readonly idleEnabled?: boolean;
+    } | void>;
     // (undocumented)
-    receive(item: EndpointItem, context: EndpointContext): void | Promise<void>;
+    receive(item: EndpointItem, context: EndpointContext): EndpointDeliveryOutcome | void | Promise<EndpointDeliveryOutcome | void>;
+    receiveBatch?(items: readonly EndpointItem[], context: EndpointContext): EndpointDeliveryOutcome | readonly EndpointDeliveryOutcome[] | void | Promise<EndpointDeliveryOutcome | readonly EndpointDeliveryOutcome[] | void>;
     // (undocumented)
     start?(context: EndpointContext): void | Promise<void>;
     // (undocumented)
@@ -687,11 +1236,12 @@ export interface EndpointProviderOptions {
     readonly deadlineMs?: number;
     readonly id: string;
     readonly inputs: readonly PortSpec[];
+    readonly maximumBatchItems?: number;
     readonly nodeType?: string;
 }
 
 // @public
-export type EndpointReceive = (item: EndpointItem, context: EndpointContext) => void | Promise<void>;
+export type EndpointReceive = (item: EndpointItem, context: EndpointContext) => EndpointDeliveryOutcome | void | Promise<EndpointDeliveryOutcome | void>;
 
 // @public
 export interface EndpointSignalItem {
@@ -1325,6 +1875,20 @@ export interface RecordingStemOutcome {
 }
 
 // @public
+export class RegisteredConnector {
+    // (undocumented)
+    declare(configuration?: ConnectorConfigurationInput, options?: {
+        routeSettings?: RouteSettings;
+    }): Endpoint;
+    // (undocumented)
+    observation(endpoint: Endpoint): ConnectorObservations | undefined;
+    // (undocumented)
+    observations(): readonly ConnectorRuntimeObservations[];
+    // (undocumented)
+    get sessionId(): bigint;
+}
+
+// @public
 export interface RelayIceServer {
     readonly urls: string | readonly string[];
 }
@@ -1468,12 +2032,16 @@ export class Session {
     // Warning: (ae-forgotten-export) The symbol "ConversationDeclarationOptions" needs to be exported by the entry point index.d.ts
     // Warning: (ae-forgotten-export) The symbol "Conversation" needs to be exported by the entry point index.d.ts
     conversation<TInput>(options: Omit<ConversationDeclarationOptions<Session, TInput, BusSubscription, AudioInputSamples, SignalEnvelope, RunningSession>, 'session'>): Conversation<BusSubscription, AudioInputSamples, SignalEnvelope>;
-    destination(connector: Connector): Endpoint;
+    destination(connector: Connector, options?: {
+        configuration?: ConnectorConfigurationInput;
+        routeSettings?: RouteSettings;
+    }): Endpoint;
     endpoint(definition: EndpointDefinition | EndpointFactory, configuration?: Configuration): Endpoint;
     eventInput(name: string, options?: EventInputOptions): EventInput;
     get id(): bigint;
     loadNativeExtensionLibrary(path: string): Promise<NativeExtensionLibrary>;
     operator(operator: Operator | OperatorFactory, configuration?: Configuration): OperatorInstance;
+    registerConnector(connector: Connector): RegisteredConnector;
     registerOperator(operator: OperatorFactory): OperatorFactory;
     registerSidecar(process: SidecarProcess): SidecarHandle;
     registerSource(source: SourceFactory): SourceFactory;

@@ -96,6 +96,72 @@ records a discontinuity when the queue is full. Read route metrics to confirm
 that the selected capacity absorbs expected pauses without hiding a destination
 that is persistently too slow.
 
+### Build a reusable manifest-driven Connector
+
+Use the advanced form when a provider needs typed configuration, explicit
+readiness and health, reusable declarations, structured failures, or finite
+native-owned batches. `Session.registerConnector()` registers the
+implementation once; each `declare()` call supplies a validated configuration
+and route policy.
+
+```ts
+import {
+  Connector,
+  ConnectorConfigurationField,
+  ConnectorConfigurationSchema,
+  ConnectorDriver,
+  ConnectorManifest,
+  ConnectorConfigurationValue,
+  Session,
+} from "pocketstation/node";
+
+const configuration = new ConnectorConfigurationSchema([
+  new ConnectorConfigurationField({
+    name: "token",
+    kind: "secret",
+    documentation: "Provider credential.",
+  }),
+]);
+
+const manifest = ConnectorManifest.audio("com.acme.connector.archive.v1", {
+  packageVersion: "1.0.0",
+  configuration,
+  multiplicity: "many",
+});
+
+const archive = Connector.withDriver(manifest, async (inputs) => {
+  const token = inputs[0]?.configuration.token?.exposeSecret();
+  return new (class extends ConnectorDriver {
+    public override start(context) {
+      openProvider(token);
+      context.setReady();
+    }
+
+    public deliver(item) {
+      sendFrame(item.audio);
+      return "delivered";
+    }
+
+    public override shutdown() {
+      closeProvider();
+    }
+  })();
+});
+
+const session = new Session();
+const registered = session.registerConnector(archive);
+const endpoint = registered.declare({
+  token: ConnectorConfigurationValue.secret(process.env.ACME_TOKEN ?? ""),
+});
+```
+
+`Connector.withWorker()` uses the same contract but calls `deliverBatch()`
+with at most `maximumBatchItems` items collected by the native Endpoint worker.
+Preparation, start, delivery, and shutdown each have independent finite
+deadlines. `RegisteredConnector.observations()` returns immutable readiness,
+health, recovery, retry, failure, delivery, drop, and discontinuity counters.
+Secrets remain redacted unless provider code calls `exposeSecret()`.
+
 ## Produce typed data with a Source
 
 JavaScript Sources are intended for data that is not PCM: provider events,

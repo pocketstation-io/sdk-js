@@ -1,5 +1,36 @@
 # JavaScript SDK progress
 
+## W21 Python/JavaScript parity slice — Connector control plane
+
+- Status: `SAFE-TO-MERGE` for `pocketstation.connector` and
+  `pocketstation.aio.connector`; the neutral Lab ledger reports 192/192 and
+  197/197 strict-equivalent rows respectively. Whole-SDK Python parity remains
+  false and is not claimed.
+- Manifest-driven JavaScript Connectors now register through Core's actual
+  Connector contract rather than a generic Endpoint approximation. Core owns
+  Connector and Endpoint identity, typed configuration resolution, grouped
+  preparation, bounded receiver execution, readiness supervision, delivery
+  accounting, shutdown, rollback, and terminal failure retention.
+- The public Node API includes typed/default/secret-safe configuration,
+  manifests, capabilities and requirements, reusable declarations, route
+  settings, driver and finite native-owned batch-worker forms, independent
+  prepare/start/delivery/shutdown deadlines, delivery outcomes, structured
+  error stage/retryability, readiness/health/recovery state, immutable
+  observations, context expiry, idle work, and Core-assigned Connector lineage.
+- Eighteen direct behavior tests cover shared and independent lifecycles,
+  convenience and decorator forms, native registration reuse and identity,
+  typed configuration and redaction, manifest rejection, full PCM lineage,
+  route metadata, grouping, finite batching, drop accounting, deadline
+  failure, structured terminal errors, rollback cleanup, context expiry,
+  implementation collision, explicit idle work, and exactly-once shutdown.
+  A packaged-consumer regression also proves that an incidental return from a
+  void Endpoint callback cannot corrupt native delivery accounting or fail
+  Session finalization. The complete SDK gate passes 23 suites / 215 tests.
+- This is component evidence on the local macOS build. It introduces no
+  provider implementation, mock, scaffold, loopback-only product path,
+  release, deployment, push, outreach, physical-device claim, or
+  Windows/Linux execution claim.
+
 ## W21 Python/JavaScript parity slice — bounded event ingress
 
 - Status: `SAFE-TO-MERGE` for `pocketstation.aio.event_input`; the neutral
