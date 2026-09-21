@@ -746,30 +746,14 @@ impl NativeSession {
     }
 
     #[napi]
-    #[allow(clippy::too_many_arguments)]
     pub fn register_source(
         &self,
-        source_type_id: String,
-        revision: u32,
-        generation: u32,
-        outputs: Vec<ClassInstance<'_, NativePortSpec>>,
+        manifest: &crate::provider::NativeSourceManifest,
         dispatch: Function<'_, NativeProviderCall, Promise<NativeProviderResult>>,
         deadline_ms: Option<u32>,
     ) -> Result<()> {
-        let outputs = outputs
-            .iter()
-            .map(|output| output.as_ref().value.clone())
-            .collect();
         self.with_session(|session| {
-            crate::provider::register_source(
-                session,
-                source_type_id,
-                revision,
-                generation,
-                outputs,
-                dispatch,
-                deadline_ms,
-            )
+            crate::provider::register_source(session, manifest.value.clone(), dispatch, deadline_ms)
         })
     }
 

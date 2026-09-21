@@ -12,6 +12,7 @@ Choose the smallest API that fits the work:
 | Send source-aware PCM to a socket, encoder, file, or provider client | `Connector` |
 | Feed PCM already produced by JavaScript into a Session | `AudioInput` |
 | Produce text, events, metrics, control data, or bytes | `SourceFactory` |
+| Publish a reusable Source with explicit manifest, lifecycle, and deadlines | `SourceProvider` |
 | Transform typed input into typed output or generated PCM | `OperatorFactory` |
 | Publish a reusable Operator with explicit Core policy and compiled edge context | `OperatorProvider` |
 | Receive several named audio or signal inputs in one destination | `EndpointFactory` |
@@ -207,6 +208,54 @@ const output = session.source(feed, { language: "en" }).output("transcript");
 Returning `undefined` from `next()` ends that Source. Core assigns the Session,
 Source, and stream identities and adds sequence and timing information to each
 accepted value.
+
+### Build a reusable manifest-driven Source
+
+`SourceProvider` is the complete reusable contract. `SourceManifest` is
+validated by the native Core contract when constructed, including the stable
+Source identifier, output directions, non-PCM restriction, revision, and
+implementation generation. JavaScript's Promise-native API covers both the
+synchronous and asyncio Python authoring forms.
+
+```ts
+import {
+  PortSpec,
+  SignalSpec,
+  SourceEmission,
+  SourceManifest,
+  source,
+} from "pocketstation/node";
+
+const transcript = SignalSpec.text("utf8", { role: "transcript.final" });
+
+const feed = source(new SourceManifest({
+  sourceTypeId: "com.acme.source.transcript.v1",
+  outputs: [PortSpec.output("transcript", transcript)],
+}))(async function* (configuration) {
+  yield SourceEmission.text("transcript", configuration.text ?? "", {
+    signal: transcript,
+    sourceTimestampNs: 10n,
+    durationNs: 5n,
+    terminal: true,
+  });
+});
+
+const registered = session.registerSource(feed);
+const instance = registered.declare({ text: "hello" });
+```
+
+Use `SourceProvider.withDriver()` when each configured declaration needs a
+stateful driver. Its `prepare()` receives the actual Core-assigned Session,
+Source, output-port, and stream identities. `next()` receives a
+`SourceCancellation`; `close()` runs exactly once. `SourceDeadlines` bounds
+create, prepare, next, and close independently.
+
+`SourceEmission.text()` and `.bytes()` validate payload versus `SignalSpec`,
+copy byte views at construction, validate every timing/continuity integer, and
+preserve the declared output contract. Core still owns sequence numbers,
+lineage, bounded fan-out, failure accounting, and terminal Session state. PCM
+continues to use `Session.audioInput()` so no JavaScript Source creates a
+second audio queue.
 
 ## Process data with an Operator
 

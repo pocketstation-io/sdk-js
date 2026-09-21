@@ -1,5 +1,44 @@
 # JavaScript SDK progress
 
+## W21 Python/JavaScript parity slice — Source control plane
+
+- Status: `SAFE-TO-MERGE` for `pocketstation.source_authoring` and
+  `pocketstation.aio.source_authoring`; the neutral Lab ledger reports 38/38
+  and 42/42 equivalent rows respectively. Whole-SDK Python parity remains
+  false at 1,788/3,674 rows and is not claimed.
+- The public Node API now exposes Core-validated Source manifests, reusable
+  registrations and declarations, driver/factory and synchronous or async
+  iterable forms, optional configuration validation, finite per-stage
+  deadlines, Core-owned cancellation, actual Session/Source/output/stream
+  preparation identity, immutable owned emissions, and exact timing,
+  generation, discontinuity, policy, clock, and terminal metadata.
+- The native boundary accepts the already validated Core Source manifest.
+  Core remains the authority for identity, sequence numbers, lineage,
+  bounded fan-out, failure accounting, and terminal Session state. Authored
+  PCM still uses `Session.audioInput()`; this slice adds no second audio queue.
+- Four advanced tests plus the existing concise Source suite cover both
+  iterable modes, Promise-native drivers, validation, registration reuse,
+  actual Core identity and timing, cancellation state, exactly-once close,
+  manifest/deadline/payload/ownership rejection, and an incompatible-emission
+  failure retained in Core metrics. The complete gate passes 26 suites / 236
+  tests; 15 native Rust tests, TypeScript, API extraction, documentation, nine
+  syntax examples / seven Core examples, package exports, and the isolated
+  installed-tarball consumer also pass.
+- The npm audit endpoint failed twice under the host's default TLS trust with
+  `unable to get local issuer certificate`; an explicit one-command
+  `--strict-ssl=false` retry reported zero vulnerabilities. No dependency
+  changed in this slice, and the TLS bypass was not persisted to npm config.
+- This is local macOS component evidence. It introduces no provider
+  implementation, extra media queue, mock, scaffold, loopback-only product
+  path, release, deployment, push, outreach, physical-device claim, or
+  Windows/Linux execution claim.
+- Staff review: `PASS`. Product-proof line enabled: reusable application-owned
+  typed Sources enter the same bounded source-aware graph as native capture.
+  Architecture boundary: Node Source authoring and its native Core bridge.
+  CODE_PROTOCOL gates: TypeScript, Rust formatting/Clippy/tests, full Jest,
+  API, docs, examples, exports, packed consumer, parity audit, and diff checks.
+  Scaffold inventory: n/a.
+
 ## W21 Python/JavaScript parity slice — Operator control plane
 
 - Status: `SAFE-TO-MERGE` for `pocketstation.operator_authoring` and

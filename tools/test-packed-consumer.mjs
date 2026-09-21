@@ -76,6 +76,9 @@ try {
       SidecarProcess,
       SignalSpec,
       Source,
+      SourceEmission,
+      SourceManifest,
+      SourceProvider,
       connector,
       defineOperator,
       defineSource,
@@ -273,6 +276,58 @@ try {
     }
     if (connectorFrames[0].samples[0] !== 0.5) {
       throw new Error('packed Connector did not receive generated audio');
+    }
+    const advancedSourceSignal = SignalSpec.text('utf8', { role: 'packed.source' });
+    const advancedSourceManifest = new SourceManifest({
+      sourceTypeId: 'dev.pocketstation.source.packed-advanced.v1',
+      outputs: [PortSpec.output('events', advancedSourceSignal)],
+      revision: 2,
+      implementationGeneration: 3,
+    });
+    let advancedSourcePrepared;
+    let advancedSourceClosed = 0;
+    let advancedSourceSent = false;
+    const advancedSourceProvider = SourceProvider.withDriver(
+      advancedSourceManifest,
+      async () => ({
+        prepare: async (context) => { advancedSourcePrepared = context; },
+        next: async (cancellation) => {
+          if (cancellation.cancelled || advancedSourceSent) return undefined;
+          advancedSourceSent = true;
+          return SourceEmission.text('events', 'source-ready', {
+            signal: advancedSourceSignal,
+            sourceTimestampNs: 100n,
+            observedTimestampNs: 125n,
+            durationNs: 25n,
+            terminal: true,
+          });
+        },
+        close: async () => { advancedSourceClosed += 1; },
+      }),
+    );
+    const advancedSourceSession = new Session();
+    const advancedRegisteredSource = advancedSourceSession.registerSource(advancedSourceProvider);
+    const advancedSourceInstance = advancedRegisteredSource.declare();
+    const advancedSourceOutput = advancedSourceInstance.output('events');
+    const advancedSourceSubscription = advancedSourceSession.subscribe(
+      advancedSourceOutput,
+      { signal: advancedSourceSignal },
+    );
+    const advancedSourceRunning = await advancedSourceSession.start();
+    const advancedSourceValue = await advancedSourceRunning
+      .signals(advancedSourceSubscription)
+      .read({ timeoutMs: 1000 });
+    const advancedSourceStop = await advancedSourceRunning.stop();
+    if (
+      !advancedSourceStop.success ||
+      advancedSourceValue?.payload?.text !== 'source-ready' ||
+      advancedSourceValue?.timing?.sourceTimestampNs !== 100n ||
+      advancedSourceValue?.lineage?.sourceId !== advancedSourceInstance.sourceId ||
+      advancedSourcePrepared?.sessionId !== advancedSourceSession.id ||
+      advancedSourcePrepared?.outputs?.[0]?.streamId !== advancedSourceOutput.streamId ||
+      advancedSourceClosed !== 1
+    ) {
+      throw new Error('packed advanced Source lost lifecycle, identity, timing, or output');
     }
     const advancedOperatorSession = new Session();
     const requestSignal = SignalSpec.text('utf8', { role: 'packed.request' });
