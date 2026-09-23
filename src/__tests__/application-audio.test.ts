@@ -22,10 +22,40 @@ describe('application-owned PCM', () => {
     const twentyMillisecondInput = new Session({ frameDurationMs: 20 }).audioInput(
       'twenty millisecond audio',
     );
+    const fortyFourKilohertzInput = new Session({
+      frameDurationMs: 20,
+      sampleRateHz: 44_100,
+    }).audioInput('forty-four kilohertz audio');
 
     expect(tenMillisecondInput.config.frameSamplesPerChannel).toBe(480);
     expect(twentyMillisecondInput.config.frameSamplesPerChannel).toBe(960);
+    expect(fortyFourKilohertzInput.config.frameSamplesPerChannel).toBe(882);
+    expect(fortyFourKilohertzInput.config.sampleRateHz).toBe(44_100);
     expect(() => twentyMillisecondInput.tryWrite(new Float32Array(960))).not.toThrow();
+  });
+
+  it('preserves an explicit frame size when the Session uses twenty milliseconds', () => {
+    const input = new Session({ frameDurationMs: 20 }).audioInput('explicit frame', {
+      frameSamplesPerChannel: 480,
+    });
+
+    expect(input.config.frameSamplesPerChannel).toBe(480);
+  });
+
+  it('delivers the inherited twenty-millisecond frame to a Session consumer', async () => {
+    const session = new Session({ frameDurationMs: 20 });
+    const input = session.audioInput('twenty-millisecond delivery');
+    input.output.send(session.audio());
+    input.tryWrite(new Float32Array(960).fill(0.25));
+    input.close();
+
+    const running = await session.start();
+    const received = await running.audio.read({ timeoutMs: 1_000 });
+    const result = await running.stop();
+
+    expect(received?.samples).toHaveLength(960);
+    expect(received?.durationNs).toBe(20_000_000n);
+    expect(result.success).toBe(true);
   });
 
   it('exposes AudioInput through the advanced PcmSource contract', () => {

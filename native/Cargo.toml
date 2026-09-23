@@ -24,3 +24,9 @@ futures-timer = "3.0.3"
 
 [build-dependencies]
 napi-build = "2.4.1"
+
+# On macOS 27, Rust 1.95's optimized cdylib without line tables can produce
+# an unaligned LINKEDIT string pool that dyld refuses to load. The optimized
+# build with line tables loads; keep this profile until the toolchain fix lands.
+[profile.release]
+debug = 1

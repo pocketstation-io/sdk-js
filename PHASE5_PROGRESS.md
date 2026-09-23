@@ -1,5 +1,40 @@
 # JavaScript SDK progress
 
+## W21 native release load and Node example types — 2026-09-23
+
+- Status: `PARTIAL` for a complete JavaScript release. The normal macOS 27
+  release-built addon initially failed Node `dlopen` with a misaligned LINKEDIT
+  string pool; the debug build and a controlled optimized build with line
+  tables loaded. Setting release profile `debug = 1` makes the normal
+  `npm test` build load on this host without an environment override.
+- `npm test` passed 34 suites / 301 tests with one skipped after adding
+  direct parity tests for 44.1 kHz defaults, explicit frame-size override,
+  and actual 20 ms delivery.
+  The first parallel run had one intermittent advanced Endpoint stop-success
+  assertion failure; serial and subsequent parallel runs passed. That
+  reliability question remains open, not silently dismissed.
+- `npm run typecheck`, `npm run api:check`, `npm run test:exports`, and
+  `npm run examples:check` passed. The installed-tarball consumer passed with
+  `npm_config_offline=true`; the default online attempt stalled in the
+  temporary consumer's `npm install` and was interrupted. No VM or evidence
+  data was touched. The example TypeScript config now explicitly selects
+  the already installed `@types/node` so Node globals such as `process` are
+  unambiguous to editors; no dependency was added.
+- This is local macOS component evidence, not an npm publication or full
+  Python/JavaScript parity claim. The latest neutral parity run still reports
+  four ledger gaps (one partial WebSocket example and three Python
+  frame-duration regression rows awaiting map review against the new JavaScript
+  tests). No real-device, cross-platform, or
+  installed-public-npm claim follows.
+- Staff Bar Self-Check — native release load: smallest correct design: yes,
+  one Cargo profile setting after a failing/working build comparison; tests
+  added: no, existing build, loader, full suite and packed consumer exercise
+  the failure; hot-path safe: not applicable; public API changed: no; new
+  dependency: no; phase scope respected: yes; unsafe added: no; remaining
+  risks: the toolchain workaround needs revalidation on future macOS/Rust
+  versions, the Endpoint stop assertion is intermittent, and whole-SDK
+  parity/public release remain gated.
+
 ## W21 Python/JavaScript parity slice — Source control plane
 
 - Status: `SAFE-TO-MERGE` for `pocketstation.source_authoring` and
@@ -794,6 +829,27 @@ the normal native addon and is not physical-device or provider evidence.
 - Relay composition or voice composition;
 - publication, tags, or version selection;
 - cross-platform or performance claims.
+
+## Python parity closure and provider workflows — 2026-09-21
+
+- Source version is aligned to `0.1.4`; no npm publication or deployment was
+  performed.
+- `pocketstation/demo` now supplies source-aware bounded local transcription
+  and an OpenAI Realtime adapter outside Core. Direct tests cover two-source
+  lineage, format conversion, transcript revisions, bounded transport, audio
+  reentry, cancellation, and a real Core Session route. The real local-model
+  test remains opt-in and was not claimed without a configured model file.
+- `EventStream` now has a public callback-backed constructor as well as the
+  native Session path, with direct tests for polling, finite waits, closure,
+  reader ownership, retained events, and cancellation.
+- The installed tarball exposes and loads root, Node, browser, control, demo,
+  and voice entry points plus the CLI. API reports include the demo entry.
+- The Deno/Jupyter notebook, its public guide, and notebook-only active Lab
+  runners were removed. Runnable examples remain JavaScript ES modules.
+- Full JavaScript result: 34 suites, 299 passed, one opt-in local-model test
+  skipped. Native addon result: fmt/clippy passed and 15 tests passed.
+- No scaffold, mock product path, release, deployment, WAN, Windows/Linux,
+  provider-adoption, or physical-device claim was introduced.
 
 ## Python/JavaScript parity slice — application-owned PCM
 
