@@ -1,5 +1,29 @@
 # JavaScript SDK progress
 
+## W21 real WebSocket example parity — 2026-09-23
+
+- Status: `PARTIAL` for release, component pass for the missing repository
+  workflow. `examples/send-audio-to-websocket.ts` now opens a bearer-authenticated
+  `wss://` socket and sends one selected application's 48 kHz mono PCM as owned
+  float32 little-endian frames through a bounded SDK Connector. The Session
+  and socket close on interruption, remote closure, or failure. No new package
+  dependency or provider code was added.
+- Six public TypeScript examples compile; `npm run examples:check`,
+  `npm run docs:check`, `npm run typecheck`, and the complete `npm test`
+  (34 suites, 301 passed, one skipped) pass on this macOS host.
+- The neutral Lab inventory now reports 3,680/3,680 mapped equivalent or
+  language-idiomatic rows, zero recorded gaps. Its three new frame-duration
+  rows point to direct JavaScript tests. The WebSocket row is source-level
+  workflow parity, not live device or external-provider proof.
+- Staff Bar Self-Check — WebSocket example: smallest correct design: yes,
+  example-only transport using the existing optional `ws`; tests added: no new
+  live-path test because it requires a selected playing application and an
+  authenticated provider, but existing Connector tests plus example compile
+  and audit pass; hot-path safe: not applicable, Connector delivery is async;
+  public API changed: no; new dependency: no; phase scope respected: yes;
+  unsafe added: no; remaining risk: current SDK/Lab trees are dirty,
+  installed-public-npm and real WebSocket/device proof are not established.
+
 ## W21 native release load and Node example types — 2026-09-23
 
 - Status: `PARTIAL` for a complete JavaScript release. The normal macOS 27
