@@ -11,10 +11,13 @@
 - Six public TypeScript examples compile; `npm run examples:check`,
   `npm run docs:check`, `npm run typecheck`, and the complete `npm test`
   (34 suites, 301 passed, one skipped) pass on this macOS host.
-- The neutral Lab inventory now reports 3,680/3,680 mapped equivalent or
-  language-idiomatic rows, zero recorded gaps. Its three new frame-duration
-  rows point to direct JavaScript tests. The WebSocket row is source-level
-  workflow parity, not live device or external-provider proof.
+- The neutral Lab inventory contains 3,680 rows. A later auditor correction
+  prevents same-named declarations and file-wide test groups from receiving
+  automatic parity credit: 302 rows have explicit equivalent dispositions and
+  3,378 remain `PARTIAL`. The three new frame-duration rows point to direct
+  JavaScript tests. The
+  WebSocket row is source-level workflow parity, not live device or
+  external-provider proof.
 - Staff Bar Self-Check — WebSocket example: smallest correct design: yes,
   example-only transport using the existing optional `ws`; tests added: no new
   live-path test because it requires a selected playing application and an
