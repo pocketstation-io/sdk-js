@@ -1,10 +1,13 @@
 import { Buffer } from 'node:buffer';
 import { createRequire } from 'node:module';
+import { createInterface } from 'node:readline/promises';
 
 import { connector, Session, Source } from 'pocketstation/node';
 
-// Change Safari to an application currently playing audio on your computer.
-const application = 'Safari';
+const prompt = createInterface({ input: process.stdin, output: process.stdout });
+const application = (await prompt.question('Application to capture: ')).trim();
+prompt.close();
+if (!application) throw new Error('Choose a running application');
 const url = process.env.AUDIO_WEBSOCKET_URL;
 const token = process.env.AUDIO_WEBSOCKET_TOKEN;
 if (!url || !token) throw new Error('Set AUDIO_WEBSOCKET_URL and AUDIO_WEBSOCKET_TOKEN');
