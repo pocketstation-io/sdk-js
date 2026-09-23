@@ -12,7 +12,8 @@
   skipped). The complete Python suite passes 285 tests with 29 skips, and
   Ruff plus MyPy pass. JavaScript typecheck also passes.
 - This is one semantic row, not full Python/JavaScript parity or release
-  evidence. No VM or historical evidence data changed.
+  evidence. The corrected Lab audit now records 303 supported rows and 3,377
+  partial rows out of 3,680. No VM or historical evidence data changed.
 
 ## W21 real WebSocket example parity — 2026-09-23
 
