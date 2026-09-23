@@ -1,5 +1,19 @@
 # JavaScript SDK progress
 
+## W21 Python/JavaScript source error-code parity — 2026-09-23
+
+- Restored the existing `source.unsupported_session_kind` code for a discovered
+  output device; the interim `..._category` spelling came from a blanket
+  rename and would break caller error handling. Python's current committed
+  source and test already use the original code; the uncommitted rename there
+  was removed without changing unrelated Python work.
+- Added a dedicated JavaScript regression test for the exact error code. The
+  focused test and full JavaScript rerun pass (35 suites, 302 passed, one
+  skipped). The complete Python suite passes 285 tests with 29 skips, and
+  Ruff plus MyPy pass. JavaScript typecheck also passes.
+- This is one semantic row, not full Python/JavaScript parity or release
+  evidence. No VM or historical evidence data changed.
+
 ## W21 real WebSocket example parity — 2026-09-23
 
 - Status: `PARTIAL` for release, component pass for the missing repository
