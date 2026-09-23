@@ -18,7 +18,7 @@ export interface AudioInputOptions {
   channels?: 1 | 2;
   /** Number of complete frames that may wait for Core. Defaults to eight. */
   capacityFrames?: number;
-  /** Samples per channel in each write. Defaults to 480. */
+  /** Samples per channel in each write. Defaults to the Session frame duration at the selected sample rate. */
   frameSamplesPerChannel?: number;
 }
 
