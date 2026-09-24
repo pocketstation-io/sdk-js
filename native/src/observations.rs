@@ -2,6 +2,26 @@ use napi_derive::napi;
 
 use crate::errors::error;
 
+pub(crate) fn sample_representation_name(
+    value: pocketstation::CaptureSampleRepresentation,
+) -> &'static str {
+    use pocketstation::CaptureSampleRepresentation::*;
+    match value {
+        SignedInteger8 => "signed-integer-8",
+        SignedInteger16 => "signed-integer-16",
+        SignedInteger24 => "signed-integer-24",
+        SignedInteger32 => "signed-integer-32",
+        SignedInteger64 => "signed-integer-64",
+        UnsignedInteger8 => "unsigned-integer-8",
+        UnsignedInteger16 => "unsigned-integer-16",
+        UnsignedInteger24 => "unsigned-integer-24",
+        UnsignedInteger32 => "unsigned-integer-32",
+        UnsignedInteger64 => "unsigned-integer-64",
+        Float32 => "float-32",
+        Float64 => "float-64",
+    }
+}
+
 #[napi(object)]
 pub struct NativeEventQueueMetrics {
     pub capacity_count: String,
@@ -126,6 +146,66 @@ pub struct NativeSourceMetrics {
 }
 
 #[napi(object)]
+pub struct NativeCaptureFormat {
+    pub sample_rate_hz: u32,
+    pub channel_count: u32,
+    pub sample_representation: String,
+}
+
+#[napi(object)]
+pub struct NativeSourceNativeFormatObservation {
+    pub stem_id: String,
+    pub opened_native_format: Option<NativeCaptureFormat>,
+}
+
+#[napi(object)]
+pub struct NativeSourceActivityObservations {
+    pub session_started_at_ns: String,
+    pub observed_at_ns: String,
+    pub first_frame_received_at_ns: Option<String>,
+    pub latest_frame_received_at_ns: Option<String>,
+    pub frames_received_total: String,
+}
+
+#[napi(object)]
+pub struct NativeSourceSignalObservations {
+    pub observed_at_ns: String,
+    pub samples_observed_total: String,
+    pub exact_zero_samples_observed_total: String,
+    pub nonzero_samples_observed_total: String,
+    pub nonfinite_samples_observed_total: String,
+    pub window_timestamp_start_ns: Option<String>,
+    pub window_duration_ns: String,
+    pub window_observed_at_ns: Option<String>,
+    pub window_sequence_number: Option<String>,
+    pub window_source_generation: u32,
+    pub window_discontinuity_epoch: String,
+    pub window_samples_total: String,
+    pub window_exact_zero_samples_total: String,
+    pub window_nonzero_samples_total: String,
+    pub window_nonfinite_samples_total: String,
+    pub window_peak_linear: Option<f64>,
+    pub window_rms_linear: Option<f64>,
+    pub window_peak_dbfs: Option<f64>,
+    pub window_rms_dbfs: Option<f64>,
+    pub window_exact_zero_ratio: Option<f64>,
+    pub consecutive_exact_zero_duration_ns: String,
+}
+
+#[napi(object)]
+pub struct NativeSourceReplacementObservations {
+    pub stem_id: String,
+    pub attempts_total: String,
+    pub completed_total: String,
+    pub failed_before_attach_total: String,
+    pub response_timeouts_total: String,
+    pub attached_source_id: Option<String>,
+    pub source_generation: u32,
+    pub discontinuity_epoch: String,
+    pub latest_completed_at_ns: Option<String>,
+}
+
+#[napi(object)]
 pub struct NativeExternalSourceMetrics {
     pub source_instance_id: String,
     pub source_id: String,
@@ -221,6 +301,10 @@ pub struct NativeSessionMetrics {
     pub event_queue: NativeEventQueueMetrics,
     pub polled_audio: NativePolledAudioMetrics,
     pub sources: Vec<NativeSourceMetrics>,
+    pub source_native_formats: Vec<NativeSourceNativeFormatObservation>,
+    pub source_activity: Vec<NativeSourceActivityObservations>,
+    pub source_signal: Vec<NativeSourceSignalObservations>,
+    pub source_replacements: Vec<NativeSourceReplacementObservations>,
     pub external_sources: Vec<NativeExternalSourceMetrics>,
     pub routes: Vec<NativeRouteMetrics>,
     pub operators: Vec<NativeOperatorMetrics>,
@@ -392,6 +476,74 @@ pub(crate) fn copy_metrics(
         .filter_map(|index| snapshot.source(index).copied())
         .map(source_metrics)
         .collect();
+    let source_native_formats = (0..snapshot.source_native_format_count())
+        .filter_map(|index| snapshot.source_native_format(index).copied())
+        .map(|observation| NativeSourceNativeFormatObservation {
+            stem_id: count(observation.stem_id.get()),
+            opened_native_format: observation.opened_native_format.map(|format| {
+                NativeCaptureFormat {
+                    sample_rate_hz: format.sample_rate_hz,
+                    channel_count: u32::from(format.channel_count),
+                    sample_representation: sample_representation_name(format.sample_representation)
+                        .to_owned(),
+                }
+            }),
+        })
+        .collect();
+    let source_activity = (0..snapshot.source_activity_count())
+        .filter_map(|index| snapshot.source_activity(index).copied())
+        .map(|observation| NativeSourceActivityObservations {
+            session_started_at_ns: count(observation.session_started_at_ns),
+            observed_at_ns: count(observation.observed_at_ns),
+            first_frame_received_at_ns: observation.first_frame_received_at_ns.map(count),
+            latest_frame_received_at_ns: observation.latest_frame_received_at_ns.map(count),
+            frames_received_total: count(observation.frames_received_total),
+        })
+        .collect();
+    let source_signal = (0..snapshot.source_signal_count())
+        .filter_map(|index| snapshot.source_signal(index).copied())
+        .map(|observation| NativeSourceSignalObservations {
+            observed_at_ns: count(observation.observed_at_ns),
+            samples_observed_total: count(observation.samples_observed_total),
+            exact_zero_samples_observed_total: count(observation.exact_zero_samples_observed_total),
+            nonzero_samples_observed_total: count(observation.nonzero_samples_observed_total),
+            nonfinite_samples_observed_total: count(observation.nonfinite_samples_observed_total),
+            window_timestamp_start_ns: observation.window_timestamp_start_ns.map(count),
+            window_duration_ns: count(observation.window_duration_ns),
+            window_observed_at_ns: observation.window_observed_at_ns.map(count),
+            window_sequence_number: observation.window_sequence_number.map(count),
+            window_source_generation: observation.window_source_generation,
+            window_discontinuity_epoch: count(observation.window_discontinuity_epoch),
+            window_samples_total: count(observation.window_samples_total),
+            window_exact_zero_samples_total: count(observation.window_exact_zero_samples_total),
+            window_nonzero_samples_total: count(observation.window_nonzero_samples_total),
+            window_nonfinite_samples_total: count(observation.window_nonfinite_samples_total),
+            window_peak_linear: observation.window_peak_linear().map(f64::from),
+            window_rms_linear: observation.window_rms_linear(),
+            window_peak_dbfs: observation.window_peak_dbfs(),
+            window_rms_dbfs: observation.window_rms_dbfs(),
+            window_exact_zero_ratio: observation.window_exact_zero_ratio(),
+            consecutive_exact_zero_duration_ns: count(
+                observation.consecutive_exact_zero_duration_ns,
+            ),
+        })
+        .collect();
+    let source_replacements = (0..snapshot.source_replacement_count())
+        .filter_map(|index| snapshot.source_replacement(index).copied())
+        .map(|observation| NativeSourceReplacementObservations {
+            stem_id: count(observation.stem_id.get()),
+            attempts_total: count(observation.attempts_total),
+            completed_total: count(observation.completed_total),
+            failed_before_attach_total: count(observation.failed_before_attach_total),
+            response_timeouts_total: count(observation.response_timeouts_total),
+            attached_source_id: observation
+                .attached_source_id
+                .map(|source_id| count(source_id.get())),
+            source_generation: observation.source_generation,
+            discontinuity_epoch: count(observation.discontinuity_epoch),
+            latest_completed_at_ns: observation.latest_completed_at_ns.map(count),
+        })
+        .collect();
     let routes: Vec<NativeRouteMetrics> = (0..snapshot.route_count())
         .filter_map(|index| snapshot.route(index).copied())
         .map(|route| route_metrics(running, route))
@@ -458,6 +610,10 @@ pub(crate) fn copy_metrics(
             frames_polled_total: count(audio.frames_polled_total),
         },
         sources,
+        source_native_formats,
+        source_activity,
+        source_signal,
+        source_replacements,
         external_sources,
         routes,
         operators,

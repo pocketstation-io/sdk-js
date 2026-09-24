@@ -33,7 +33,7 @@ try {
   );
   execFileSync(
     'npm',
-    ['install', '--ignore-scripts', '--no-audit', '--no-fund', tarball],
+    ['install', '--offline', '--ignore-scripts', '--no-audit', '--no-fund', tarball],
     { cwd: consumer, stdio: 'inherit' },
   );
 
@@ -70,12 +70,14 @@ try {
       PreparedEndpointDriver,
       RouteSettings,
       RunningEndpointDriver,
+      SampleRepresentation,
       Session,
       SessionStartError,
       SidecarMessage,
       SidecarProcess,
       SignalSpec,
       Source,
+      SourceError,
       SourceEmission,
       SourceManifest,
       SourceProvider,
@@ -83,8 +85,51 @@ try {
       defineOperator,
       defineSource,
       discoverSources,
+      evaluateSourceActivity,
+      evaluateSourceSignal,
       microphonePermissionObservation,
+      runtimeCompatibility,
     } from 'pocketstation/node';
+    if (runtimeCompatibility.coreVersion !== '1.1.11') {
+      throw new Error('packed compatibility report has the wrong Core version');
+    }
+    if (SampleRepresentation.SIGNED_INTEGER_16 !== 'signed-integer-16') {
+      throw new Error('packed SampleRepresentation is unavailable');
+    }
+    if (typeof SourceError !== 'function') {
+      throw new Error('packed SourceError is unavailable');
+    }
+    if (evaluateSourceActivity({
+      sessionStartedAtNs: 0n,
+      observedAtNs: 1n,
+      framesReceivedTotal: 0n,
+    }, {
+      firstFrameTimeoutNs: 1n,
+      stallTimeoutNs: 1n,
+    }).state !== 'first-frame-timed-out') {
+      throw new Error('packed source activity evaluation changed');
+    }
+    if (evaluateSourceSignal({
+      observedAtNs: 1n,
+      samplesObservedTotal: 1n,
+      exactZeroSamplesObservedTotal: 1n,
+      nonzeroSamplesObservedTotal: 0n,
+      nonfiniteSamplesObservedTotal: 0n,
+      windowDurationNs: 1n,
+      windowSourceGeneration: 0,
+      windowDiscontinuityEpoch: 0n,
+      windowSamplesTotal: 1n,
+      windowExactZeroSamplesTotal: 1n,
+      windowNonzeroSamplesTotal: 0n,
+      windowNonfiniteSamplesTotal: 0n,
+      consecutiveExactZeroDurationNs: 1n,
+    }, {
+      minimumPeakDbfs: -40,
+      minimumRmsDbfs: -50,
+      exactZeroTimeoutNs: 1n,
+    }).state !== 'sustained-exact-digital-zero') {
+      throw new Error('packed source signal evaluation changed');
+    }
     const abi = ExtensionAbiVersion.current();
     abi.requireCompatible();
     new ExtensionDescriptor({

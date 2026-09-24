@@ -50,6 +50,14 @@ export class ExtensionError extends PocketStationError {
   }
 }
 
+/** A built-in Source failed validation, acquisition, or explicit recovery. */
+export class SourceError extends PocketStationError {
+  public constructor(code: string, message: string, cause?: unknown) {
+    super(code, message, { cause });
+    this.name = 'SourceError';
+  }
+}
+
 /** A Session-owned child process failed. */
 export class SidecarError extends PocketStationError {
   public constructor(code: string, message: string, cause?: unknown) {
@@ -96,6 +104,9 @@ export function fromNativeError(failure: unknown): PocketStationError {
   const detail = message.slice(separator + NATIVE_ERROR_SEPARATOR.length);
   if (code.startsWith('extension.')) {
     return new ExtensionError(code, detail, failure);
+  }
+  if (code.startsWith('source.')) {
+    return new SourceError(code, detail, failure);
   }
   if (code === 'sidecar.queue_full' || code === 'sidecar.control_queue_full') {
     return new SidecarBackpressureError(code, detail, failure);

@@ -14,6 +14,7 @@ import {
   type NativeSourceOutputHandle,
   type NativeSourceInstanceHandle,
   type NativeStopResult,
+  type NativeSourceReplacement,
 } from './native.js';
 import {
   AudioInput,
@@ -41,6 +42,7 @@ import {
   SignalSpec,
 } from './graph.js';
 import { Source, nativeSource } from './sources.js';
+import { RuntimeSessionId, SourceId, StemId } from './identity.js';
 import { AudioStream } from './streams.js';
 import { _eventFromNative, EventStream, type TerminalEvent } from './events.js';
 import {
@@ -71,10 +73,46 @@ import {
   _recordingOutcomeFromNative,
   _sessionMetricsFromNative,
   _traceOutcomeFromNative,
+  _captureNativeFormatFromNative,
+  type OpenedNativeFormat,
   type RecordingOutcome,
   type SessionMetrics,
   type SessionTraceOutcome,
 } from './observations.js';
+
+/** One explicit microphone change; the logical Stem and routes remain unchanged. */
+export interface SourceReplacement {
+  readonly stemId: StemId;
+  readonly requestedSelectorKind: 'microphone-default' | 'microphone-id';
+  readonly requestedDeviceId?: string;
+  readonly previousSourceId: SourceId;
+  readonly sourceId: SourceId;
+  readonly sourceGeneration: number;
+  readonly discontinuityEpoch: bigint;
+  readonly openedNativeFormat?: OpenedNativeFormat;
+}
+
+function sourceReplacement(
+  value: NativeSourceReplacement,
+  source: Source,
+): SourceReplacement {
+  return Object.freeze({
+    stemId: StemId(BigInt(value.stemId)),
+    requestedSelectorKind: source.selectorKind as SourceReplacement['requestedSelectorKind'],
+    requestedDeviceId:
+      source.selectorKind === 'microphone-id' && typeof source.selectorValue === 'string'
+        ? source.selectorValue
+        : undefined,
+    previousSourceId: SourceId(BigInt(value.previousSourceId)),
+    sourceId: SourceId(BigInt(value.sourceId)),
+    sourceGeneration: value.sourceGeneration,
+    discontinuityEpoch: BigInt(value.discontinuityEpoch),
+    openedNativeFormat:
+      value.openedNativeFormat == null
+        ? undefined
+        : _captureNativeFormatFromNative(value.openedNativeFormat),
+  });
+}
 
 /** Finite native event trace written alongside a Session. */
 export interface SessionTraceOptions {
@@ -230,8 +268,8 @@ export class Endpoint {
   }
 
   /** Session identity that owns this Endpoint. */
-  public get sessionId(): bigint {
-    return BigInt(this.#native.sessionId);
+  public get sessionId(): RuntimeSessionId {
+    return RuntimeSessionId(BigInt(this.#native.sessionId));
   }
 
   /** Core-assigned Connector identity, when this is a Connector destination. */
@@ -318,8 +356,13 @@ export class Stem {
   }
 
   /** Session-local Stem identity. */
-  public get id(): bigint {
-    return BigInt(this.#native.id);
+  public get id(): StemId {
+    return StemId(BigInt(this.#native.id));
+  }
+
+  /** Session identity that owns this Stem. */
+  public get sessionId(): RuntimeSessionId {
+    return RuntimeSessionId(this.#session.id);
   }
 
   /** Route this Stem to an Endpoint and return the Session-local route identity. */
@@ -790,8 +833,8 @@ export class RunningSession implements AsyncDisposable {
   }
 
   /** Native Session identity. */
-  public get sessionId(): bigint {
-    return BigInt(this.#native.sessionId);
+  public get sessionId(): RuntimeSessionId {
+    return RuntimeSessionId(BigInt(this.#native.sessionId));
   }
 
   /** Open the async stream declared by `Session.subscribe()`. */
@@ -812,6 +855,47 @@ export class RunningSession implements AsyncDisposable {
     return _sessionMetricsFromNative(
       await nativeCall(() => this.#native.metrics()),
     );
+  }
+
+  /** Open a selected microphone before swapping it into this running Stem. */
+  public async replaceMicrophoneSource(
+    stem: Stem,
+    source: Source,
+  ): Promise<SourceReplacement> {
+    return this.#changeMicrophoneSource(stem, source, false);
+  }
+
+  /** Detach the current microphone before reopening the selected Source. */
+  public async reopenMicrophoneSource(
+    stem: Stem,
+    source: Source,
+  ): Promise<SourceReplacement> {
+    return this.#changeMicrophoneSource(stem, source, true);
+  }
+
+  async #changeMicrophoneSource(
+    stem: Stem,
+    source: Source,
+    reopen: boolean,
+  ): Promise<SourceReplacement> {
+    if (!(stem instanceof Stem) || stem.sessionId !== this.sessionId) {
+      throw new TypeError('Stem belongs to a different Session');
+    }
+    if (
+      !(source instanceof Source) ||
+      source.kind !== 'input-device' ||
+      (source.selectorKind !== 'microphone-default' &&
+        source.selectorKind !== 'microphone-id')
+    ) {
+      throw new TypeError('Replacement Source must select a microphone');
+    }
+    const native = nativeSource(source);
+    const result = await nativeCall(() =>
+      reopen
+        ? this.#native.reopenMicrophoneSource(stem.id.toString(), native)
+        : this.#native.replaceMicrophoneSource(stem.id.toString(), native),
+    );
+    return sourceReplacement(result, source);
   }
 
   /** Access one child process registered by the same Session. */
@@ -927,8 +1011,8 @@ export class Session {
   }
 
   /** Native Session identity. */
-  public get id(): bigint {
-    return BigInt(this.#native.id);
+  public get id(): RuntimeSessionId {
+    return RuntimeSessionId(BigInt(this.#native.id));
   }
 
   /** Add a Source and return its source-aware Stem. */

@@ -953,3 +953,32 @@ the normal native addon and is not physical-device or provider evidence.
 - Remaining risk: the tests establish component and installed-package behavior
   on macOS. They do not prove a physical Source, provider, browser, WAN,
   Windows/Linux package, or latency result.
+## 2026-09-24: microphone source-truth projection
+
+Status: `SAFE-TO-TEST` locally against the additive Core candidate; public
+registry build remains `BLOCKED` on PocketStation Core `1.1.11` publication.
+
+- The Node API now reports each built-in source's opened native format, first
+  and latest frame activity, off-callback signal measurements, and explicit
+  microphone replacement observations.
+- Activity and signal evaluation use caller-supplied thresholds and do not
+  choose a fallback source or start recovery.
+- `replaceMicrophoneSource` and `reopenMicrophoneSource` retain the logical Stem,
+  increment Core-owned generations/discontinuities, and normalize every native
+  replacement failure into the `source.*` namespace.
+- `SampleRepresentation` and `runtimeCompatibility` are public installed-package
+  values. The compatibility report names exact Core `1.1.11`.
+- Local validation used Core commit
+  `e38b12d3c3459474263ed2aa224fd7660e807efa`, temporarily versioned as `1.1.11`.
+  TypeScript checking, API extraction, focused Jest tests, native check/Clippy,
+  the nine-code Rust mapping test, and an offline packed consumer passed.
+- One full Jest pass completed 254 of 255 tests; the lone advanced Endpoint
+  finalization assertion passed immediately when rerun alone. Jest also reports
+  its existing open-handle warning. This is retained as a qualification note,
+  not reported as a fully clean full-suite pass.
+- The checked-in lock remains the last registry lock with its real checksum.
+  `cargo check --locked` correctly rejects the `=1.1.11` manifest until that
+  crate is published. No path dependency or synthetic registry checksum is
+  committed.
+- No Bluetooth/HFP, Teams, physical-device, automatic fallback, or Minutes
+  integration claim is made by this component evidence.
