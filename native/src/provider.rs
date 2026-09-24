@@ -292,7 +292,7 @@ type ProviderDispatch = ThreadsafeFunction<
     NativeProviderCall,
     Status,
     false,
-    false,
+    true,
     PROVIDER_QUEUE_CAPACITY,
 >;
 
@@ -318,6 +318,7 @@ impl ProviderBridge {
         }
         let dispatch = dispatch
             .build_threadsafe_function::<NativeProviderCall>()
+            .weak::<true>()
             .max_queue_size::<PROVIDER_QUEUE_CAPACITY>()
             .build()?;
         Ok(Self {

@@ -10,7 +10,7 @@ export interface RuntimeCompatibility {
 
 /** Machine-readable compatibility facts for this exact package build. */
 export const runtimeCompatibility: RuntimeCompatibility = Object.freeze({
-  sdkVersion: '0.1.0',
+  sdkVersion: '0.1.4',
   coreVersion: '1.1.11',
   relayConnectorVersion: '0.1.5',
   nodeRequires: '>=20.17',

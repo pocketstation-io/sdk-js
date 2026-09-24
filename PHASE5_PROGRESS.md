@@ -972,10 +972,23 @@ registry build remains `BLOCKED` on PocketStation Core `1.1.11` publication.
   `e38b12d3c3459474263ed2aa224fd7660e807efa`, temporarily versioned as `1.1.11`.
   TypeScript checking, API extraction, focused Jest tests, native check/Clippy,
   the nine-code Rust mapping test, and an offline packed consumer passed.
-- One full Jest pass completed 254 of 255 tests; the lone advanced Endpoint
-  finalization assertion passed immediately when rerun alone. Jest also reports
-  its existing open-handle warning. This is retained as a qualification note,
-  not reported as a fully clean full-suite pass.
+- Qualification exposed and closed two Node-runtime defects. Provider
+  ThreadsafeFunctions are weak event-loop references, so an unstarted
+  JavaScript Endpoint no longer prevents Node from exiting. A gate-open
+  notification that races an already-requested Endpoint shutdown is now an
+  idempotent no-op instead of a false start failure. The Endpoint path passed
+  30 consecutive focused stress runs after the repair.
+- Full serial and normal Jest runs both pass 29 suites and 266 tests without an
+  open-handle or forced-worker-exit warning. TypeScript checking, API
+  extraction, documentation links, examples, and package exports also pass.
+- The JavaScript package, native addon crate, root export, and compatibility
+  report use SDK version `0.1.4`, matching the Python package version required
+  by the parity gate. The release-mode addon was packed offline as
+  `pocketstation-0.1.4.tgz` with SHA-256
+  `3fab305eabaf0a6c38a5292577ef10d12763bd51b91d030b0dffca8a233319f3`.
+  A new empty consumer installed that tarball offline and exercised public
+  activity/signal evaluation, `SampleRepresentation`, microphone selection,
+  recovery method exports, compatibility metadata, and real source discovery.
 - The checked-in lock remains the last registry lock with its real checksum.
   `cargo check --locked` correctly rejects the `=1.1.11` manifest until that
   crate is published. No path dependency or synthetic registry checksum is

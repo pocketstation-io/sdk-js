@@ -90,6 +90,9 @@ try {
       microphonePermissionObservation,
       runtimeCompatibility,
     } from 'pocketstation/node';
+    if (runtimeCompatibility.sdkVersion !== '0.1.4') {
+      throw new Error('packed compatibility report has the wrong SDK version');
+    }
     if (runtimeCompatibility.coreVersion !== '1.1.11') {
       throw new Error('packed compatibility report has the wrong Core version');
     }
@@ -646,7 +649,7 @@ try {
   const installedManifest = JSON.parse(
     readFileSync(join(consumer, 'node_modules/pocketstation/package.json'), 'utf8'),
   );
-  assert.equal(installedManifest.version, '0.1.0');
+  assert.equal(installedManifest.version, '0.1.4');
 } finally {
   rmSync(work, { recursive: true, force: true });
 }
