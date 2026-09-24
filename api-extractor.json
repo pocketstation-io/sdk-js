@@ -5,7 +5,7 @@
   "apiReport": {
     "enabled": true,
     "reportFileName": "pocketstation-node.api.md",
-    "reportFolder": "<projectFolder>/etc",
+    "reportFolder": "<projectFolder>/api-reports",
     "reportTempFolder": "<projectFolder>/temp"
   },
   "docModel": {
