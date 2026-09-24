@@ -1107,6 +1107,28 @@ fn command_send_error(failure: std::sync::mpsc::TrySendError<SessionCommand>) ->
     }
 }
 
+fn replacement_command_send_error(
+    failure: std::sync::mpsc::TrySendError<SessionCommand>,
+) -> napi::Error {
+    match failure {
+        std::sync::mpsc::TrySendError::Full(_) => error(
+            "source.replacement_queue_full",
+            "Session replacement control queue is full",
+        ),
+        std::sync::mpsc::TrySendError::Disconnected(_) => error(
+            "source.runtime_stopped",
+            "Session runtime stopped before source replacement completed",
+        ),
+    }
+}
+
+fn replacement_response_error(_: oneshot::Canceled) -> napi::Error {
+    error(
+        "source.runtime_stopped",
+        "Session runtime stopped before source replacement completed",
+    )
+}
+
 struct SessionWorker {
     commands: SyncSender<SessionCommand>,
     join: Option<JoinHandle<()>>,
@@ -1169,22 +1191,8 @@ impl NativeRunningSession {
                 reopen,
                 response,
             })
-            .map_err(|failure| match failure {
-                std::sync::mpsc::TrySendError::Full(_) => error(
-                    "source.replacement_queue_full",
-                    "Session replacement control queue is full",
-                ),
-                std::sync::mpsc::TrySendError::Disconnected(_) => error(
-                    "source.runtime_stopped",
-                    "Session runtime stopped before source replacement completed",
-                ),
-            })?;
-        receiver.await.map_err(|_| {
-            error(
-                "source.runtime_stopped",
-                "Session runtime stopped before source replacement completed",
-            )
-        })?
+            .map_err(replacement_command_send_error)?;
+        receiver.await.map_err(replacement_response_error)?
     }
 
     #[napi(getter)]
@@ -2036,8 +2044,13 @@ const fn lifecycle_state_name(state: pocketstation::SessionLifecycleState) -> &'
 
 #[cfg(test)]
 mod tests {
-    use super::replacement_error_code;
+    use super::{
+        replacement_command_send_error, replacement_error_code, replacement_response_error,
+        SessionCommand,
+    };
+    use futures::channel::oneshot;
     use pocketstation::{CaptureError, SessionSourceReplacementError, StemId};
+    use std::sync::mpsc::sync_channel;
 
     #[test]
     fn replacement_errors_use_the_source_semantic_namespace() {
@@ -2091,5 +2104,41 @@ mod tests {
         for (failure, expected) in cases {
             assert_eq!(replacement_error_code(&failure), expected);
         }
+    }
+
+    #[test]
+    fn given_full_command_queue_when_replacement_is_submitted_then_source_queue_code_is_returned() {
+        let (commands, _receiver) = sync_channel(1);
+        commands.try_send(SessionCommand::Shutdown).unwrap();
+
+        let failure = commands.try_send(SessionCommand::Shutdown).unwrap_err();
+        let projected = replacement_command_send_error(failure);
+
+        assert!(projected
+            .reason
+            .starts_with("source.replacement_queue_full|"));
+    }
+
+    #[test]
+    fn given_disconnected_worker_when_replacement_is_submitted_then_source_runtime_code_is_returned(
+    ) {
+        let (commands, receiver) = sync_channel(1);
+        drop(receiver);
+
+        let failure = commands.try_send(SessionCommand::Shutdown).unwrap_err();
+        let projected = replacement_command_send_error(failure);
+
+        assert!(projected.reason.starts_with("source.runtime_stopped|"));
+    }
+
+    #[test]
+    fn given_dropped_replacement_response_when_waiting_then_source_runtime_code_is_returned() {
+        let (response, receiver) = oneshot::channel::<()>();
+        drop(response);
+
+        let failure = futures::executor::block_on(receiver).unwrap_err();
+        let projected = replacement_response_error(failure);
+
+        assert!(projected.reason.starts_with("source.runtime_stopped|"));
     }
 }

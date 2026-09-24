@@ -1,5 +1,31 @@
 # JavaScript SDK progress
 
+## W21 microphone recovery command failures — 2026-09-24
+
+- Status: `SAFE-TO-MERGE` for the Node native command mappings. A full
+  replacement queue now projects `source.replacement_queue_full`; a disconnected
+  Session worker or dropped response projects `source.runtime_stopped`. Stopped
+  Sessions continue to project `source.session_not_running`, and all nine Core
+  microphone recovery failures remain `SourceError` values in JavaScript.
+- Native regression tests exercise a full command queue, a disconnected command
+  receiver, and a dropped response without opening a physical device. The
+  focused JavaScript tests pass 29 assertions; the complete JavaScript suite
+  passes 29 suites and 266 tests. Rust format, Clippy, all 19 native tests,
+  TypeScript, API extraction, and package export checks pass against the exact
+  unpublished Core source used for this candidate.
+- The SDK does not add an independent response timer. Core owns the microphone
+  replacement operation and its response deadline. Timing out only the outer
+  Promise would allow a queued replacement to run after the caller had observed
+  failure. A platform capture open that blocks indefinitely must be bounded or
+  cancelled in Core before the SDK can report a safe timeout.
+- Staff Bar Self-Check — recovery command failures: smallest correct design:
+  yes, shared mapping helpers with direct queue-state tests; tests added or
+  updated: yes; hot-path safe: yes, the command worker is outside the audio
+  callback and remains nonblocking on submission; public API changed: no; new
+  dependency: no; phase scope respected: yes; unsafe added: no; remaining risk:
+  no physical microphone was opened, and Core `1.1.11` is not yet available
+  from the public registry.
+
 ## W21 Python/JavaScript source error-code parity — 2026-09-23
 
 - Restored the existing `source.unsupported_session_kind` code for a discovered
