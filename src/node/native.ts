@@ -901,6 +901,10 @@ export interface NativeSessionMetrics {
   eventQueue: NativeEventQueueMetrics;
   polledAudio: NativePolledAudioMetrics;
   sources: NativeSourceMetrics[];
+  sourceNativeFormats: NativeSourceNativeFormatObservation[];
+  sourceActivity: NativeSourceActivityObservations[];
+  sourceSignal: NativeSourceSignalObservations[];
+  sourceReplacements: NativeSourceReplacementObservations[];
   externalSources: NativeExternalSourceMetrics[];
   routes: NativeRouteMetrics[];
   operators: NativeOperatorMetrics[];
@@ -912,6 +916,70 @@ export interface NativeSessionMetrics {
   operatorCount: string;
   derivedRouteCount: string;
   audioReentryCount: string;
+}
+
+export interface NativeCaptureFormat {
+  sampleRateHz: number;
+  channelCount: number;
+  sampleRepresentation: string;
+}
+
+export interface NativeSourceNativeFormatObservation {
+  stemId: string;
+  openedNativeFormat?: NativeCaptureFormat | null;
+}
+
+export interface NativeSourceActivityObservations {
+  sessionStartedAtNs: string;
+  observedAtNs: string;
+  firstFrameReceivedAtNs?: string | null;
+  latestFrameReceivedAtNs?: string | null;
+  framesReceivedTotal: string;
+}
+
+export interface NativeSourceSignalObservations {
+  observedAtNs: string;
+  samplesObservedTotal: string;
+  exactZeroSamplesObservedTotal: string;
+  nonzeroSamplesObservedTotal: string;
+  nonfiniteSamplesObservedTotal: string;
+  windowTimestampStartNs?: string | null;
+  windowDurationNs: string;
+  windowObservedAtNs?: string | null;
+  windowSequenceNumber?: string | null;
+  windowSourceGeneration: number;
+  windowDiscontinuityEpoch: string;
+  windowSamplesTotal: string;
+  windowExactZeroSamplesTotal: string;
+  windowNonzeroSamplesTotal: string;
+  windowNonfiniteSamplesTotal: string;
+  windowPeakLinear?: number | null;
+  windowRmsLinear?: number | null;
+  windowPeakDbfs?: number | null;
+  windowRmsDbfs?: number | null;
+  windowExactZeroRatio?: number | null;
+  consecutiveExactZeroDurationNs: string;
+}
+
+export interface NativeSourceReplacementObservations {
+  stemId: string;
+  attemptsTotal: string;
+  completedTotal: string;
+  failedBeforeAttachTotal: string;
+  responseTimeoutsTotal: string;
+  attachedSourceId?: string | null;
+  sourceGeneration: number;
+  discontinuityEpoch: string;
+  latestCompletedAtNs?: string | null;
+}
+
+export interface NativeSourceReplacement {
+  stemId: string;
+  previousSourceId: string;
+  sourceId: string;
+  sourceGeneration: number;
+  discontinuityEpoch: string;
+  openedNativeFormat?: NativeCaptureFormat | null;
 }
 
 export interface NativeRecordingDiscontinuity {
@@ -1113,6 +1181,14 @@ export interface NativeRunningSessionHandle {
     subscription: NativeBusSubscriptionHandle,
   ): Promise<NativeSignalMetrics>;
   metrics(): Promise<NativeSessionMetrics>;
+  replaceMicrophoneSource(
+    stemId: string,
+    source: NativeSourceHandle,
+  ): Promise<NativeSourceReplacement>;
+  reopenMicrophoneSource(
+    stemId: string,
+    source: NativeSourceHandle,
+  ): Promise<NativeSourceReplacement>;
   sendSidecar(
     sidecarId: string,
     message: NativeSidecarMessage,
@@ -1283,6 +1359,7 @@ export interface NativeAddon {
   ): Promise<NativeDiscoveredSourceHandle[]>;
   applicationCaptureAvailable(): boolean;
   microphonePermissionObservation(): Promise<string>;
+  conformanceSourceReplacementError?: (caseName: string) => void;
 }
 
 const require = createRequire(import.meta.url);

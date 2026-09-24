@@ -17,7 +17,7 @@ conformance-fixtures = ["pocketstation/conformance-fixtures"]
 [dependencies]
 napi = { version = "3.12.2", features = ["napi8", "tokio_rt"] }
 napi-derive = "3.6.3"
-pocketstation = "=1.1.10"
+pocketstation = "=1.1.11"
 pocketstation-relay = "=0.1.5"
 futures = "0.3.31"
 futures-timer = "3.0.3"

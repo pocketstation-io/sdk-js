@@ -22,8 +22,8 @@ use crate::graph::{
     NativeOperatorInstance, NativePortSpec, NativeRouteSettings,
 };
 use crate::observations::{
-    copy_metrics, copy_recording_outcome, copy_trace_outcome, NativeRecordingOutcome,
-    NativeSessionMetrics, NativeTraceRecorderOutcome,
+    copy_metrics, copy_recording_outcome, copy_trace_outcome, sample_representation_name,
+    NativeCaptureFormat, NativeRecordingOutcome, NativeSessionMetrics, NativeTraceRecorderOutcome,
 };
 use crate::provider::{NativeConnectorManifest, NativeProviderCall, NativeProviderResult};
 use crate::sidecar::{
@@ -42,6 +42,85 @@ use crate::streams::{copy_audio, NativeAudioRead};
 const COMMAND_CAPACITY_COUNT: usize = 8;
 const MAXIMUM_AUDIO_WAIT_MS: u32 = 1_000;
 const MAXIMUM_TRACE_CAPACITY_RECORDS: u32 = 1_000_000;
+
+#[napi(object)]
+pub struct NativeSourceReplacement {
+    pub stem_id: String,
+    pub previous_source_id: String,
+    pub source_id: String,
+    pub source_generation: u32,
+    pub discontinuity_epoch: String,
+    pub opened_native_format: Option<NativeCaptureFormat>,
+}
+
+fn replacement_result(value: pocketstation::SessionSourceReplacement) -> NativeSourceReplacement {
+    NativeSourceReplacement {
+        stem_id: value.stem_id.get().to_string(),
+        previous_source_id: value.previous_source_id.get().to_string(),
+        source_id: value.source_id.get().to_string(),
+        source_generation: value.source_generation,
+        discontinuity_epoch: value.discontinuity_epoch.to_string(),
+        opened_native_format: value
+            .opened_native_format
+            .map(|format| NativeCaptureFormat {
+                sample_rate_hz: format.sample_rate_hz,
+                channel_count: u32::from(format.channel_count),
+                sample_representation: sample_representation_name(format.sample_representation)
+                    .to_owned(),
+            }),
+    }
+}
+
+fn replacement_error_code(failure: &pocketstation::SessionSourceReplacementError) -> &'static str {
+    use pocketstation::SessionSourceReplacementError::*;
+    match failure {
+        SessionNotRunning => "source.session_not_running",
+        UnknownStem { .. } => "source.unknown_stem",
+        NotMicrophone { .. } => "source.not_microphone",
+        Prepare { .. } => "source.replacement_prepare_failed",
+        Open { .. } => "source.replacement_open_failed",
+        Reopen { .. } => "source.reopen_failed",
+        ControlQueueFull => "source.replacement_queue_full",
+        RuntimeStopped => "source.runtime_stopped",
+        ResponseTimedOut { .. } => "source.replacement_response_timed_out",
+    }
+}
+
+fn replacement_error(failure: pocketstation::SessionSourceReplacementError) -> napi::Error {
+    let code = replacement_error_code(&failure);
+    error(code, failure.to_string())
+}
+
+#[cfg(feature = "conformance-fixtures")]
+#[napi]
+pub fn conformance_source_replacement_error(case_name: String) -> Result<()> {
+    use pocketstation::{CaptureError, SessionSourceReplacementError::*, StemId};
+    let stem_id = StemId::new(7);
+    let failure = match case_name.as_str() {
+        "session-not-running" => SessionNotRunning,
+        "unknown-stem" => UnknownStem { stem_id },
+        "not-microphone" => NotMicrophone { stem_id },
+        "prepare" => Prepare {
+            source: CaptureError::NotSupported,
+        },
+        "open" => Open {
+            source: CaptureError::NotSupported,
+        },
+        "reopen" => Reopen {
+            source: CaptureError::NotSupported,
+        },
+        "control-queue-full" => ControlQueueFull,
+        "runtime-stopped" => RuntimeStopped,
+        "response-timed-out" => ResponseTimedOut { timeout_ms: 250 },
+        _ => {
+            return Err(error(
+                "source.invalid_conformance_case",
+                "unknown source replacement conformance case",
+            ));
+        }
+    };
+    Err(replacement_error(failure))
+}
 
 #[napi(object)]
 pub struct NativeSourceFailure {
@@ -971,6 +1050,12 @@ fn project_start_failure(failure: &pocketstation::SessionStartError) -> NativeSt
 }
 
 enum SessionCommand {
+    ReplaceMicrophone {
+        stem_id: pocketstation::StemId,
+        selector: pocketstation::DeviceSelector,
+        reopen: bool,
+        response: oneshot::Sender<Result<NativeSourceReplacement>>,
+    },
     ReadAudio {
         timeout: Duration,
         response: oneshot::Sender<Result<NativeAudioRead>>,
@@ -1036,6 +1121,72 @@ pub struct NativeRunningSession {
 
 #[napi]
 impl NativeRunningSession {
+    #[napi]
+    pub async fn replace_microphone_source(
+        &self,
+        stem_id: String,
+        source: &NativeSource,
+    ) -> Result<NativeSourceReplacement> {
+        self.change_microphone_source(stem_id, source, false).await
+    }
+
+    #[napi]
+    pub async fn reopen_microphone_source(
+        &self,
+        stem_id: String,
+        source: &NativeSource,
+    ) -> Result<NativeSourceReplacement> {
+        self.change_microphone_source(stem_id, source, true).await
+    }
+
+    async fn change_microphone_source(
+        &self,
+        stem_id: String,
+        source: &NativeSource,
+        reopen: bool,
+    ) -> Result<NativeSourceReplacement> {
+        let stem_id = stem_id
+            .parse::<u64>()
+            .map(pocketstation::StemId::new)
+            .map_err(|_| error("session.invalid_stem", "stemId must be an unsigned integer"))?;
+        let pocketstation::Source::Microphone(selector) = &source.declaration else {
+            return Err(error(
+                "source.not_microphone",
+                "replacement Source must select a microphone",
+            ));
+        };
+        let (response, receiver) = oneshot::channel();
+        self.commands()
+            .map_err(|_| {
+                error(
+                    "source.session_not_running",
+                    "source replacement requires a running Session",
+                )
+            })?
+            .try_send(SessionCommand::ReplaceMicrophone {
+                stem_id,
+                selector: selector.clone(),
+                reopen,
+                response,
+            })
+            .map_err(|failure| match failure {
+                std::sync::mpsc::TrySendError::Full(_) => error(
+                    "source.replacement_queue_full",
+                    "Session replacement control queue is full",
+                ),
+                std::sync::mpsc::TrySendError::Disconnected(_) => error(
+                    "source.runtime_stopped",
+                    "Session runtime stopped before source replacement completed",
+                ),
+            })?;
+        receiver.await.map_err(|_| {
+            error(
+                "source.runtime_stopped",
+                "Session runtime stopped before source replacement completed",
+            )
+        })?
+    }
+
     #[napi(getter)]
     pub fn session_id(&self) -> String {
         self.session_id.to_string()
@@ -1369,6 +1520,19 @@ enum FinishDisposition {
 fn session_worker(mut running: pocketstation::RunningSession, receiver: Receiver<SessionCommand>) {
     while let Ok(command) = receiver.recv() {
         match command {
+            SessionCommand::ReplaceMicrophone {
+                stem_id,
+                selector,
+                reopen,
+                response,
+            } => {
+                let result = if reopen {
+                    running.reopen_microphone_source(stem_id, selector)
+                } else {
+                    running.replace_microphone_source(stem_id, selector)
+                };
+                let _ = response.send(result.map(replacement_result).map_err(replacement_error));
+            }
             SessionCommand::ReadAudio { timeout, response } => {
                 let frames = copy_audio(&running, timeout)
                     .map(|frames| NativeAudioRead {
@@ -1867,5 +2031,67 @@ const fn lifecycle_state_name(state: pocketstation::SessionLifecycleState) -> &'
         pocketstation::SessionLifecycleState::Stopping => "stopping",
         pocketstation::SessionLifecycleState::Stopped => "stopped",
         pocketstation::SessionLifecycleState::Failed => "failed",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::replacement_error_code;
+    use pocketstation::{CaptureError, SessionSourceReplacementError, StemId};
+
+    #[test]
+    fn replacement_errors_use_the_source_semantic_namespace() {
+        let _ = super::conformance_source_replacement_error(
+            "session-not-running".to_owned(),
+        );
+        let stem_id = StemId::new(7);
+        let cases = [
+            (
+                SessionSourceReplacementError::SessionNotRunning,
+                "source.session_not_running",
+            ),
+            (
+                SessionSourceReplacementError::UnknownStem { stem_id },
+                "source.unknown_stem",
+            ),
+            (
+                SessionSourceReplacementError::NotMicrophone { stem_id },
+                "source.not_microphone",
+            ),
+            (
+                SessionSourceReplacementError::Prepare {
+                    source: CaptureError::NotSupported,
+                },
+                "source.replacement_prepare_failed",
+            ),
+            (
+                SessionSourceReplacementError::Open {
+                    source: CaptureError::NotSupported,
+                },
+                "source.replacement_open_failed",
+            ),
+            (
+                SessionSourceReplacementError::Reopen {
+                    source: CaptureError::NotSupported,
+                },
+                "source.reopen_failed",
+            ),
+            (
+                SessionSourceReplacementError::ControlQueueFull,
+                "source.replacement_queue_full",
+            ),
+            (
+                SessionSourceReplacementError::RuntimeStopped,
+                "source.runtime_stopped",
+            ),
+            (
+                SessionSourceReplacementError::ResponseTimedOut { timeout_ms: 250 },
+                "source.replacement_response_timed_out",
+            ),
+        ];
+
+        for (failure, expected) in cases {
+            assert_eq!(replacement_error_code(&failure), expected);
+        }
     }
 }

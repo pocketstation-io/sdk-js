@@ -3,6 +3,7 @@
  *
  * @packageDocumentation
  */
+export { runtimeCompatibility, type RuntimeCompatibility } from '../compatibility.js';
 export {
   ClockDomainId,
   ConnectorId,
@@ -20,6 +21,7 @@ export {
 } from './identity.js';
 export {
   ExtensionError,
+  SourceError,
   PocketStationError,
   StreamError,
   StreamInUseError,
@@ -222,7 +224,11 @@ export {
   type TerminalEvent,
 } from './events.js';
 export {
+  evaluateSourceActivity,
+  evaluateSourceSignal,
+  SampleRepresentation,
   SessionTrace,
+  type OpenedNativeFormat,
   type AudioReentryMetrics,
   type DerivedRouteMetrics,
   type EndpointMetrics,
@@ -245,6 +251,16 @@ export {
   type SessionTraceValidation,
   type SignalQueueMetrics,
   type SourceMetrics,
+  type SourceNativeFormatObservation,
+  type SourceActivityObservation,
+  type SourceActivityPolicy,
+  type SourceActivityEvaluation,
+  type SourceActivityState,
+  type SourceSignalObservation,
+  type SourceSignalPolicy,
+  type SourceSignalEvaluation,
+  type SourceSignalState,
+  type SourceReplacementObservation,
 } from './observations.js';
 export {
   Codec,
@@ -295,6 +311,7 @@ export {
   type SessionTraceOptions,
   type SourceConfiguration,
   type StopResult,
+  type SourceReplacement,
 } from './session.js';
 export {
   SidecarConnection,

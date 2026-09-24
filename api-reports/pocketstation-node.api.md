@@ -427,6 +427,20 @@ export interface ClockDomainDescriptor {
 }
 
 // @public
+export function ClockDomainId(value: number): ClockDomainId;
+
+// @public
+export type ClockDomainId = number & {
+    readonly [identityBrand]: 'ClockDomainId';
+};
+
+// @public
+export type ClockDomainKind = 'unspecified' | 'process-monotonic' | 'provider-defined';
+
+// @public
+export type ClockDomainOrigin = 'unspecified' | 'process-start' | 'provider-defined';
+
+// @public
 export const Codec: {
     readonly Opus: "opus";
     readonly Aac: "aac";
@@ -808,6 +822,14 @@ export const ConnectorHealth: {
 export type ConnectorHealth = (typeof ConnectorHealth)[keyof typeof ConnectorHealth];
 
 // @public
+export function ConnectorId(value: bigint): ConnectorId;
+
+// Warning: (ae-forgotten-export) The symbol "BigIntIdentity" needs to be exported by the entry point index.d.ts
+//
+// @public
+export type ConnectorId = BigIntIdentity<'ConnectorId'>;
+
+// @public
 export interface ConnectorInputDescriptor {
     // (undocumented)
     readonly configuration: Readonly<Record<string, ConnectorConfigurationValue>>;
@@ -1124,7 +1146,7 @@ export class EndOfStream {
 export class Endpoint {
     get connectorId(): bigint | undefined;
     get id(): bigint;
-    get sessionId(): bigint;
+    get sessionId(): RuntimeSessionId;
 }
 
 // @public
@@ -1292,6 +1314,12 @@ export type EndpointFailureRetryability = (typeof EndpointFailureRetryability)[k
 
 // @public
 export type EndpointFailureStage = 'prepare' | 'cancel-preparation' | 'start' | 'request-stop' | 'join-finalize';
+
+// @public
+export function EndpointId(value: bigint): EndpointId;
+
+// @public
+export type EndpointId = BigIntIdentity<'EndpointId'>;
 
 // @public
 export type EndpointItem = EndpointAudioItem | EndpointSignalItem;
@@ -1471,6 +1499,12 @@ export class EndpointStartGate {
     // (undocumented)
     get isOpen(): boolean;
 }
+
+// @public
+export function evaluateSourceActivity(value: SourceActivityObservation, policy: SourceActivityPolicy): SourceActivityEvaluation;
+
+// @public
+export function evaluateSourceSignal(value: SourceSignalObservation, policy: SourceSignalPolicy): SourceSignalEvaluation;
 
 // @public
 export type EventFormat = 'json' | 'protobuf' | 'flatbuffers' | 'cbor';
@@ -1758,6 +1792,16 @@ export interface NativeExtensionRegistration {
 }
 
 // @public
+export interface OpenedNativeFormat {
+    // (undocumented)
+    readonly channelCount: number;
+    // (undocumented)
+    readonly sampleRateHz: number;
+    // (undocumented)
+    readonly sampleRepresentation: SampleRepresentation;
+}
+
+// @public
 export class Operator {
     constructor(id: string, configuration?: Configuration);
     readonly id: string;
@@ -1914,6 +1958,12 @@ export class OperatorInstance {
     input(name: string): OperatorInput;
     output(name: string): DerivedStream;
 }
+
+// @public
+export function OperatorInstanceId(value: bigint): OperatorInstanceId;
+
+// @public
+export type OperatorInstanceId = BigIntIdentity<'OperatorInstanceId'>;
 
 // @public
 export class OperatorManifest {
@@ -2407,6 +2457,12 @@ export interface RouteDeliveryMetrics {
 }
 
 // @public
+export function RouteId(value: bigint): RouteId;
+
+// @public
+export type RouteId = BigIntIdentity<'RouteId'>;
+
+// @public
 export interface RouteMetrics {
     // (undocumented)
     readonly delivery: RouteDeliveryMetrics;
@@ -2465,11 +2521,57 @@ export class RunningSession implements AsyncDisposable {
     cancel(): Promise<StopResult>;
     readonly events: EventStream;
     metrics(): Promise<SessionMetrics>;
-    get sessionId(): bigint;
+    reopenMicrophoneSource(stem: Stem, source: Source): Promise<SourceReplacement>;
+    replaceMicrophoneSource(stem: Stem, source: Source): Promise<SourceReplacement>;
+    get sessionId(): RuntimeSessionId;
     sidecar(handle: SidecarHandle): SidecarConnection;
     signals(subscription: BusSubscription): SignalStream;
     stop(): Promise<StopResult>;
 }
+
+// @public
+export interface RuntimeCompatibility {
+    // (undocumented)
+    readonly coreVersion: string;
+    // (undocumented)
+    readonly nativeAbi: string;
+    // (undocumented)
+    readonly nodeApiVersion: number;
+    // (undocumented)
+    readonly nodeRequires: string;
+    // (undocumented)
+    readonly relayConnectorVersion: string;
+    // (undocumented)
+    readonly sdkVersion: string;
+}
+
+// @public
+export const runtimeCompatibility: RuntimeCompatibility;
+
+// @public
+export function RuntimeSessionId(value: bigint): RuntimeSessionId;
+
+// @public
+export type RuntimeSessionId = BigIntIdentity<'RuntimeSessionId'>;
+
+// @public
+export const SampleRepresentation: Readonly<{
+    readonly SIGNED_INTEGER_8: "signed-integer-8";
+    readonly SIGNED_INTEGER_16: "signed-integer-16";
+    readonly SIGNED_INTEGER_24: "signed-integer-24";
+    readonly SIGNED_INTEGER_32: "signed-integer-32";
+    readonly SIGNED_INTEGER_64: "signed-integer-64";
+    readonly UNSIGNED_INTEGER_8: "unsigned-integer-8";
+    readonly UNSIGNED_INTEGER_16: "unsigned-integer-16";
+    readonly UNSIGNED_INTEGER_24: "unsigned-integer-24";
+    readonly UNSIGNED_INTEGER_32: "unsigned-integer-32";
+    readonly UNSIGNED_INTEGER_64: "unsigned-integer-64";
+    readonly FLOAT_32: "float-32";
+    readonly FLOAT_64: "float-64";
+}>;
+
+// @public (undocumented)
+export type SampleRepresentation = (typeof SampleRepresentation)[keyof typeof SampleRepresentation];
 
 // @public
 export function secret(value: string): SecretValue;
@@ -2498,7 +2600,7 @@ export class Session {
     }): Endpoint;
     endpoint(definition: EndpointDefinition | EndpointFactory | EndpointProvider, configuration?: Configuration | EndpointConfigurationInput): Endpoint;
     eventInput(name: string, options?: EventInputOptions): EventInput;
-    get id(): bigint;
+    get id(): RuntimeSessionId;
     loadNativeExtensionLibrary(path: string): Promise<NativeExtensionLibrary>;
     operator(operator: Operator | OperatorFactory | OperatorProvider, configuration?: Configuration): OperatorInstance;
     registerConnector(connector: Connector): RegisteredConnector;
@@ -2573,9 +2675,17 @@ export interface SessionMetrics {
     // (undocumented)
     readonly routes: readonly RouteMetrics[];
     // (undocumented)
+    readonly sourceActivities: readonly SourceActivityObservation[];
+    // (undocumented)
     readonly sourceCount: bigint;
     // (undocumented)
+    readonly sourceNativeFormats: readonly SourceNativeFormatObservation[];
+    // (undocumented)
+    readonly sourceReplacements: readonly SourceReplacementObservation[];
+    // (undocumented)
     readonly sources: readonly SourceMetrics[];
+    // (undocumented)
+    readonly sourceSignals: readonly SourceSignalObservation[];
 }
 
 // @public
@@ -2724,6 +2834,12 @@ export class SidecarHandle {
     readonly id: bigint;
     readonly sessionId: bigint;
 }
+
+// @public
+export function SidecarId(value: bigint): SidecarId;
+
+// @public
+export type SidecarId = BigIntIdentity<'SidecarId'>;
 
 // @public
 export class SidecarMessage {
@@ -2976,10 +3092,16 @@ export class Source {
     static applicationId(applicationId: string): Source;
     static applicationName(name: string): Source;
     static applicationProcessId(processId: number): Source;
+    static applicationProcessInstance(processId: number, stableId: StableSourceId): Source;
     static applicationStableId(stableId: StableSourceId): Source;
     static defaultMicrophone(): Source;
     static fromDiscovered(source: DiscoveredSource): Source;
+    readonly kind: SourceKind;
     static microphone(deviceId?: string): Source;
+    static microphoneDefault(): Source;
+    static microphoneId(deviceId: string): Source;
+    readonly selectorKind: SourceSelectorKind;
+    readonly selectorValue: SourceSelectorValue;
     static systemAudio(): Source;
 }
 
@@ -2988,6 +3110,41 @@ export function source(manifest: SourceManifest, options?: {
     readonly validateConfig?: SourceConfigValidator;
     readonly deadlines?: SourceDeadlines;
 }): (factory: SourceIterableFactory) => SourceProvider;
+
+// @public (undocumented)
+export interface SourceActivityEvaluation {
+    // (undocumented)
+    readonly latestFrameAgeNs?: bigint;
+    // (undocumented)
+    readonly sessionAgeNs: bigint;
+    // (undocumented)
+    readonly state: SourceActivityState;
+}
+
+// @public
+export interface SourceActivityObservation {
+    // (undocumented)
+    readonly firstFrameReceivedAtNs?: bigint;
+    // (undocumented)
+    readonly framesReceivedTotal: bigint;
+    // (undocumented)
+    readonly latestFrameReceivedAtNs?: bigint;
+    // (undocumented)
+    readonly observedAtNs: bigint;
+    // (undocumented)
+    readonly sessionStartedAtNs: bigint;
+}
+
+// @public
+export interface SourceActivityPolicy {
+    // (undocumented)
+    readonly firstFrameTimeoutNs: bigint;
+    // (undocumented)
+    readonly stallTimeoutNs: bigint;
+}
+
+// @public (undocumented)
+export type SourceActivityState = 'awaiting-first-frame' | 'active' | 'first-frame-timed-out' | 'stalled';
 
 // @public
 export class SourceCancellation {
@@ -3125,6 +3282,11 @@ export interface SourceEmissionOptions {
 }
 
 // @public
+export class SourceError extends PocketStationError {
+    constructor(code: string, message: string, cause?: unknown);
+}
+
+// @public
 export class SourceFactory {
     constructor(options: SourceFactoryOptions);
     // (undocumented)
@@ -3171,6 +3333,12 @@ export interface SourceFailureEvent {
 }
 
 // @public
+export function SourceId(value: bigint): SourceId;
+
+// @public
+export type SourceId = BigIntIdentity<'SourceId'>;
+
+// @public
 export type SourceIdentityStrength = 'application-id-and-process-id' | 'stable-application-id' | 'process-id' | 'stable-device-uid' | 'platform-stable-id';
 
 // @public
@@ -3180,6 +3348,12 @@ export class SourceInstance {
     get sessionId(): bigint;
     get sourceId(): bigint;
 }
+
+// @public
+export function SourceInstanceId(value: bigint): SourceInstanceId;
+
+// @public
+export type SourceInstanceId = BigIntIdentity<'SourceInstanceId'>;
 
 // @public (undocumented)
 export type SourceIterableFactory = (configuration: SourceConfiguration_2) => Iterable<SourceEmission> | AsyncIterable<SourceEmission>;
@@ -3249,6 +3423,14 @@ export interface SourceMetrics {
     readonly runtimeEventQueue: EventQueueMetrics;
     // (undocumented)
     readonly stemId: bigint;
+}
+
+// @public
+export interface SourceNativeFormatObservation {
+    // (undocumented)
+    readonly openedNativeFormat?: OpenedNativeFormat;
+    // (undocumented)
+    readonly stemId: StemId;
 }
 
 // @public
@@ -3340,30 +3522,156 @@ export type SourceQuery = {
 };
 
 // @public
+export interface SourceReplacement {
+    // (undocumented)
+    readonly discontinuityEpoch: bigint;
+    // (undocumented)
+    readonly openedNativeFormat?: OpenedNativeFormat;
+    // (undocumented)
+    readonly previousSourceId: SourceId;
+    // (undocumented)
+    readonly requestedDeviceId?: string;
+    // (undocumented)
+    readonly requestedSelectorKind: 'microphone-default' | 'microphone-id';
+    // (undocumented)
+    readonly sourceGeneration: number;
+    // (undocumented)
+    readonly sourceId: SourceId;
+    // (undocumented)
+    readonly stemId: StemId;
+}
+
+// @public
+export interface SourceReplacementObservation {
+    // (undocumented)
+    readonly attachedSourceId?: SourceId;
+    // (undocumented)
+    readonly attemptsTotal: bigint;
+    // (undocumented)
+    readonly completedTotal: bigint;
+    // (undocumented)
+    readonly discontinuityEpoch: bigint;
+    // (undocumented)
+    readonly failedBeforeAttachTotal: bigint;
+    // (undocumented)
+    readonly latestCompletedAtNs?: bigint;
+    // (undocumented)
+    readonly responseTimeoutsTotal: bigint;
+    // (undocumented)
+    readonly sourceGeneration: number;
+    // (undocumented)
+    readonly stemId: StemId;
+}
+
+// @public
+export type SourceSelectorKind = 'application-name' | 'application-bundle-id' | 'application-process-id' | 'application-stable-id' | 'application-process-instance' | 'microphone-default' | 'microphone-id' | 'system-mix';
+
+// @public
+export type SourceSelectorValue = string | number | StableSourceId | ProcessInstanceSelector | undefined;
+
+// @public (undocumented)
+export interface SourceSignalEvaluation {
+    // (undocumented)
+    readonly consecutiveExactZeroDurationNs: bigint;
+    // (undocumented)
+    readonly peakDbfs?: number;
+    // (undocumented)
+    readonly rmsDbfs?: number;
+    // (undocumented)
+    readonly state: SourceSignalState;
+}
+
+// @public
+export interface SourceSignalObservation {
+    // (undocumented)
+    readonly consecutiveExactZeroDurationNs: bigint;
+    // (undocumented)
+    readonly exactZeroSamplesObservedTotal: bigint;
+    // (undocumented)
+    readonly nonfiniteSamplesObservedTotal: bigint;
+    // (undocumented)
+    readonly nonzeroSamplesObservedTotal: bigint;
+    // (undocumented)
+    readonly observedAtNs: bigint;
+    // (undocumented)
+    readonly samplesObservedTotal: bigint;
+    // (undocumented)
+    readonly windowDiscontinuityEpoch: bigint;
+    // (undocumented)
+    readonly windowDurationNs: bigint;
+    // (undocumented)
+    readonly windowExactZeroRatio?: number;
+    // (undocumented)
+    readonly windowExactZeroSamplesTotal: bigint;
+    // (undocumented)
+    readonly windowNonfiniteSamplesTotal: bigint;
+    // (undocumented)
+    readonly windowNonzeroSamplesTotal: bigint;
+    // (undocumented)
+    readonly windowObservedAtNs?: bigint;
+    // (undocumented)
+    readonly windowPeakDbfs?: number;
+    // (undocumented)
+    readonly windowPeakLinear?: number;
+    // (undocumented)
+    readonly windowRmsDbfs?: number;
+    // (undocumented)
+    readonly windowRmsLinear?: number;
+    // (undocumented)
+    readonly windowSamplesTotal: bigint;
+    // (undocumented)
+    readonly windowSequenceNumber?: bigint;
+    // (undocumented)
+    readonly windowSourceGeneration: number;
+    // (undocumented)
+    readonly windowTimestampStartNs?: bigint;
+}
+
+// @public
+export interface SourceSignalPolicy {
+    // (undocumented)
+    readonly exactZeroTimeoutNs: bigint;
+    // (undocumented)
+    readonly minimumPeakDbfs: number;
+    // (undocumented)
+    readonly minimumRmsDbfs: number;
+}
+
+// @public (undocumented)
+export type SourceSignalState = 'no-samples-observed' | 'nonfinite-samples-observed' | 'exact-digital-zero-pending' | 'sustained-exact-digital-zero' | 'below-caller-thresholds' | 'meets-caller-thresholds';
+
+// @public
 export type SourceState = 'available' | 'playing' | 'silent' | 'unavailable' | 'permission-blocked';
 
 // @public
 export interface StableSourceId {
     readonly kind: SourceKind;
     readonly platform: Platform;
-    readonly sourceId?: bigint;
+    readonly sourceId?: SourceId;
     readonly stableKey: string;
 }
 
 // @public
 export class Stem {
     connect(input: OperatorInput): bigint;
-    get id(): bigint;
+    get id(): StemId;
     record(name: string): Endpoint;
     send(endpoint: Endpoint, options?: {
         input?: string;
     }): bigint;
     sendTo(connector: Connector): bigint;
+    get sessionId(): RuntimeSessionId;
     through(operator: Operator, options?: {
         input?: string;
         output?: string;
     }): DerivedStream;
 }
+
+// @public
+export function StemId(value: bigint): StemId;
+
+// @public
+export type StemId = BigIntIdentity<'StemId'>;
 
 // @public
 export interface StopResult {
@@ -3398,6 +3706,12 @@ export class StreamAbortError extends StreamError {
 export class StreamError extends PocketStationError {
     constructor(code: string, message: string, cause?: unknown);
 }
+
+// @public
+export function StreamId(value: bigint): StreamId;
+
+// @public
+export type StreamId = BigIntIdentity<'StreamId'>;
 
 // @public
 export class StreamInUseError extends StreamError {

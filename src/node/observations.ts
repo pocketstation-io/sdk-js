@@ -13,6 +13,11 @@ import type {
   NativeRecordingOutcome,
   NativeRecordingStemOutcome,
   NativeSessionMetrics,
+  NativeCaptureFormat,
+  NativeSourceNativeFormatObservation,
+  NativeSourceActivityObservations,
+  NativeSourceSignalObservations,
+  NativeSourceReplacementObservations,
   NativeSessionTraceHandle,
   NativeSessionTraceRecord,
   NativeSessionTraceValidation,
@@ -22,6 +27,7 @@ import type {
 } from './native.js';
 import { nativeAddon } from './native.js';
 import { nativeCallSync, PocketStationError } from './errors.js';
+import { SourceId, StemId } from './identity.js';
 import type {
   EndpointFailureStage,
   FinalizationFailureStage,
@@ -153,6 +159,199 @@ export interface SourceMetrics {
   readonly ingressFramesDiscardedTotal: bigint;
 }
 
+/** Native PCM sample representation opened by a capture backend. */
+export const SampleRepresentation = Object.freeze({
+  SIGNED_INTEGER_8: 'signed-integer-8',
+  SIGNED_INTEGER_16: 'signed-integer-16',
+  SIGNED_INTEGER_24: 'signed-integer-24',
+  SIGNED_INTEGER_32: 'signed-integer-32',
+  SIGNED_INTEGER_64: 'signed-integer-64',
+  UNSIGNED_INTEGER_8: 'unsigned-integer-8',
+  UNSIGNED_INTEGER_16: 'unsigned-integer-16',
+  UNSIGNED_INTEGER_24: 'unsigned-integer-24',
+  UNSIGNED_INTEGER_32: 'unsigned-integer-32',
+  UNSIGNED_INTEGER_64: 'unsigned-integer-64',
+  FLOAT_32: 'float-32',
+  FLOAT_64: 'float-64',
+} as const);
+export type SampleRepresentation =
+  (typeof SampleRepresentation)[keyof typeof SampleRepresentation];
+
+/** PCM format negotiated at the capture backend before Session conversion. */
+export interface OpenedNativeFormat {
+  readonly sampleRateHz: number;
+  readonly channelCount: number;
+  readonly sampleRepresentation: SampleRepresentation;
+}
+
+/** Native format opened for one built-in Source. */
+export interface SourceNativeFormatObservation {
+  readonly stemId: StemId;
+  readonly openedNativeFormat?: OpenedNativeFormat;
+}
+
+/** Frame-delivery activity, including digitally silent frames. */
+export interface SourceActivityObservation {
+  readonly sessionStartedAtNs: bigint;
+  readonly observedAtNs: bigint;
+  readonly firstFrameReceivedAtNs?: bigint;
+  readonly latestFrameReceivedAtNs?: bigint;
+  readonly framesReceivedTotal: bigint;
+}
+
+/** Caller-owned time bounds for evaluating source activity. */
+export interface SourceActivityPolicy {
+  readonly firstFrameTimeoutNs: bigint;
+  readonly stallTimeoutNs: bigint;
+}
+
+export type SourceActivityState =
+  | 'awaiting-first-frame'
+  | 'active'
+  | 'first-frame-timed-out'
+  | 'stalled';
+
+export interface SourceActivityEvaluation {
+  readonly state: SourceActivityState;
+  readonly sessionAgeNs: bigint;
+  readonly latestFrameAgeNs?: bigint;
+}
+
+/** Off-callback PCM measurements for one source. */
+export interface SourceSignalObservation {
+  readonly observedAtNs: bigint;
+  readonly samplesObservedTotal: bigint;
+  readonly exactZeroSamplesObservedTotal: bigint;
+  readonly nonzeroSamplesObservedTotal: bigint;
+  readonly nonfiniteSamplesObservedTotal: bigint;
+  readonly windowTimestampStartNs?: bigint;
+  readonly windowDurationNs: bigint;
+  readonly windowObservedAtNs?: bigint;
+  readonly windowSequenceNumber?: bigint;
+  readonly windowSourceGeneration: number;
+  readonly windowDiscontinuityEpoch: bigint;
+  readonly windowSamplesTotal: bigint;
+  readonly windowExactZeroSamplesTotal: bigint;
+  readonly windowNonzeroSamplesTotal: bigint;
+  readonly windowNonfiniteSamplesTotal: bigint;
+  readonly windowPeakLinear?: number;
+  readonly windowRmsLinear?: number;
+  readonly windowPeakDbfs?: number;
+  readonly windowRmsDbfs?: number;
+  readonly windowExactZeroRatio?: number;
+  readonly consecutiveExactZeroDurationNs: bigint;
+}
+
+/** Caller-owned thresholds for evaluating measured PCM. */
+export interface SourceSignalPolicy {
+  readonly minimumPeakDbfs: number;
+  readonly minimumRmsDbfs: number;
+  readonly exactZeroTimeoutNs: bigint;
+}
+
+export type SourceSignalState =
+  | 'no-samples-observed'
+  | 'nonfinite-samples-observed'
+  | 'exact-digital-zero-pending'
+  | 'sustained-exact-digital-zero'
+  | 'below-caller-thresholds'
+  | 'meets-caller-thresholds';
+
+export interface SourceSignalEvaluation {
+  readonly state: SourceSignalState;
+  readonly peakDbfs?: number;
+  readonly rmsDbfs?: number;
+  readonly consecutiveExactZeroDurationNs: bigint;
+}
+
+/** Replacement totals and attached source identity for one microphone stem. */
+export interface SourceReplacementObservation {
+  readonly stemId: StemId;
+  readonly attemptsTotal: bigint;
+  readonly completedTotal: bigint;
+  readonly failedBeforeAttachTotal: bigint;
+  readonly responseTimeoutsTotal: bigint;
+  readonly attachedSourceId?: SourceId;
+  readonly sourceGeneration: number;
+  readonly discontinuityEpoch: bigint;
+  readonly latestCompletedAtNs?: bigint;
+}
+
+/** Evaluate source activity without starting recovery. */
+export function evaluateSourceActivity(
+  value: SourceActivityObservation,
+  policy: SourceActivityPolicy,
+): SourceActivityEvaluation {
+  requirePositiveNanoseconds(policy.firstFrameTimeoutNs, 'firstFrameTimeoutNs');
+  requirePositiveNanoseconds(policy.stallTimeoutNs, 'stallTimeoutNs');
+  const sessionAgeNs = saturatingElapsed(value.observedAtNs, value.sessionStartedAtNs);
+  if (value.latestFrameReceivedAtNs === undefined) {
+    return Object.freeze({
+      state:
+        sessionAgeNs >= policy.firstFrameTimeoutNs
+          ? 'first-frame-timed-out'
+          : 'awaiting-first-frame',
+      sessionAgeNs,
+    }) as SourceActivityEvaluation;
+  }
+  const latestFrameAgeNs = saturatingElapsed(
+    value.observedAtNs,
+    value.latestFrameReceivedAtNs,
+  );
+  return Object.freeze({
+    state: latestFrameAgeNs >= policy.stallTimeoutNs ? 'stalled' : 'active',
+    sessionAgeNs,
+    latestFrameAgeNs,
+  }) as SourceActivityEvaluation;
+}
+
+/** Evaluate PCM measurements without inferring speech, permission, or routing. */
+export function evaluateSourceSignal(
+  value: SourceSignalObservation,
+  policy: SourceSignalPolicy,
+): SourceSignalEvaluation {
+  if (!Number.isFinite(policy.minimumPeakDbfs) || policy.minimumPeakDbfs > 0) {
+    throw new RangeError('minimumPeakDbfs must be finite and no greater than 0 dBFS');
+  }
+  if (!Number.isFinite(policy.minimumRmsDbfs) || policy.minimumRmsDbfs > 0) {
+    throw new RangeError('minimumRmsDbfs must be finite and no greater than 0 dBFS');
+  }
+  requirePositiveNanoseconds(policy.exactZeroTimeoutNs, 'exactZeroTimeoutNs');
+  let state: SourceSignalState;
+  if (value.windowSamplesTotal === 0n) {
+    state = 'no-samples-observed';
+  } else if (value.windowNonfiniteSamplesTotal > 0n) {
+    state = 'nonfinite-samples-observed';
+  } else if (value.windowExactZeroSamplesTotal === value.windowSamplesTotal) {
+    state =
+      value.consecutiveExactZeroDurationNs >= policy.exactZeroTimeoutNs
+        ? 'sustained-exact-digital-zero'
+        : 'exact-digital-zero-pending';
+  } else {
+    state =
+      (value.windowPeakDbfs ?? Number.NEGATIVE_INFINITY) >= policy.minimumPeakDbfs &&
+      (value.windowRmsDbfs ?? Number.NEGATIVE_INFINITY) >= policy.minimumRmsDbfs
+        ? 'meets-caller-thresholds'
+        : 'below-caller-thresholds';
+  }
+  return Object.freeze({
+    state,
+    peakDbfs: value.windowPeakDbfs,
+    rmsDbfs: value.windowRmsDbfs,
+    consecutiveExactZeroDurationNs: value.consecutiveExactZeroDurationNs,
+  });
+}
+
+function requirePositiveNanoseconds(value: bigint, name: string): void {
+  if (typeof value !== 'bigint' || value <= 0n || value > 18_446_744_073_709_551_615n) {
+    throw new RangeError(`${name} must be a nonzero unsigned 64-bit nanosecond value`);
+  }
+}
+
+function saturatingElapsed(observedAtNs: bigint, earlierAtNs: bigint): bigint {
+  return observedAtNs >= earlierAtNs ? observedAtNs - earlierAtNs : 0n;
+}
+
 /** Lifecycle and delivery totals for one application-authored Source. */
 export interface ExternalSourceMetrics {
   readonly sourceInstanceId: bigint;
@@ -249,6 +448,10 @@ export interface SessionMetrics {
   readonly eventQueue: EventQueueMetrics;
   readonly polledAudio: PolledAudioMetrics;
   readonly sources: readonly SourceMetrics[];
+  readonly sourceNativeFormats: readonly SourceNativeFormatObservation[];
+  readonly sourceActivities: readonly SourceActivityObservation[];
+  readonly sourceSignals: readonly SourceSignalObservation[];
+  readonly sourceReplacements: readonly SourceReplacementObservation[];
   readonly externalSources: readonly ExternalSourceMetrics[];
   readonly routes: readonly RouteMetrics[];
   readonly operators: readonly OperatorMetrics[];
@@ -403,6 +606,10 @@ export function _sessionMetricsFromNative(value: NativeSessionMetrics): SessionM
     eventQueue: eventQueue(value.eventQueue),
     polledAudio: polledAudio(value.polledAudio),
     sources: Object.freeze(value.sources.map(sourceMetrics)),
+    sourceNativeFormats: Object.freeze(value.sourceNativeFormats.map(sourceNativeFormat)),
+    sourceActivities: Object.freeze(value.sourceActivity.map(sourceActivity)),
+    sourceSignals: Object.freeze(value.sourceSignal.map(sourceSignal)),
+    sourceReplacements: Object.freeze(value.sourceReplacements.map(sourceReplacement)),
     externalSources: Object.freeze(value.externalSources.map(externalSourceMetrics)),
     routes: Object.freeze(value.routes.map(routeMetrics)),
     operators: Object.freeze(value.operators.map(operatorMetrics)),
@@ -435,6 +642,19 @@ export function _sessionMetricsFromNative(value: NativeSessionMetrics): SessionM
     throw new PocketStationError(
       'session.invalid_metrics_snapshot',
       'Native Session metrics counts are inconsistent',
+    );
+  }
+  if (
+    [
+      result.sourceNativeFormats.length,
+      result.sourceActivities.length,
+      result.sourceSignals.length,
+      result.sourceReplacements.length,
+    ].some((count) => BigInt(count) !== result.sourceCount)
+  ) {
+    throw new PocketStationError(
+      'session.invalid_metrics_snapshot',
+      'Native source observation counts are inconsistent',
     );
   }
   return result;
@@ -691,6 +911,96 @@ function sourceMetrics(value: NativeSourceMetrics): SourceMetrics {
     }),
     runtimeEventQueue: eventQueue(value.runtimeEventQueue),
   }) as SourceMetrics;
+}
+
+/** @internal */
+export function _captureNativeFormatFromNative(
+  value: NativeCaptureFormat,
+): OpenedNativeFormat {
+  return Object.freeze({
+    sampleRateHz: value.sampleRateHz,
+    channelCount: value.channelCount,
+    sampleRepresentation: choice(
+      value.sampleRepresentation,
+      'native PCM sample representation',
+      Object.values(SampleRepresentation),
+    ),
+  });
+}
+
+function sourceNativeFormat(
+  value: NativeSourceNativeFormatObservation,
+): SourceNativeFormatObservation {
+  return Object.freeze({
+    stemId: StemId(BigInt(value.stemId)),
+    openedNativeFormat:
+      value.openedNativeFormat == null
+        ? undefined
+        : _captureNativeFormatFromNative(value.openedNativeFormat),
+  });
+}
+
+function sourceActivity(value: NativeSourceActivityObservations): SourceActivityObservation {
+  return Object.freeze({
+    sessionStartedAtNs: BigInt(value.sessionStartedAtNs),
+    observedAtNs: BigInt(value.observedAtNs),
+    firstFrameReceivedAtNs:
+      value.firstFrameReceivedAtNs == null
+        ? undefined
+        : BigInt(value.firstFrameReceivedAtNs),
+    latestFrameReceivedAtNs:
+      value.latestFrameReceivedAtNs == null
+        ? undefined
+        : BigInt(value.latestFrameReceivedAtNs),
+    framesReceivedTotal: BigInt(value.framesReceivedTotal),
+  });
+}
+
+function sourceSignal(value: NativeSourceSignalObservations): SourceSignalObservation {
+  return Object.freeze({
+    observedAtNs: BigInt(value.observedAtNs),
+    samplesObservedTotal: BigInt(value.samplesObservedTotal),
+    exactZeroSamplesObservedTotal: BigInt(value.exactZeroSamplesObservedTotal),
+    nonzeroSamplesObservedTotal: BigInt(value.nonzeroSamplesObservedTotal),
+    nonfiniteSamplesObservedTotal: BigInt(value.nonfiniteSamplesObservedTotal),
+    windowTimestampStartNs:
+      value.windowTimestampStartNs == null ? undefined : BigInt(value.windowTimestampStartNs),
+    windowDurationNs: BigInt(value.windowDurationNs),
+    windowObservedAtNs:
+      value.windowObservedAtNs == null ? undefined : BigInt(value.windowObservedAtNs),
+    windowSequenceNumber:
+      value.windowSequenceNumber == null ? undefined : BigInt(value.windowSequenceNumber),
+    windowSourceGeneration: value.windowSourceGeneration,
+    windowDiscontinuityEpoch: BigInt(value.windowDiscontinuityEpoch),
+    windowSamplesTotal: BigInt(value.windowSamplesTotal),
+    windowExactZeroSamplesTotal: BigInt(value.windowExactZeroSamplesTotal),
+    windowNonzeroSamplesTotal: BigInt(value.windowNonzeroSamplesTotal),
+    windowNonfiniteSamplesTotal: BigInt(value.windowNonfiniteSamplesTotal),
+    windowPeakLinear: value.windowPeakLinear ?? undefined,
+    windowRmsLinear: value.windowRmsLinear ?? undefined,
+    windowPeakDbfs: value.windowPeakDbfs ?? undefined,
+    windowRmsDbfs: value.windowRmsDbfs ?? undefined,
+    windowExactZeroRatio: value.windowExactZeroRatio ?? undefined,
+    consecutiveExactZeroDurationNs: BigInt(value.consecutiveExactZeroDurationNs),
+  });
+}
+
+function sourceReplacement(
+  value: NativeSourceReplacementObservations,
+): SourceReplacementObservation {
+  return Object.freeze({
+    stemId: StemId(BigInt(value.stemId)),
+    attemptsTotal: BigInt(value.attemptsTotal),
+    completedTotal: BigInt(value.completedTotal),
+    failedBeforeAttachTotal: BigInt(value.failedBeforeAttachTotal),
+    responseTimeoutsTotal: BigInt(value.responseTimeoutsTotal),
+    attachedSourceId:
+      value.attachedSourceId == null ? undefined : SourceId(BigInt(value.attachedSourceId)),
+    sourceGeneration: value.sourceGeneration,
+    discontinuityEpoch: BigInt(value.discontinuityEpoch),
+    latestCompletedAtNs:
+      value.latestCompletedAtNs == null ? undefined : BigInt(value.latestCompletedAtNs),
+  });
 }
 
 function externalSourceMetrics(value: NativeExternalSourceMetrics): ExternalSourceMetrics {
