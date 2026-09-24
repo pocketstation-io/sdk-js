@@ -6,6 +6,7 @@ import type {
   NativeSessionEvent,
   NativeSourceFailure,
 } from './native.js';
+import { SourceId } from './identity.js';
 import type { StableSourceId } from './sources.js';
 
 /** Public native Session lifecycle state. */
@@ -307,7 +308,7 @@ export function _eventFromNative(event: NativeSessionEvent): SessionEvent {
             platform,
             kind,
             stableKey: required(event.sourceStableKey, 'sourceStableKey'),
-            sourceId: BigInt(required(event.sourceId, 'sourceId')),
+            sourceId: SourceId(BigInt(required(event.sourceId, 'sourceId'))),
           }),
           generation: required(event.sourceGeneration, 'sourceGeneration'),
           recoveryRequirement:
@@ -440,7 +441,7 @@ function sourceFailureFromNative(failure: NativeSourceFailure): SourceFailure {
       platform: choice(failure.sourcePlatform, 'source platform', PLATFORMS),
       kind: choice(failure.sourceKind, 'source kind', SOURCE_KINDS),
       stableKey: failure.sourceStableKey,
-      sourceId: BigInt(failure.sourceId),
+      sourceId: SourceId(BigInt(failure.sourceId)),
     }),
     generation: failure.sourceGeneration,
     recoveryRequirement:

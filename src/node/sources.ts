@@ -1,4 +1,5 @@
 import { PocketStationError, nativeCall, nativeCallSync } from './errors.js';
+import { SourceId } from './identity.js';
 import {
   nativeAddon,
   type NativeCaptureAuthorizationSnapshot,
@@ -22,6 +23,17 @@ export type SourceKind =
   | 'application'
   | 'output-device'
   | 'input-device'
+  | 'system-mix';
+
+/** Exact selector form retained by a Source declaration. */
+export type SourceSelectorKind =
+  | 'application-name'
+  | 'application-bundle-id'
+  | 'application-process-id'
+  | 'application-stable-id'
+  | 'application-process-instance'
+  | 'microphone-default'
+  | 'microphone-id'
   | 'system-mix';
 
 /** State observed during the discovery snapshot. */
@@ -108,7 +120,7 @@ export interface StableSourceId {
   /** Native stable key retained without re-hashing. */
   readonly stableKey: string;
   /** Immutable Core Source identity when the value came from discovery. */
-  readonly sourceId?: bigint;
+  readonly sourceId?: SourceId;
 }
 
 /** Exact application process and the stable identity observed for it. */
@@ -188,7 +200,7 @@ export class DiscoveredSource {
       platform: native.platform as Platform,
       kind: native.kind as SourceKind,
       stableKey: native.stableKey,
-      sourceId: BigInt(native.sourceId),
+      sourceId: SourceId(BigInt(native.sourceId)),
     });
     this.name = native.name;
     this.processId = native.processId ?? undefined;
@@ -239,10 +251,34 @@ export type ApplicationSelection =
 
 const handles = new WeakMap<Source, NativeSourceHandle>();
 
+/** Exact selector value retained by a Source declaration. */
+export type SourceSelectorValue =
+  | string
+  | number
+  | StableSourceId
+  | ProcessInstanceSelector
+  | undefined;
+
 /** Describes audio that a Session should open when it starts. */
 export class Source {
-  private constructor(native: NativeSourceHandle) {
+  /** Native source family selected by this declaration. */
+  public readonly kind: SourceKind;
+  /** Exact selector form used to create this declaration. */
+  public readonly selectorKind: SourceSelectorKind;
+  /** Exact selector value, when the selector carries one. */
+  public readonly selectorValue: SourceSelectorValue;
+
+  private constructor(
+    native: NativeSourceHandle,
+    kind: SourceKind,
+    selectorKind: SourceSelectorKind,
+    selectorValue?: SourceSelectorValue,
+  ) {
     handles.set(this, native);
+    this.kind = kind;
+    this.selectorKind = selectorKind;
+    this.selectorValue = selectorValue;
+    Object.freeze(this);
   }
 
   /**
@@ -251,23 +287,15 @@ export class Source {
    */
   public static application(selection: ApplicationSelection): Source {
     if (typeof selection === 'string') {
-      return new Source(
-        nativeCallSync(() => nativeAddon().NativeSource.application(selection)),
-      );
+      return Source.applicationName(selection);
     }
     if (typeof selection === 'number') {
       return Source.applicationProcessId(selection);
     }
     if ('processId' in selection) {
-      requireApplicationIdentity(selection.stableId);
-      return new Source(
-        nativeCallSync(() =>
-          nativeAddon().NativeSource.applicationProcessInstance(
-            selection.processId,
-            selection.stableId.platform,
-            selection.stableId.stableKey,
-          ),
-        ),
+      return Source.applicationProcessInstance(
+        selection.processId,
+        selection.stableId,
       );
     }
     requireApplicationIdentity(selection);
@@ -278,6 +306,9 @@ export class Source {
   public static applicationName(name: string): Source {
     return new Source(
       nativeCallSync(() => nativeAddon().NativeSource.applicationName(name)),
+      'application',
+      'application-name',
+      name,
     );
   }
 
@@ -285,6 +316,9 @@ export class Source {
   public static applicationId(applicationId: string): Source {
     return new Source(
       nativeCallSync(() => nativeAddon().NativeSource.applicationId(applicationId)),
+      'application',
+      'application-bundle-id',
+      applicationId,
     );
   }
 
@@ -295,6 +329,9 @@ export class Source {
       nativeCallSync(() =>
         nativeAddon().NativeSource.applicationProcessId(processId),
       ),
+      'application',
+      'application-process-id',
+      processId,
     );
   }
 
@@ -308,26 +345,70 @@ export class Source {
           stableId.stableKey,
         ),
       ),
+      'application',
+      'application-stable-id',
+      stableId,
+    );
+  }
+
+  /** Select an exact process instance plus its stable application identity. */
+  public static applicationProcessInstance(
+    processId: number,
+    stableId: StableSourceId,
+  ): Source {
+    requireUint32('processId', processId, false);
+    requireApplicationIdentity(stableId);
+    const selector = Object.freeze({ processId, stableId });
+    return new Source(
+      nativeCallSync(() =>
+        nativeAddon().NativeSource.applicationProcessInstance(
+          processId,
+          stableId.platform,
+          stableId.stableKey,
+        ),
+      ),
+      'application',
+      'application-process-instance',
+      selector,
     );
   }
 
   /** Capture the computer's complete desktop audio mix. */
   public static systemAudio(): Source {
-    return new Source(nativeCallSync(() => nativeAddon().NativeSource.systemAudio()));
+    return new Source(
+      nativeCallSync(() => nativeAddon().NativeSource.systemAudio()),
+      'system-mix',
+      'system-mix',
+    );
   }
 
   /** Capture the operating system's current default microphone. */
   public static defaultMicrophone(): Source {
+    return Source.microphoneDefault();
+  }
+
+  /** Capture the operating system's current default microphone. */
+  public static microphoneDefault(): Source {
     return new Source(
       nativeCallSync(() => nativeAddon().NativeSource.defaultMicrophone()),
+      'input-device',
+      'microphone-default',
     );
   }
 
   /** Capture the default microphone, or select one by its stable device identifier. */
   public static microphone(deviceId?: string): Source {
-    if (deviceId === undefined) return Source.defaultMicrophone();
+    if (deviceId === undefined) return Source.microphoneDefault();
+    return Source.microphoneId(deviceId);
+  }
+
+  /** Capture one microphone by its stable device identifier. */
+  public static microphoneId(deviceId: string): Source {
     return new Source(
       nativeCallSync(() => nativeAddon().NativeSource.microphoneId(deviceId)),
+      'input-device',
+      'microphone-id',
+      deviceId,
     );
   }
 
