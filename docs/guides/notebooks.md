@@ -24,7 +24,7 @@ Install a packed PocketStation archive in the directory where you will open the
 notebook:
 
 ```bash
-npm install /path/to/pocketstation-0.1.0.tgz
+npm install /path/to/pocketstation-0.1.4.tgz
 ```
 
 The notebook imports `pocketstation/node` from that installation. It does not

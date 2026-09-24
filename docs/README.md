@@ -33,8 +33,8 @@ so browser-safe packages do not load native code.
 - [Events, errors, and final results](reference/events-and-errors.md)
 - [Browser Relay status](reference/browser-relay.md)
 - [Control Session lifecycle](reference/control-plane.md)
-- [Public API report](../etc/pocketstation-node.api.md)
-- [Control API report](../etc/pocketstation-control.api.md)
+- [Public API report](../api-reports/pocketstation-node.api.md)
+- [Control API report](../api-reports/pocketstation-control.api.md)
 
 The Node package is not published to npm yet. Examples use a packed local
 archive and do not establish Windows, Linux, WAN, or performance support.

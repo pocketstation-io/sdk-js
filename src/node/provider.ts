@@ -772,6 +772,7 @@ export class EndpointFactory {
       }
       case 'endpoint.gate_open': {
         const active = this.#active(request);
+        if (active.state === 'stopping' || active.state === 'closed') return {};
         if (active.state !== 'running') throw new Error('Endpoint start gate opened outside its running lifetime');
         await active.node.gateOpen?.({ signal: active.controller.signal });
         return {};

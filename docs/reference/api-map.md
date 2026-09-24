@@ -30,12 +30,12 @@ voice entries never load the native addon.
 | Define finite voice composition | `Session.conversation()`, `ConversationConfig` | `Conversation.fromComponents()`, `Conversation.fromDuplex()`, provider interfaces |
 | Preserve recognized-speech lineage | `TranscriptUpdate` | `ConversationTurn`, `VoiceEvent`, `ConversationOutcome` |
 
-The checked-in [Node API report](../../etc/pocketstation-node.api.md) records
+The checked-in [Node API report](../../api-reports/pocketstation-node.api.md) records
 every exported signature. It is generated from the TypeScript declarations and
 reviewed whenever the public API changes.
 
-The separate [Control API report](../../etc/pocketstation-control.api.md)
+The separate [Control API report](../../api-reports/pocketstation-control.api.md)
 records the browser-safe lifecycle surface.
 
-The separate [Voice API report](../../etc/pocketstation-voice.api.md) records
+The separate [Voice API report](../../api-reports/pocketstation-voice.api.md) records
 the environment-neutral provider contracts and immutable values.

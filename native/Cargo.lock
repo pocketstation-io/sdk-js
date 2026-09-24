@@ -1577,7 +1577,7 @@ dependencies = [
 
 [[package]]
 name = "pocketstation-js"
-version = "0.1.0"
+version = "0.1.4"
 dependencies = [
  "futures",
  "futures-timer",

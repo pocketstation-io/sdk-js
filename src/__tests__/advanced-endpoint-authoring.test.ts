@@ -415,6 +415,25 @@ describe('Advanced Endpoint authoring', () => {
     expect(() => session.registerEndpoint(provider).declare({ bad: 1 as unknown as string })).toThrow(TypeError);
   });
 
+  it('accepts a start-gate notification that races with shutdown', async () => {
+    class Running extends RunningEndpointDriver { public receive(): void {} }
+    class Prepared extends PreparedEndpointDriver { public start(): RunningEndpointDriver { return new Running(); } }
+    const provider = new EndpointProvider({
+      manifest: EndpointManifest.audio('org.example.endpoint.gate-shutdown-race.v1'),
+      factory: () => new Prepared(),
+    });
+    const dispatch = provider._factory()._dispatch;
+    const request = (operation: string) => ({ operation, instanceId: '1' });
+
+    await dispatch(request('endpoint.create'));
+    await dispatch(request('endpoint.prepare'));
+    await dispatch(request('endpoint.start'));
+    await dispatch({ ...request('endpoint.stop'), shutdownMode: 'drain' });
+
+    await expect(dispatch(request('endpoint.gate_open'))).resolves.toEqual({});
+    await dispatch(request('endpoint.close'));
+  });
+
   it('preserves an explicit buffered route override', async () => {
     let input: EndpointPortInput | undefined;
     class Running extends RunningEndpointDriver { public receive(): void {} }

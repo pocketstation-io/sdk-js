@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 
 const node = await import('pocketstation/node');
+assert.equal(node.runtimeCompatibility.sdkVersion, '0.1.4');
+assert.equal(node.runtimeCompatibility.coreVersion, '1.1.11');
 assert.equal(typeof node.Session, 'function');
 assert.equal(typeof node.Source, 'function');
 assert.equal(typeof node.RunningSession, 'function');
@@ -102,6 +104,6 @@ assert.deepEqual(
 
 const root = await import('pocketstation');
 assert.deepEqual(Object.keys(root), ['PocketStationError', 'version']);
-assert.equal(root.version, '0.1.0');
+assert.equal(root.version, '0.1.4');
 
 console.log('package exports: PASS');
