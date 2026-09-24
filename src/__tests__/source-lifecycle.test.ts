@@ -36,6 +36,29 @@ describe('native Source lifecycle', () => {
     expect(() => Source.microphone('device-1')).not.toThrow();
   });
 
+  it('retains the exact selector used by each built-in source', () => {
+    expect(Source.applicationName('Zoom')).toMatchObject({
+      kind: 'application',
+      selectorKind: 'application-name',
+      selectorValue: 'Zoom',
+    });
+    expect(Source.applicationId('us.zoom.xos')).toMatchObject({
+      kind: 'application',
+      selectorKind: 'application-bundle-id',
+      selectorValue: 'us.zoom.xos',
+    });
+    expect(Source.microphoneDefault()).toMatchObject({
+      kind: 'input-device',
+      selectorKind: 'microphone-default',
+      selectorValue: undefined,
+    });
+    expect(Source.microphoneId('device-1')).toMatchObject({
+      kind: 'input-device',
+      selectorKind: 'microphone-id',
+      selectorValue: 'device-1',
+    });
+  });
+
   it('rejects empty, zero, and mismatched application selections', () => {
     expect(() => Source.application(' ')).toThrow('cannot be empty');
     expect(() => Source.application(0)).toThrow(RangeError);

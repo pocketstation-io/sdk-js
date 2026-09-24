@@ -4,6 +4,21 @@
  * @packageDocumentation
  */
 export {
+  ClockDomainId,
+  ConnectorId,
+  EndpointId,
+  OperatorInstanceId,
+  RouteId,
+  RuntimeSessionId,
+  SidecarId,
+  SourceId,
+  SourceInstanceId,
+  StemId,
+  StreamId,
+  type ClockDomainKind,
+  type ClockDomainOrigin,
+} from './identity.js';
+export {
   ExtensionError,
   PocketStationError,
   StreamError,
@@ -334,6 +349,8 @@ export {
   type SourceIdentityStrength,
   type SourceKind,
   type SourceQuery,
+  type SourceSelectorKind,
+  type SourceSelectorValue,
   type SourceState,
   type StableSourceId,
 } from './sources.js';
