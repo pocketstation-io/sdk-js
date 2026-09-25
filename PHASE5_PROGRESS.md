@@ -1,5 +1,20 @@
 # JavaScript SDK progress
 
+## W21 Session lifecycle parity — 2026-09-25
+
+- Status: `SAFE-TO-TEST`. `RunningSession` now exposes the Core-owned lifecycle
+  state, terminal-state check, cached stop result, deterministic `close()`, and
+  bounded audio/event convenience methods matching the Python SDK without
+  adding a JavaScript media queue.
+- The native addon reads lifecycle state through the existing bounded Session
+  command channel. Focused TypeScript and native-backed tests pass for running,
+  stopped, repeated shutdown, finite audio reads, and event polling.
+- This is local component behavior. Installed wheel/tarball comparison and
+  cross-platform package qualification remain part of the active parity task.
+- Staff Bar Self-Check: Core remains authoritative; public API changed; no new
+  dependency, scaffold, mock, loopback path, realtime allocation, lock, log, or
+  panic was added.
+
 ## W21 microphone recovery command failures — 2026-09-24
 
 - Status: `SAFE-TO-MERGE` for the Node native command mappings. A full

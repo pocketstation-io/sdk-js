@@ -1071,6 +1071,9 @@ enum SessionCommand {
     SessionMetrics {
         response: oneshot::Sender<std::result::Result<NativeSessionMetrics, String>>,
     },
+    LifecycleState {
+        response: oneshot::Sender<String>,
+    },
     SendSidecar {
         sidecar_id: u64,
         message: pocketstation::SidecarMessage,
@@ -1392,6 +1395,20 @@ impl NativeRunningSession {
     }
 
     #[napi]
+    pub async fn lifecycle_state(&self) -> Result<String> {
+        let (response, receiver) = oneshot::channel();
+        self.commands()?
+            .try_send(SessionCommand::LifecycleState { response })
+            .map_err(command_send_error)?;
+        receiver.await.map_err(|_| {
+            error(
+                "session.worker_stopped",
+                "native Session worker did not return its lifecycle state",
+            )
+        })
+    }
+
+    #[napi]
     pub async fn stop(&self) -> Result<NativeStopResult> {
         self.finish(FinishDisposition::Stop).await
     }
@@ -1562,6 +1579,9 @@ fn session_worker(mut running: pocketstation::RunningSession, receiver: Receiver
             }
             SessionCommand::SessionMetrics { response } => {
                 let _ = response.send(copy_metrics(&running));
+            }
+            SessionCommand::LifecycleState { response } => {
+                let _ = response.send(lifecycle_state_name(running.state()).to_owned());
             }
             SessionCommand::SendSidecar {
                 sidecar_id,
