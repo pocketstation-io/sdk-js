@@ -47,7 +47,7 @@ export interface ControlClientOptions {
 }
 
 // @public
-export type ControlFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+export type ControlFetch = (input: URL, init?: RequestInit) => Promise<Response>;
 
 // @public
 export class ControlPlaneError extends PocketStationError {

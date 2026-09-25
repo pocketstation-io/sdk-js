@@ -155,7 +155,7 @@ export interface PublisherCredentialOptions extends ControlRequestOptions {
 
 /** Minimal web-standard fetch contract accepted for dependency injection. */
 export type ControlFetch = (
-  input: RequestInfo | URL,
+  input: URL,
   init?: RequestInit,
 ) => Promise<Response>;
 

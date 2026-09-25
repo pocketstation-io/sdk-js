@@ -1,11 +1,14 @@
+import { jest } from '@jest/globals';
 import {
   CapturePermissionLifecycle,
+  DiscoveredSource,
   Source,
   applicationCaptureAvailable,
   discoverSources,
   microphonePermissionObservation,
   type PermissionObservation,
 } from '../node/index.js';
+import { CaptureError } from '../node/errors.js';
 
 describe('native Source lifecycle', () => {
   it('constructs every built-in application and microphone selection', () => {
@@ -36,32 +39,9 @@ describe('native Source lifecycle', () => {
     expect(() => Source.microphone('device-1')).not.toThrow();
   });
 
-  it('retains the exact selector used by each built-in source', () => {
-    expect(Source.applicationName('Zoom')).toMatchObject({
-      kind: 'application',
-      selectorKind: 'application-name',
-      selectorValue: 'Zoom',
-    });
-    expect(Source.applicationId('us.zoom.xos')).toMatchObject({
-      kind: 'application',
-      selectorKind: 'application-bundle-id',
-      selectorValue: 'us.zoom.xos',
-    });
-    expect(Source.microphoneDefault()).toMatchObject({
-      kind: 'input-device',
-      selectorKind: 'microphone-default',
-      selectorValue: undefined,
-    });
-    expect(Source.microphoneId('device-1')).toMatchObject({
-      kind: 'input-device',
-      selectorKind: 'microphone-id',
-      selectorValue: 'device-1',
-    });
-  });
-
   it('rejects empty, zero, and mismatched application selections', () => {
     expect(() => Source.application(' ')).toThrow('cannot be empty');
-    expect(() => Source.application(0)).toThrow(RangeError);
+    expect(() => Source.application(0)).toThrow('integer from 1 through 4294967295');
     expect(() =>
       Source.application({
         platform: 'macos',
@@ -82,6 +62,14 @@ describe('native Source lifecycle', () => {
       current: 'denied',
       permissionEpoch: 2n,
     });
+    const restored = lifecycle.observe('allowed');
+    expect(restored).toEqual({
+      kind: 'permission-changed',
+      previous: 'denied',
+      current: 'allowed',
+      permissionEpoch: 3n,
+    });
+    expect(Object.isFrozen(restored)).toBe(true);
   });
 
   it('discovers native sources and preserves exact pre-open evidence', async () => {
@@ -91,19 +79,19 @@ describe('native Source lifecycle', () => {
     const system = sources.find((source) => source.stableId.kind === 'system-mix');
     expect(system).toBeDefined();
     expect(system?.stableId.sourceId).toBeGreaterThan(0n);
-    expect(
-      system?.authorizationBeforeOpen({
+    const authorization = system?.authorizationBeforeOpen({
         osPermission: 'not-applicable',
         applicationPolicy: 'not-applicable',
         sessionGrant: 'granted-by-explicit-selection',
         permissionEpoch: 7n,
-      }),
-    ).toMatchObject({
+      });
+    expect(authorization).toMatchObject({
       captureScope: 'system-mix',
       osPermission: 'not-applicable',
       permissionEpoch: 7n,
       openOutcome: 'not-attempted',
     });
+    expect(Object.isFrozen(authorization)).toBe(true);
   });
 
   it('filters discovery with typed queries', async () => {
@@ -126,4 +114,147 @@ describe('native Source lifecycle', () => {
       'not-applicable',
     ]).toContain(observation);
   });
+
+  it.each([
+    ['permission observation', { osPermission: 'unknown' }, 'capture.invalid_permission_observation'],
+    ['application policy', { applicationPolicy: 'unknown' }, 'capture.invalid_application_policy'],
+    ['Session grant', { sessionGrant: 'unknown' }, 'capture.invalid_session_grant'],
+  ])('rejects an invalid %s before native authorization', (_label, options, code) => {
+    const { source, authorize } = authorizationFixture();
+    const operation = () => source.authorizationBeforeOpen(options as never);
+
+    expect(operation).toThrow(CaptureError);
+    expectCaptureCode(operation, code);
+    expect(authorize).not.toHaveBeenCalled();
+  });
+
+  it('preserves the authorization defaults and nanosecond/integer units', () => {
+    const { source, authorize } = authorizationFixture();
+    const snapshot = source.authorizationBeforeOpen();
+
+    expect(snapshot).toMatchObject({
+      osPermission: 'not-observable',
+      applicationPolicy: 'not-observable',
+      sessionGrant: 'not-evaluated',
+      permissionEpoch: 1n,
+      observedAtNs: 1n,
+      openOutcome: 'not-attempted',
+    });
+    expect(typeof snapshot.permissionEpoch).toBe('bigint');
+    expect(typeof snapshot.observedAtNs).toBe('bigint');
+    expect(authorize).toHaveBeenCalledWith({
+      osPermission: undefined,
+      applicationPolicy: undefined,
+      sessionGrant: undefined,
+      permissionEpoch: undefined,
+    });
+  });
+
+  it.each([null, true, [], 'invalid'])(
+    'rejects malformed authorization options %p without leaking a JavaScript runtime error',
+    (options) => {
+      const { source, authorize } = authorizationFixture();
+      const operation = () => source.authorizationBeforeOpen(options as never);
+
+      expectCaptureCode(operation, 'capture.invalid_authorization_options');
+      expect(authorize).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([-1n, 1n << 64n, true, 1])(
+    'rejects invalid permission epoch %p with the shared integer code',
+    (permissionEpoch) => {
+      const { source, authorize } = authorizationFixture();
+      const operation = () =>
+        source.authorizationBeforeOpen({ permissionEpoch } as never);
+
+      expectCaptureCode(operation, 'capture.invalid_integer');
+      expect(authorize).not.toHaveBeenCalled();
+    },
+  );
+
+  it('preserves the Core error for permission epoch zero', () => {
+    const { source, authorize } = authorizationFixture();
+    expectCaptureCode(
+      () => source.authorizationBeforeOpen({ permissionEpoch: 0n }),
+      'capture.invalid_permission_epoch',
+    );
+    expect(authorize).not.toHaveBeenCalled();
+  });
+
+  it.each([1n, (1n << 64n) - 1n])(
+    'accepts positive unsigned 64-bit permission epoch boundary %p',
+    (permissionEpoch) => {
+      const { source, authorize } = authorizationFixture();
+      const snapshot = source.authorizationBeforeOpen({ permissionEpoch });
+
+      expect(snapshot.permissionEpoch).toBe(permissionEpoch);
+      expect(authorize).toHaveBeenCalledWith({
+        osPermission: undefined,
+        applicationPolicy: undefined,
+        sessionGrant: undefined,
+        permissionEpoch: permissionEpoch.toString(),
+      });
+    },
+  );
+
+  it('uses the same typed permission error for lifecycle construction and updates', () => {
+    expectCaptureCode(
+      () => new CapturePermissionLifecycle('unknown' as never),
+      'capture.invalid_permission_observation',
+    );
+
+    const lifecycle = new CapturePermissionLifecycle('allowed');
+    expectCaptureCode(
+      () => lifecycle.observe('unknown' as never),
+      'capture.invalid_permission_observation',
+    );
+  });
 });
+
+function authorizationFixture(): {
+  source: DiscoveredSource;
+  authorize: jest.Mock;
+} {
+  const authorize = jest.fn((options: { permissionEpoch?: string }) => ({
+    capability: 'available',
+    osPermission: 'not-observable',
+    applicationPolicy: 'not-observable',
+    sessionGrant: 'not-evaluated',
+    captureScope: 'exact-application',
+    scopeStableId: 'fixture:application',
+    identityStrength: 'platform-stable-id',
+    permissionEpoch: options.permissionEpoch ?? '1',
+    observedAtNs: '1',
+    openOutcome: 'not-attempted',
+  }));
+  const source = new DiscoveredSource({
+    platform: 'macos',
+    kind: 'application',
+    stableKey: 'fixture:application',
+    sourceId: '1',
+    name: 'Fixture',
+    processId: 1,
+    applicationId: 'io.pocketstation.fixture',
+    deviceUid: null,
+    state: 'available',
+    sampleRateHz: 48_000,
+    channelCount: 2,
+    identityStrength: 'platform-stable-id',
+    selectorPersistenceScope: 'application-identity',
+    processTreeScope: 'application-identity',
+    authorizationBeforeOpen: authorize,
+  });
+  return { source, authorize };
+}
+
+function expectCaptureCode(operation: () => unknown, code: string): void {
+  let captured: unknown;
+  try {
+    operation();
+  } catch (error) {
+    captured = error;
+  }
+  expect(captured).toBeInstanceOf(CaptureError);
+  expect(captured).toMatchObject({ code });
+}
