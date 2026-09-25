@@ -10,7 +10,15 @@ import { Buffer as Buffer_2 } from 'node:buffer';
 export function applicationCaptureAvailable(): boolean;
 
 // @public
-export type ApplicationPolicyObservation = 'allowed' | 'denied' | 'not-observable' | 'not-applicable';
+export const ApplicationPolicyObservation: Readonly<{
+    readonly ALLOWED: "allowed";
+    readonly DENIED: "denied";
+    readonly NOT_OBSERVABLE: "not-observable";
+    readonly NOT_APPLICABLE: "not-applicable";
+}>;
+
+// @public (undocumented)
+export type ApplicationPolicyObservation = (typeof ApplicationPolicyObservation)[keyof typeof ApplicationPolicyObservation];
 
 // @public
 export type ApplicationSelection = string | number | StableSourceId | ProcessInstanceSelector;
@@ -363,7 +371,7 @@ export interface CaptureAudioWaitOptions {
 export interface CaptureAuthorizationSnapshot {
     readonly applicationPolicy: ApplicationPolicyObservation;
     readonly capability: CaptureCapabilityState;
-    readonly captureScope: CaptureScope;
+    readonly captureScope: CaptureScopeKind;
     readonly identityStrength: SourceIdentityStrength;
     readonly observedAtNs: bigint;
     readonly openOutcome: CaptureOpenOutcome;
@@ -374,10 +382,33 @@ export interface CaptureAuthorizationSnapshot {
 }
 
 // @public
-export type CaptureCapabilityState = 'available' | 'unavailable' | 'unsupported';
+export const CaptureCapabilityState: Readonly<{
+    readonly AVAILABLE: "available";
+    readonly UNAVAILABLE: "unavailable";
+    readonly UNSUPPORTED: "unsupported";
+}>;
+
+// @public (undocumented)
+export type CaptureCapabilityState = (typeof CaptureCapabilityState)[keyof typeof CaptureCapabilityState];
+
+// Warning: (ae-forgotten-export) The symbol "SessionStartError_2" needs to be exported by the entry point index.d.ts
+//
+// @public
+export class CaptureError extends SessionStartError_2 {
+    constructor(code: string, message: string, cause?: unknown);
+}
 
 // @public
-export type CaptureOpenOutcome = 'not-attempted' | 'succeeded' | 'permission-denied' | 'source-unavailable' | 'backend-failed';
+export const CaptureOpenOutcome: Readonly<{
+    readonly NOT_ATTEMPTED: "not-attempted";
+    readonly SUCCEEDED: "succeeded";
+    readonly PERMISSION_DENIED: "permission-denied";
+    readonly SOURCE_UNAVAILABLE: "source-unavailable";
+    readonly BACKEND_FAILED: "backend-failed";
+}>;
+
+// @public (undocumented)
+export type CaptureOpenOutcome = (typeof CaptureOpenOutcome)[keyof typeof CaptureOpenOutcome];
 
 // @public
 export interface CaptureOptions extends Pick<SessionOptions, 'sampleRateHz' | 'channels' | 'frameDurationMs' | 'trace'> {
@@ -398,16 +429,43 @@ export class CapturePermissionLifecycle {
 // @public
 export interface CapturePermissionTransition {
     readonly current: PermissionObservation;
-    readonly kind: 'permission-changed' | 'permission-revoked';
+    readonly kind: CapturePermissionTransitionKind;
     readonly permissionEpoch: bigint;
     readonly previous: PermissionObservation;
 }
 
 // @public
-export type CaptureScope = 'exact-application' | 'exact-input-device' | 'exact-output-device' | 'system-mix';
+export const CapturePermissionTransitionKind: Readonly<{
+    readonly CHANGED: "permission-changed";
+    readonly REVOKED: "permission-revoked";
+}>;
+
+// @public (undocumented)
+export type CapturePermissionTransitionKind = (typeof CapturePermissionTransitionKind)[keyof typeof CapturePermissionTransitionKind];
 
 // @public
-export type CaptureSessionGrant = 'granted-by-explicit-selection' | 'denied' | 'not-evaluated';
+export type CaptureScope = CaptureScopeKind;
+
+// @public
+export const CaptureScopeKind: Readonly<{
+    readonly EXACT_APPLICATION: "exact-application";
+    readonly EXACT_INPUT_DEVICE: "exact-input-device";
+    readonly EXACT_OUTPUT_DEVICE: "exact-output-device";
+    readonly SYSTEM_MIX: "system-mix";
+}>;
+
+// @public (undocumented)
+export type CaptureScopeKind = (typeof CaptureScopeKind)[keyof typeof CaptureScopeKind];
+
+// @public
+export const CaptureSessionGrant: Readonly<{
+    readonly GRANTED_BY_EXPLICIT_SELECTION: "granted-by-explicit-selection";
+    readonly DENIED: "denied";
+    readonly NOT_EVALUATED: "not-evaluated";
+}>;
+
+// @public (undocumented)
+export type CaptureSessionGrant = (typeof CaptureSessionGrant)[keyof typeof CaptureSessionGrant];
 
 // @public
 export type CaptureSettings = Omit<CaptureOptions, 'application'>;
@@ -1132,7 +1190,7 @@ export class DiscoveredSource {
 }
 
 // @public
-export function discoverSources(query?: SourceQuery): Promise<readonly DiscoveredSource[]>;
+export function discoverSources(query?: SourceQuery | SourceQueryInput): Promise<readonly DiscoveredSource[]>;
 
 // @public
 export const END_OF_STREAM: EndOfStream;
@@ -2175,10 +2233,32 @@ export interface PcmSource extends Disposable {
 }
 
 // @public
-export type PermissionObservation = 'allowed' | 'denied' | 'restricted' | 'not-determined' | 'revoked' | 'not-observable' | 'not-applicable';
+export const PermissionObservation: Readonly<{
+    readonly ALLOWED: "allowed";
+    readonly DENIED: "denied";
+    readonly RESTRICTED: "restricted";
+    readonly NOT_DETERMINED: "not-determined";
+    readonly REVOKED: "revoked";
+    readonly NOT_OBSERVABLE: "not-observable";
+    readonly NOT_APPLICABLE: "not-applicable";
+}>;
+
+// @public (undocumented)
+export type PermissionObservation = (typeof PermissionObservation)[keyof typeof PermissionObservation];
 
 // @public
-export type Platform = 'macos' | 'windows' | 'linux' | 'ios' | 'android' | 'web' | 'unknown';
+export const Platform: Readonly<{
+    readonly MACOS: "macos";
+    readonly WINDOWS: "windows";
+    readonly LINUX: "linux";
+    readonly IOS: "ios";
+    readonly ANDROID: "android";
+    readonly WEB: "web";
+    readonly UNKNOWN: "unknown";
+}>;
+
+// @public (undocumented)
+export type Platform = (typeof Platform)[keyof typeof Platform];
 
 // @public
 export class PocketStationError extends Error {
@@ -2261,7 +2341,15 @@ export interface ProcessInstanceSelector {
 }
 
 // @public
-export type ProcessTreeScope = 'selected-process-only' | 'selected-process-and-descendants' | 'application-identity' | 'not-applicable';
+export const ProcessTreeScope: Readonly<{
+    readonly SELECTED_PROCESS_ONLY: "selected-process-only";
+    readonly SELECTED_PROCESS_AND_DESCENDANTS: "selected-process-and-descendants";
+    readonly APPLICATION_IDENTITY: "application-identity";
+    readonly NOT_APPLICABLE: "not-applicable";
+}>;
+
+// @public (undocumented)
+export type ProcessTreeScope = (typeof ProcessTreeScope)[keyof typeof ProcessTreeScope];
 
 // @public
 export type QueuePressure = 'drop-newest' | 'drop-oldest' | 'buffer' | 'fail';
@@ -2583,7 +2671,16 @@ export interface SecretValue {
 }
 
 // @public
-export type SelectorPersistenceScope = 'process-lifetime' | 'application-identity' | 'device-identity' | 'session-default-device' | 'platform-identity';
+export const SelectorPersistenceScope: Readonly<{
+    readonly PROCESS_LIFETIME: "process-lifetime";
+    readonly APPLICATION_IDENTITY: "application-identity";
+    readonly DEVICE_IDENTITY: "device-identity";
+    readonly SESSION_DEFAULT_DEVICE: "session-default-device";
+    readonly PLATFORM_IDENTITY: "platform-identity";
+}>;
+
+// @public (undocumented)
+export type SelectorPersistenceScope = (typeof SelectorPersistenceScope)[keyof typeof SelectorPersistenceScope];
 
 // @public
 export class Session {
@@ -2643,6 +2740,13 @@ export interface SessionControlFailureEvent {
     readonly sessionId: bigint;
     readonly stage: RollbackFailureStage | FinalizationFailureStage;
     readonly type: 'rollback-failure' | 'finalization-failure';
+}
+
+// Warning: (ae-forgotten-export) The symbol "SessionError" needs to be exported by the entry point index.d.ts
+//
+// @public
+export class SessionDeclarationError extends SessionError {
+    constructor(code: string, message: string, cause?: unknown);
 }
 
 // @public
@@ -3089,18 +3193,24 @@ export interface SignalTiming {
 // @public
 export class Source {
     static application(selection: ApplicationSelection): Source;
+    static applicationBundleId(bundleId: string): Source;
     static applicationId(applicationId: string): Source;
     static applicationName(name: string): Source;
     static applicationProcessId(processId: number): Source;
-    static applicationProcessInstance(processId: number, stableId: StableSourceId): Source;
+    static applicationProcessInstance(processId: number, platform: Platform, stableKey: string): Source;
     static applicationStableId(stableId: StableSourceId): Source;
+    // (undocumented)
+    static applicationStableId(platform: Platform, stableKey: string): Source;
     static defaultMicrophone(): Source;
     static fromDiscovered(source: DiscoveredSource): Source;
+    // (undocumented)
     readonly kind: SourceKind;
     static microphone(deviceId?: string): Source;
     static microphoneDefault(): Source;
     static microphoneId(deviceId: string): Source;
+    // (undocumented)
     readonly selectorKind: SourceSelectorKind;
+    // (undocumented)
     readonly selectorValue: SourceSelectorValue;
     static systemAudio(): Source;
 }
@@ -3326,6 +3436,16 @@ export interface SourceFailure {
 }
 
 // @public
+export const SourceFailureClass: Readonly<{
+    readonly SOURCE_INSTANCE_EXITED: "source-instance-exited";
+    readonly PLATFORM_STATUS: "platform-status";
+    readonly BACKEND_CLASS: "backend-class";
+}>;
+
+// @public (undocumented)
+export type SourceFailureClass = (typeof SourceFailureClass)[keyof typeof SourceFailureClass];
+
+// @public
 export interface SourceFailureEvent {
     readonly failure: SourceFailure;
     readonly sessionId: bigint;
@@ -3339,7 +3459,16 @@ export function SourceId(value: bigint): SourceId;
 export type SourceId = BigIntIdentity<'SourceId'>;
 
 // @public
-export type SourceIdentityStrength = 'application-id-and-process-id' | 'stable-application-id' | 'process-id' | 'stable-device-uid' | 'platform-stable-id';
+export const SourceIdentityStrength: Readonly<{
+    readonly APPLICATION_ID_AND_PROCESS_ID: "application-id-and-process-id";
+    readonly STABLE_APPLICATION_ID: "stable-application-id";
+    readonly PROCESS_ID: "process-id";
+    readonly STABLE_DEVICE_UID: "stable-device-uid";
+    readonly PLATFORM_STABLE_ID: "platform-stable-id";
+}>;
+
+// @public (undocumented)
+export type SourceIdentityStrength = (typeof SourceIdentityStrength)[keyof typeof SourceIdentityStrength];
 
 // @public
 export class SourceInstance {
@@ -3359,7 +3488,15 @@ export type SourceInstanceId = BigIntIdentity<'SourceInstanceId'>;
 export type SourceIterableFactory = (configuration: SourceConfiguration_2) => Iterable<SourceEmission> | AsyncIterable<SourceEmission>;
 
 // @public
-export type SourceKind = 'application' | 'output-device' | 'input-device' | 'system-mix';
+export const SourceKind: Readonly<{
+    readonly APPLICATION: "application";
+    readonly OUTPUT_DEVICE: "output-device";
+    readonly INPUT_DEVICE: "input-device";
+    readonly SYSTEM_MIX: "system-mix";
+}>;
+
+// @public (undocumented)
+export type SourceKind = (typeof SourceKind)[keyof typeof SourceKind];
 
 // @public
 export class SourceManifest {
@@ -3506,7 +3643,21 @@ export class SourceProvider {
 }
 
 // @public
-export type SourceQuery = {
+export class SourceQuery {
+    // (undocumented)
+    static any(): SourceQuery;
+    // (undocumented)
+    static application(name: string): SourceQuery;
+    // (undocumented)
+    static kind(kind: SourceKind): SourceQuery;
+    // (undocumented)
+    static playing(): SourceQuery;
+    // (undocumented)
+    static stableKey(stableKey: string): SourceQuery;
+}
+
+// @public
+export type SourceQueryInput = {
     readonly type: 'all';
 } | {
     readonly type: 'application';
@@ -3520,6 +3671,14 @@ export type SourceQuery = {
 } | {
     readonly type: 'playing';
 };
+
+// @public
+export const SourceRecoveryRequirement: Readonly<{
+    readonly EXPLICIT_REDISCOVERY_AND_NEW_SESSION: "explicit-rediscovery-and-new-session";
+}>;
+
+// @public (undocumented)
+export type SourceRecoveryRequirement = (typeof SourceRecoveryRequirement)[keyof typeof SourceRecoveryRequirement];
 
 // @public
 export interface SourceReplacement {
@@ -3564,9 +3723,50 @@ export interface SourceReplacementObservation {
 }
 
 // @public
-export type SourceSelectorKind = 'application-name' | 'application-bundle-id' | 'application-process-id' | 'application-stable-id' | 'application-process-instance' | 'microphone-default' | 'microphone-id' | 'system-mix';
+export interface SourceRuntimeEvent {
+    // (undocumented)
+    readonly backendClass?: string;
+    // (undocumented)
+    readonly failureClass: SourceFailureClass;
+    // (undocumented)
+    readonly generation: number;
+    // (undocumented)
+    readonly kind: SourceRuntimeEventKind;
+    // (undocumented)
+    readonly operation: string;
+    // (undocumented)
+    readonly platformStatusCode?: number;
+    // (undocumented)
+    readonly recoveryRequirement?: SourceRecoveryRequirement;
+    // (undocumented)
+    readonly stableId: StableSourceId;
+}
 
 // @public
+export const SourceRuntimeEventKind: Readonly<{
+    readonly SOURCE_UNAVAILABLE: "source-unavailable";
+    readonly BACKEND_FAILURE: "backend-failure";
+}>;
+
+// @public (undocumented)
+export type SourceRuntimeEventKind = (typeof SourceRuntimeEventKind)[keyof typeof SourceRuntimeEventKind];
+
+// @public
+export const SourceSelectorKind: Readonly<{
+    readonly APPLICATION_NAME: "application-name";
+    readonly APPLICATION_BUNDLE_ID: "application-bundle-id";
+    readonly APPLICATION_PROCESS_ID: "application-process-id";
+    readonly APPLICATION_STABLE_ID: "application-stable-id";
+    readonly APPLICATION_PROCESS_INSTANCE: "application-process-instance";
+    readonly MICROPHONE_DEFAULT: "microphone-default";
+    readonly MICROPHONE_ID: "microphone-id";
+    readonly SYSTEM_MIX: "system-mix";
+}>;
+
+// @public (undocumented)
+export type SourceSelectorKind = (typeof SourceSelectorKind)[keyof typeof SourceSelectorKind];
+
+// @public (undocumented)
 export type SourceSelectorValue = string | number | StableSourceId | ProcessInstanceSelector | undefined;
 
 // @public (undocumented)
@@ -3641,7 +3841,16 @@ export interface SourceSignalPolicy {
 export type SourceSignalState = 'no-samples-observed' | 'nonfinite-samples-observed' | 'exact-digital-zero-pending' | 'sustained-exact-digital-zero' | 'below-caller-thresholds' | 'meets-caller-thresholds';
 
 // @public
-export type SourceState = 'available' | 'playing' | 'silent' | 'unavailable' | 'permission-blocked';
+export const SourceState: Readonly<{
+    readonly AVAILABLE: "available";
+    readonly PLAYING: "playing";
+    readonly SILENT: "silent";
+    readonly UNAVAILABLE: "unavailable";
+    readonly PERMISSION_BLOCKED: "permission-blocked";
+}>;
+
+// @public (undocumented)
+export type SourceState = (typeof SourceState)[keyof typeof SourceState];
 
 // @public
 export interface StableSourceId {
