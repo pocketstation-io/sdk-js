@@ -1235,6 +1235,7 @@ export interface NativeSessionHandle {
     frameSamplesPerChannel: number,
   ): NativeAudioInputHandle;
   audio(): NativeEndpointHandle;
+  browser(receiverUri: string): NativeEndpointHandle;
   audioWithRoute(route: NativeRouteSettingsHandle): NativeEndpointHandle;
   relayAudio(options: NativeRelayDestinationOptions): NativeEndpointHandle;
   audioConnector(
@@ -1259,7 +1260,7 @@ export interface NativeSessionHandle {
     generation: number,
     inputs: NativePortSpecHandle[],
     outputs: NativePortSpecHandle[],
-    queueCapacity: number,
+    queueCapacity: string,
     processTimeoutMs: number,
     networkAllowed: boolean,
     filesystemAllowed: boolean,

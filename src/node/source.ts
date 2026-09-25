@@ -1,8 +1,12 @@
-import type { PortSpec } from './graph.js';
+import {
+  SourceConfiguration as GraphSourceConfiguration,
+  type PortSpec,
+  type SourceConfigurationInput,
+} from './graph.js';
 import {
   SourceEmission,
   SourceFactory,
-  type SourceConfiguration,
+  type SourceConfiguration as SourceConfigurationRecord,
   type SourceContext,
   type SourceDriver as ConciseSourceDriver,
 } from './provider.js';
@@ -131,19 +135,19 @@ export interface AuthoredSourceDriver {
 /** Create independent Source state for one declaration. */
 export interface SourceDriverFactory {
   create(
-    configuration: SourceConfiguration,
+    configuration: SourceConfigurationRecord,
   ): AuthoredSourceDriver | Promise<AuthoredSourceDriver>;
-  validateConfig?(configuration: SourceConfiguration): void | Promise<void>;
+  validateConfig?(configuration: SourceConfigurationRecord): void | Promise<void>;
 }
 
 export type SourceDriverBuilder = (
-  configuration: SourceConfiguration,
+  configuration: SourceConfigurationRecord,
 ) => AuthoredSourceDriver | Promise<AuthoredSourceDriver>;
 export type SourceIterableFactory = (
-  configuration: SourceConfiguration,
+  configuration: SourceConfigurationRecord,
 ) => Iterable<SourceEmission> | AsyncIterable<SourceEmission>;
 export type SourceConfigValidator = (
-  configuration: SourceConfiguration,
+  configuration: SourceConfigurationRecord,
 ) => void | Promise<void>;
 
 /** Manifest-driven reusable Source implementation. */
@@ -268,13 +272,13 @@ export class SourceProvider {
 export class RegisteredSource {
   readonly #sessionId: bigint;
   readonly #provider: SourceProvider;
-  readonly #declare: (configuration: SourceConfiguration) => SourceInstance;
+  readonly #declare: (configuration: SourceConfigurationRecord) => SourceInstance;
 
   /** @internal */
   public constructor(
     sessionId: bigint,
     provider: SourceProvider,
-    declare: (configuration: SourceConfiguration) => SourceInstance,
+    declare: (configuration: SourceConfigurationRecord) => SourceInstance,
   ) {
     this.#sessionId = sessionId;
     this.#provider = provider;
@@ -284,8 +288,13 @@ export class RegisteredSource {
   public get sessionId(): bigint { return this.#sessionId; }
   public get sourceTypeId(): string { return this.#provider.manifest.sourceTypeId; }
 
-  public declare(configuration: SourceConfiguration = {}): SourceInstance {
-    return this.#declare(configuration);
+  public declare(
+    configuration: GraphSourceConfiguration | SourceConfigurationInput = {},
+  ): SourceInstance {
+    const values = configuration instanceof GraphSourceConfiguration
+      ? configuration.toObject()
+      : new GraphSourceConfiguration(configuration).toObject();
+    return this.#declare(values);
   }
 }
 
@@ -302,14 +311,14 @@ export function source(
 
 function createDriver(
   factory: SourceDriverFactory | SourceDriverBuilder,
-  configuration: SourceConfiguration,
+  configuration: SourceConfigurationRecord,
 ): AuthoredSourceDriver | Promise<AuthoredSourceDriver> {
   return typeof factory === 'function' ? factory(configuration) : factory.create(configuration);
 }
 
 function factoryValidator(
   factory: SourceDriverFactory | SourceDriverBuilder,
-  configuration: SourceConfiguration,
+  configuration: SourceConfigurationRecord,
 ): void | Promise<void> {
   return typeof factory === 'function' ? undefined : factory.validateConfig?.(configuration);
 }

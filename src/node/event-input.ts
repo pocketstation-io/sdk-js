@@ -1,6 +1,14 @@
 import { Buffer } from 'node:buffer';
 
-import { PocketStationError } from '../errors.js';
+import {
+  EventInputClosedError,
+  EventInputFullError,
+} from './errors.js';
+export {
+  EventInputClosedError,
+  EventInputError,
+  EventInputFullError,
+} from './errors.js';
 import { PortSpec, SignalSpec } from './graph.js';
 import { defineSource, type SourceEmission } from './provider.js';
 import type { Session, SourceOutput } from './session.js';
@@ -50,30 +58,6 @@ export interface EventInputOptions {
 export interface EventInputWriteOptions {
   /** Source timestamp in monotonic nanoseconds. Defaults to the Node monotonic clock. */
   readonly timestampNs?: bigint;
-}
-
-/** Base failure for bounded typed-event ingress. */
-export class EventInputError extends PocketStationError {
-  public constructor(code: string, message: string, options?: { cause?: unknown }) {
-    super(code, message, options);
-    this.name = 'EventInputError';
-  }
-}
-
-/** The bounded EventInput has no free capacity. */
-export class EventInputFullError extends EventInputError {
-  public constructor(message = 'event input is full') {
-    super('event_input.full', message);
-    this.name = 'EventInputFullError';
-  }
-}
-
-/** The EventInput no longer accepts writes. */
-export class EventInputClosedError extends EventInputError {
-  public constructor(message = 'event input is closed') {
-    super('event_input.closed', message);
-    this.name = 'EventInputClosedError';
-  }
 }
 
 /**

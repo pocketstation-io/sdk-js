@@ -13,7 +13,7 @@ use crate::session::{NativeEndpoint, NativeStem};
 
 fn invalid(reason: impl Into<String>) -> napi::Error {
     let reason = reason.into();
-    error("graph.invalid_declaration", reason)
+    error("graph.invalid_contract", reason)
 }
 
 fn require_text(name: &str, value: &str) -> Result<()> {
@@ -881,7 +881,7 @@ fn require_same_session(left: u64, right: u64) -> Result<()> {
         Ok(())
     } else {
         Err(error(
-            "session.mismatched_resource",
+            "session.foreign_endpoint",
             "resources belong to different Sessions",
         ))
     }

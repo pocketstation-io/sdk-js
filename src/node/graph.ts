@@ -12,36 +12,77 @@ import {
   type NativeSignalSpecHandle,
 } from './native.js';
 
+/** Runtime signal-family values understood by the native graph compiler. */
+export const SignalKind = Object.freeze({
+  ANY: 'any',
+  PCM_AUDIO: 'pcm-audio',
+  ENCODED_AUDIO: 'encoded-audio',
+  TEXT: 'text',
+  EVENT: 'event',
+  METRICS: 'metrics',
+  CONTROL: 'control',
+  BINARY: 'binary',
+  CUSTOM: 'custom',
+} as const);
+
 /** Signal families understood by the native graph compiler. */
-export type SignalKind =
-  | 'any'
-  | 'pcm-audio'
-  | 'encoded-audio'
-  | 'text'
-  | 'event'
-  | 'metrics'
-  | 'control'
-  | 'binary'
-  | 'custom';
+export type SignalKind = (typeof SignalKind)[keyof typeof SignalKind];
 
 /** Encoded-audio formats supported by Core media descriptions. */
-export const Codec = {
+export const Codec = Object.freeze({
+  OPUS: 'opus',
+  AAC: 'aac',
+  MP3: 'mp3',
+  G711_ULAW: 'g711-ulaw',
+  G711_ALAW: 'g711-alaw',
+  WEBM_OPUS: 'webm-opus',
+  /** @deprecated Use `OPUS`. */
   Opus: 'opus',
+  /** @deprecated Use `AAC`. */
   Aac: 'aac',
+  /** @deprecated Use `MP3`. */
   Mp3: 'mp3',
+  /** @deprecated Use `G711_ULAW`. */
   G711Ulaw: 'g711-ulaw',
+  /** @deprecated Use `G711_ALAW`. */
   G711Alaw: 'g711-alaw',
+  /** @deprecated Use `WEBM_OPUS`. */
   WebmOpus: 'webm-opus',
-} as const;
+} as const);
 /** One encoded-audio format accepted by Core. */
 export type Codec = (typeof Codec)[keyof typeof Codec];
 
+/** Runtime text encodings supported by `SignalSpec.text()`. */
+export const TextFormat = Object.freeze({
+  UTF8: 'utf8',
+  JSON: 'json',
+  MARKDOWN: 'markdown',
+} as const);
 /** Text encodings supported by `SignalSpec.text()`. */
-export type TextFormat = 'utf8' | 'json' | 'markdown';
+export type TextFormat = (typeof TextFormat)[keyof typeof TextFormat];
+
+/** Runtime event encodings supported by `SignalSpec.event()`. */
+export const EventFormat = Object.freeze({
+  JSON: 'json',
+  PROTOBUF: 'protobuf',
+  FLATBUFFERS: 'flatbuffers',
+  CBOR: 'cbor',
+} as const);
 /** Event encodings supported by `SignalSpec.event()`. */
-export type EventFormat = 'json' | 'protobuf' | 'flatbuffers' | 'cbor';
+export type EventFormat = (typeof EventFormat)[keyof typeof EventFormat];
+
+/** Runtime binary encodings supported by `SignalSpec.binary()`. */
+export const BinaryFormat = Object.freeze({
+  RAW: 'raw',
+  PROTOBUF: 'protobuf',
+  FLATBUFFERS: 'flatbuffers',
+  CBOR: 'cbor',
+} as const);
 /** Binary encodings supported by `SignalSpec.binary()`. */
-export type BinaryFormat = 'raw' | 'protobuf' | 'flatbuffers' | 'cbor';
+export type BinaryFormat = (typeof BinaryFormat)[keyof typeof BinaryFormat];
+
+/** Any format carried by a built-in SignalSpec family. */
+export type SignalFormat = Codec | TextFormat | EventFormat | BinaryFormat;
 
 /** Optional semantic identity attached to a signal. */
 export interface SignalOptions {
@@ -162,8 +203,8 @@ export class SignalSpec {
   }
 
   /** Wire format when the selected signal family defines one. */
-  public get format(): string | undefined {
-    return this.#native.format ?? undefined;
+  public get format(): SignalFormat | undefined {
+    return this.#native.format as SignalFormat | undefined;
   }
 
   /** Stable identifier supplied for a custom signal. */
@@ -202,28 +243,77 @@ export class SignalSpec {
   }
 }
 
+/** Runtime media representations understood by Core. */
+export const MediaKind = Object.freeze({
+  AUDIO_PCM: 'audio-pcm',
+  AUDIO_ENCODED: 'audio-encoded',
+  TEXT: 'text',
+  EVENT: 'event',
+  METRICS: 'metrics',
+  CONTROL: 'control',
+  BINARY: 'binary',
+  ANY: 'any',
+} as const);
 /** Media representations understood by Core. */
-export type MediaKind =
-  | 'audio-pcm'
-  | 'audio-encoded'
-  | 'text'
-  | 'event'
-  | 'metrics'
-  | 'control'
-  | 'binary'
-  | 'any';
+export type MediaKind = (typeof MediaKind)[keyof typeof MediaKind];
+
+/** Runtime PCM channel layouts plus their exact channel count. */
+export const ChannelLayout = Object.freeze({
+  MONO: 'mono',
+  STEREO: 'stereo',
+  ANY: 'any',
+  channelCount(layout: 'mono' | 'stereo' | 'any'): number | undefined {
+    if (layout === 'mono') return 1;
+    if (layout === 'stereo') return 2;
+    return undefined;
+  },
+} as const);
 /** Channel requirements for PCM audio. */
-export type ChannelLayout = 'mono' | 'stereo' | 'any';
+export type ChannelLayout =
+  | typeof ChannelLayout.MONO
+  | typeof ChannelLayout.STEREO
+  | typeof ChannelLayout.ANY;
+
+/** Runtime PCM sample representations supported by Core. */
+export const SampleFormat = Object.freeze({
+  F32_INTERLEAVED: 'f32-interleaved',
+} as const);
+/** PCM sample representation supported by Core. */
+export type SampleFormat = (typeof SampleFormat)[keyof typeof SampleFormat];
 
 /** Optional PCM requirements used during native media negotiation. */
-export interface AudioCaps {
+export interface AudioCapsOptions {
   /** Required sample rate in hertz, or any rate when omitted. */
   readonly sampleRateHz?: number;
   /** Required samples per frame, or any frame size when omitted. */
   readonly frameSamples?: number;
   /** Required channel layout, or any layout when omitted. */
   readonly channelLayout?: ChannelLayout;
+  /** PCM sample representation. Core currently accepts interleaved float32. */
+  readonly format?: SampleFormat;
 }
+
+/** Immutable physical PCM requirements; omitted numeric fields are wildcards. */
+export class AudioCaps {
+  public readonly sampleRateHz: number | undefined;
+  public readonly frameSamples: number | undefined;
+  public readonly channelLayout: ChannelLayout;
+  public readonly format: SampleFormat;
+
+  public constructor(options: AudioCapsOptions = {}) {
+    this.sampleRateHz = options.sampleRateHz;
+    this.frameSamples = options.frameSamples;
+    this.channelLayout = options.channelLayout ?? ChannelLayout.ANY;
+    this.format = options.format ?? SampleFormat.F32_INTERLEAVED;
+    if (this.format !== SampleFormat.F32_INTERLEAVED) {
+      throw new RangeError(`unsupported PCM sample format ${this.format}`);
+    }
+    Object.freeze(this);
+  }
+}
+
+/** Codec or binary format carried by non-PCM media. */
+export type MediaFormat = Codec | BinaryFormat;
 
 /** Describes the media representation accepted by a graph port or route. */
 export class MediaCaps {
@@ -242,8 +332,13 @@ export class MediaCaps {
   }
 
   /** Describe interleaved float PCM with optional format requirements. */
-  public static audio(caps: AudioCaps = {}): MediaCaps {
-    return MediaCaps.create('audio-pcm', caps);
+  public static audio(caps: AudioCaps | AudioCapsOptions = new AudioCaps()): MediaCaps {
+    const resolved = caps instanceof AudioCaps ? caps : new AudioCaps(caps);
+    return MediaCaps.create('audio-pcm', {
+      sampleRateHz: resolved.sampleRateHz,
+      frameSamples: resolved.frameSamples,
+      channelLayout: resolved.channelLayout,
+    });
   }
 
   /** Describe audio encoded with one supported codec. */
@@ -310,8 +405,18 @@ export class MediaCaps {
   }
 
   /** Codec or binary format when this media family defines one. */
-  public get format(): string | undefined {
-    return this.#native.format ?? undefined;
+  public get format(): MediaFormat | undefined {
+    return this.#native.format as MediaFormat | undefined;
+  }
+
+  /** Physical PCM requirements, or `undefined` for non-PCM media. */
+  public get audioCaps(): AudioCaps | undefined {
+    if (this.kind !== MediaKind.AUDIO_PCM) return undefined;
+    return new AudioCaps({
+      sampleRateHz: this.sampleRateHz,
+      frameSamples: this.frameSamples,
+      channelLayout: this.channelLayout ?? ChannelLayout.ANY,
+    });
   }
 
   /** Required PCM sample rate in hertz. */
@@ -351,10 +456,15 @@ export class MediaCaps {
   }
 }
 
+/** Runtime directions for one named Operator or Endpoint port. */
+export const PortDirection = Object.freeze({ INPUT: 'input', OUTPUT: 'output' } as const);
 /** Direction of one named Operator or Endpoint port. */
-export type PortDirection = 'input' | 'output';
+export type PortDirection = (typeof PortDirection)[keyof typeof PortDirection];
+
+/** Runtime multiplicities for one named graph port. */
+export const Multiplicity = Object.freeze({ ONE: 'one', MANY: 'many' } as const);
 /** Whether a port accepts one connection or several. */
-export type Multiplicity = 'one' | 'many';
+export type Multiplicity = (typeof Multiplicity)[keyof typeof Multiplicity];
 
 /** A named input or output with explicit signal and media requirements. */
 export class PortSpec {
@@ -458,26 +568,86 @@ export class PortSpec {
   }
 }
 
+/** Runtime clock domains and their realtime classification. */
+export const ClockDomain = Object.freeze({
+  CAPTURE: 'capture',
+  PLAYBACK: 'playback',
+  NETWORK: 'network',
+  INHERITED: 'inherited',
+  WALLCLOCK: 'wallclock',
+  isRealtime(domain: 'capture' | 'playback' | 'network' | 'inherited' | 'wallclock'): boolean {
+    return domain === 'capture' || domain === 'playback';
+  },
+} as const);
 /** Clock source used to interpret media timestamps. */
 export type ClockDomain =
-  | 'capture'
-  | 'playback'
-  | 'network'
-  | 'inherited'
-  | 'wallclock';
+  | typeof ClockDomain.CAPTURE
+  | typeof ClockDomain.PLAYBACK
+  | typeof ClockDomain.NETWORK
+  | typeof ClockDomain.INHERITED
+  | typeof ClockDomain.WALLCLOCK;
+
+/** Runtime behavior when a route reaches its finite capacity. */
+export const BackpressurePolicy = Object.freeze({
+  DROP_NEWEST: 'drop-newest',
+  DROP_OLDEST: 'drop-oldest',
+  BOUNDED_QUEUE: 'bounded-queue',
+  BLOCK_FORBIDDEN: 'block-forbidden',
+} as const);
+/** Behavior when a route reaches its finite capacity. */
+export type BackpressurePolicy =
+  (typeof BackpressurePolicy)[keyof typeof BackpressurePolicy];
+
 /** Behavior used when a route has reached its native capacity. */
 export type QueuePressure = 'drop-newest' | 'drop-oldest' | 'buffer' | 'fail';
+
+/** Runtime ordering and delivery guarantees. */
+export const DeliverySemantics = Object.freeze({
+  BEST_EFFORT_REALTIME: 'best-effort-realtime',
+  ORDERED: 'ordered',
+  EXACTLY_ONCE_NOT_REALTIME: 'exactly-once-not-realtime',
+} as const);
 /** Ordering and delivery guarantee selected for a route. */
 export type DeliverySemantics =
-  | 'best-effort-realtime'
-  | 'ordered'
-  | 'exactly-once-not-realtime';
+  (typeof DeliverySemantics)[keyof typeof DeliverySemantics];
+
+/** Runtime missing-media behavior. */
+export const LossPolicy = Object.freeze({
+  CONCEAL_FOR_AUDIO: 'conceal-for-audio',
+  MUST_DELIVER_OR_FAIL: 'must-deliver-or-fail',
+  DROP_ALLOWED: 'drop-allowed',
+} as const);
 /** How a route treats missing media. */
-export type LossPolicy = 'conceal-audio' | 'deliver-or-fail' | 'drop-allowed';
+export type LossPolicy = (typeof LossPolicy)[keyof typeof LossPolicy];
+
+/** Runtime frame-memory behavior compiled for a route. */
+export const CopyPolicy = Object.freeze({
+  MOVE_EXCLUSIVE: 'move-exclusive',
+  SHARE_READ_ONLY: 'share-read-only',
+  COPY_TO_BRANCH_POOL: 'copy-to-branch-pool',
+} as const);
+/** Frame-memory behavior compiled for a route. */
+export type CopyPolicy = (typeof CopyPolicy)[keyof typeof CopyPolicy];
+
 /** How frame memory may be transferred between native branches. */
 export type FrameOwnership = 'move' | 'share' | 'copy';
+
+/** Runtime observation levels retained for a route. */
+export const RouteObservability = Object.freeze({
+  OFF: 'off',
+  COUNTERS: 'counters',
+  FULL: 'full',
+  rank(value: 'off' | 'counters' | 'full'): number {
+    if (value === 'off') return 0;
+    if (value === 'counters') return 1;
+    return 2;
+  },
+} as const);
 /** Native observations retained for a route. */
-export type RouteObservability = 'off' | 'counters' | 'full';
+export type RouteObservability =
+  | typeof RouteObservability.OFF
+  | typeof RouteObservability.COUNTERS
+  | typeof RouteObservability.FULL;
 
 /** Chooses what happens when a destination cannot keep up. */
 export class DeliveryPolicy {
@@ -497,9 +667,14 @@ export class DeliveryPolicy {
     return new DeliveryPolicy(nativeAddon().NativeDeliveryPolicy.realtimeAudio());
   }
 
-  /** Native delivery defaults for off-realtime signals. */
-  public static buffered(): DeliveryPolicy {
+  /** Native delivery defaults for bounded off-realtime signals. */
+  public static boundedAsync(): DeliveryPolicy {
     return new DeliveryPolicy(nativeAddon().NativeDeliveryPolicy.buffered());
+  }
+
+  /** @deprecated Use `boundedAsync()`. */
+  public static buffered(): DeliveryPolicy {
+    return DeliveryPolicy.boundedAsync();
   }
 
   /** Clock domain required by this route. */
@@ -518,8 +693,13 @@ export class DeliveryPolicy {
   }
 
   /** Action taken when the native route reaches capacity. */
+  public get backpressure(): BackpressurePolicy {
+    return backpressureFromNative(this.#native.backpressure);
+  }
+
+  /** @deprecated Use `backpressure`. */
   public get queuePressure(): QueuePressure {
-    return this.#native.backpressure as QueuePressure;
+    return queuePressureFromPolicy(this.backpressure);
   }
 
   /** Ordering and delivery guarantee. */
@@ -529,12 +709,17 @@ export class DeliveryPolicy {
 
   /** Missing-media behavior. */
   public get loss(): LossPolicy {
-    return this.#native.loss as LossPolicy;
+    return lossFromNative(this.#native.loss);
   }
 
   /** Frame-memory behavior compiled for this route. */
+  public get copyPolicy(): CopyPolicy {
+    return copyPolicyFromNative(this.#native.copyPolicy);
+  }
+
+  /** @deprecated Use `copyPolicy`. */
   public get frameOwnership(): FrameOwnership {
-    return this.#native.copyPolicy as FrameOwnership;
+    return frameOwnershipFromPolicy(this.copyPolicy);
   }
 
   /** Native observations retained for this route. */
@@ -548,17 +733,27 @@ export class DeliveryPolicy {
   }
 
   /** Return a copy with different capacity behavior. */
-  public withQueuePressure(value: QueuePressure): DeliveryPolicy {
+  public withBackpressure(value: BackpressurePolicy): DeliveryPolicy {
     return new DeliveryPolicy(
-      nativeCallSync(() => this.#native.withBackpressure(value)),
+      nativeCallSync(() => this.#native.withBackpressure(queuePressureFromPolicy(value))),
     );
   }
 
   /** Return a copy with different frame-memory behavior. */
-  public withFrameOwnership(value: FrameOwnership): DeliveryPolicy {
+  public withCopyPolicy(value: CopyPolicy): DeliveryPolicy {
     return new DeliveryPolicy(
-      nativeCallSync(() => this.#native.withCopyPolicy(value)),
+      nativeCallSync(() => this.#native.withCopyPolicy(frameOwnershipFromPolicy(value))),
     );
+  }
+
+  /** @deprecated Use `withBackpressure()`. */
+  public withQueuePressure(value: QueuePressure): DeliveryPolicy {
+    return this.withBackpressure(backpressureFromNative(value));
+  }
+
+  /** @deprecated Use `withCopyPolicy()`. */
+  public withFrameOwnership(value: FrameOwnership): DeliveryPolicy {
+    return this.withCopyPolicy(copyPolicyFromNative(value));
   }
 
   /** Return a copy with an optional jitter budget in milliseconds. */
@@ -592,9 +787,14 @@ export class RouteSettings {
     return new RouteSettings(nativeAddon().NativeRouteSettings.realtimeAudio());
   }
 
-  /** Native media and delivery defaults for off-realtime signals. */
-  public static buffered(): RouteSettings {
+  /** Native media and delivery defaults for bounded off-realtime signals. */
+  public static boundedAsync(): RouteSettings {
     return new RouteSettings(nativeAddon().NativeRouteSettings.buffered());
+  }
+
+  /** @deprecated Use `boundedAsync()`. */
+  public static buffered(): RouteSettings {
+    return RouteSettings.boundedAsync();
   }
 
   /** Combine explicit media requirements and delivery behavior. */
@@ -613,8 +813,45 @@ export class RouteSettings {
   }
 
   /** Delivery behavior compiled for this route. */
-  public get delivery(): DeliveryPolicy {
+  public get deliveryPolicy(): DeliveryPolicy {
     return DeliveryPolicy._fromNative(this.#native.deliveryPolicy);
+  }
+
+  /** Ordering and delivery guarantee selected for this route. */
+  public get delivery(): DeliverySemantics {
+    return this.deliveryPolicy.delivery;
+  }
+
+  public get clock(): ClockDomain {
+    return this.deliveryPolicy.clock;
+  }
+
+  public get latencyBudgetMs(): number | undefined {
+    return this.deliveryPolicy.latencyBudgetMs;
+  }
+
+  public get jitterBudgetMs(): number | undefined {
+    return this.deliveryPolicy.jitterBudgetMs;
+  }
+
+  public get backpressure(): BackpressurePolicy {
+    return this.deliveryPolicy.backpressure;
+  }
+
+  public get loss(): LossPolicy {
+    return this.deliveryPolicy.loss;
+  }
+
+  public get copyPolicy(): CopyPolicy {
+    return this.deliveryPolicy.copyPolicy;
+  }
+
+  public get observability(): RouteObservability {
+    return this.deliveryPolicy.observability;
+  }
+
+  public get maxPayloadBytes(): number | undefined {
+    return this.deliveryPolicy.maxPayloadBytes;
   }
 
   /** Return a copy with different media requirements. */
@@ -623,15 +860,107 @@ export class RouteSettings {
   }
 
   /** Return a copy with different delivery behavior. */
-  public withDelivery(delivery: DeliveryPolicy): RouteSettings {
+  public withDeliveryPolicy(delivery: DeliveryPolicy): RouteSettings {
     return new RouteSettings(
       this.#native.withDelivery(delivery._nativeHandle()),
     );
   }
 
+  /** @deprecated Use `withDeliveryPolicy()`. */
+  public withDelivery(delivery: DeliveryPolicy): RouteSettings {
+    return this.withDeliveryPolicy(delivery);
+  }
+
+  public withBackpressure(policy: BackpressurePolicy): RouteSettings {
+    return this.withDeliveryPolicy(this.deliveryPolicy.withBackpressure(policy));
+  }
+
+  public withCopyPolicy(policy: CopyPolicy): RouteSettings {
+    return this.withDeliveryPolicy(this.deliveryPolicy.withCopyPolicy(policy));
+  }
+
+  public withJitterBudgetMs(value?: number): RouteSettings {
+    return this.withDeliveryPolicy(this.deliveryPolicy.withJitterBudgetMs(value));
+  }
+
+  public withMaxPayloadBytes(value: number): RouteSettings {
+    return this.withDeliveryPolicy(this.deliveryPolicy.withMaxPayloadBytes(value));
+  }
+
   /** @internal */
   public _nativeHandle(): NativeRouteSettingsHandle {
     return this.#native;
+  }
+}
+
+function backpressureFromNative(value: string): BackpressurePolicy {
+  switch (value) {
+    case 'drop-newest':
+      return BackpressurePolicy.DROP_NEWEST;
+    case 'drop-oldest':
+      return BackpressurePolicy.DROP_OLDEST;
+    case 'buffer':
+    case 'bounded-queue':
+      return BackpressurePolicy.BOUNDED_QUEUE;
+    case 'fail':
+    case 'block-forbidden':
+      return BackpressurePolicy.BLOCK_FORBIDDEN;
+    default:
+      throw new RangeError(`unsupported backpressure policy ${value}`);
+  }
+}
+
+function queuePressureFromPolicy(value: BackpressurePolicy): QueuePressure {
+  switch (value) {
+    case 'drop-newest':
+    case 'drop-oldest':
+      return value;
+    case 'bounded-queue':
+      return 'buffer';
+    case 'block-forbidden':
+      return 'fail';
+  }
+}
+
+function copyPolicyFromNative(value: string): CopyPolicy {
+  switch (value) {
+    case 'move':
+    case 'move-exclusive':
+      return CopyPolicy.MOVE_EXCLUSIVE;
+    case 'share':
+    case 'share-read-only':
+      return CopyPolicy.SHARE_READ_ONLY;
+    case 'copy':
+    case 'copy-to-branch-pool':
+      return CopyPolicy.COPY_TO_BRANCH_POOL;
+    default:
+      throw new RangeError(`unsupported copy policy ${value}`);
+  }
+}
+
+function frameOwnershipFromPolicy(value: CopyPolicy): FrameOwnership {
+  switch (value) {
+    case 'move-exclusive':
+      return 'move';
+    case 'share-read-only':
+      return 'share';
+    case 'copy-to-branch-pool':
+      return 'copy';
+  }
+}
+
+function lossFromNative(value: string): LossPolicy {
+  switch (value) {
+    case 'conceal-audio':
+    case 'conceal-for-audio':
+      return LossPolicy.CONCEAL_FOR_AUDIO;
+    case 'deliver-or-fail':
+    case 'must-deliver-or-fail':
+      return LossPolicy.MUST_DELIVER_OR_FAIL;
+    case 'drop-allowed':
+      return LossPolicy.DROP_ALLOWED;
+    default:
+      throw new RangeError(`unsupported loss policy ${value}`);
   }
 }
 
@@ -641,24 +970,168 @@ export interface SecretValue {
   readonly value: string;
   /** Marker that prevents this value from appearing in diagnostics and traces. */
   readonly secret: true;
+  /** Redacted form used by JSON diagnostics and structured logs. */
+  toJSON(): '<redacted>';
 }
 
 /** String configuration passed to a registered native implementation. */
 export type ConfigurationValue = string | SecretValue;
 /** Immutable configuration map for an Operator or Endpoint. */
 export type Configuration = Readonly<Record<string, ConfigurationValue>>;
+/** Object or entry sequence accepted by immutable configuration values. */
+export type ConfigurationInput =
+  | Configuration
+  | Iterable<readonly [string, ConfigurationValue]>;
+/** Object or entry sequence accepted by a registered Source declaration. */
+export type SourceConfigurationInput =
+  | Readonly<Record<string, string>>
+  | Iterable<readonly [string, string]>;
 
 /** Mark a configuration value for redaction in diagnostics and traces. */
 export function secret(value: string): SecretValue {
-  return Object.freeze({ value, secret: true });
+  if (typeof value !== 'string') {
+    throw new TypeError('secret configuration value must be a string');
+  }
+  const protectedValue = { value, secret: true } as SecretValue;
+  Object.defineProperties(protectedValue, {
+    toJSON: {
+      value: (): '<redacted>' => '<redacted>',
+      enumerable: false,
+    },
+    [Symbol.for('nodejs.util.inspect.custom')]: {
+      value: (): string => 'secret(<redacted>)',
+      enumerable: false,
+    },
+  });
+  secretValues.add(protectedValue);
+  return Object.freeze(protectedValue);
+}
+
+const secretValues = new WeakSet<object>();
+
+function configurationValues(
+  configuration: ConfigurationInput,
+): readonly (readonly [string, ConfigurationValue])[] {
+  const values = Symbol.iterator in Object(configuration)
+    ? [...configuration as Iterable<readonly [string, ConfigurationValue]>]
+    : Object.entries(configuration as Configuration);
+  const seen = new Set<string>();
+  for (const [key, value] of values) {
+    if (typeof key !== 'string' || key.trim().length === 0) {
+      throw new TypeError('configuration keys must be non-empty strings');
+    }
+    if (seen.has(key)) throw new TypeError(`duplicate configuration key ${key}`);
+    if (typeof value !== 'string' && !isSecretValue(value)) {
+      throw new TypeError('configuration values must be strings or SecretValue');
+    }
+    seen.add(key);
+  }
+  return Object.freeze(
+    values
+      .map(([key, value]) => Object.freeze([key, value] as const))
+      .sort(([left], [right]) => compareExactText(left, right)),
+  );
+}
+
+function isSecretValue(value: unknown): value is SecretValue {
+  return typeof value === 'object' && value !== null && secretValues.has(value);
+}
+
+function compareExactText(left: string, right: string): number {
+  const leftCodePoints = Array.from(left, (value) => value.codePointAt(0)!);
+  const rightCodePoints = Array.from(right, (value) => value.codePointAt(0)!);
+  const sharedLength = Math.min(leftCodePoints.length, rightCodePoints.length);
+  for (let index = 0; index < sharedLength; index += 1) {
+    const leftCodePoint = leftCodePoints[index]!;
+    const rightCodePoint = rightCodePoints[index]!;
+    if (leftCodePoint !== rightCodePoint) {
+      return leftCodePoint < rightCodePoint ? -1 : 1;
+    }
+  }
+  return leftCodePoints.length - rightCodePoints.length;
+}
+
+function sourceConfigurationValues(
+  configuration: SourceConfigurationInput,
+): readonly (readonly [string, string])[] {
+  return configurationValues(configuration as ConfigurationInput).map(
+    ([key, value]) => {
+      if (typeof value !== 'string') {
+        throw new TypeError('Source configuration values must be strings');
+      }
+      return Object.freeze([key, value] as const);
+    },
+  );
+}
+
+/** Immutable configuration for one open Operator declaration. */
+export class OperatorConfiguration {
+  public readonly values: readonly (readonly [string, ConfigurationValue])[];
+
+  public constructor(values: ConfigurationInput = {}) {
+    this.values = configurationValues(values);
+    Object.freeze(this);
+  }
+
+  public withValue(key: string, value: ConfigurationValue): OperatorConfiguration {
+    return new OperatorConfiguration({ ...this.toObject(), [key]: value });
+  }
+
+  /** @internal */
+  public toObject(): Configuration {
+    return Object.freeze(Object.fromEntries(this.values));
+  }
+}
+
+/** Immutable configuration for one open Source declaration. */
+export class SourceConfiguration {
+  public readonly values: readonly (readonly [string, string])[];
+
+  public constructor(values: SourceConfigurationInput = {}) {
+    this.values = Object.freeze([...sourceConfigurationValues(values)]);
+    Object.freeze(this);
+  }
+
+  public withValue(key: string, value: string): SourceConfiguration {
+    return new SourceConfiguration({ ...this.toObject(), [key]: value });
+  }
+
+  /** @internal */
+  public toObject(): Readonly<Record<string, string>> {
+    return Object.freeze(Object.fromEntries(this.values));
+  }
+}
+
+/** Immutable configuration for one open Endpoint declaration. */
+export class EndpointConfiguration {
+  public readonly values: readonly (readonly [string, ConfigurationValue])[];
+
+  public constructor(values: ConfigurationInput = {}) {
+    this.values = configurationValues(values);
+    Object.freeze(this);
+  }
+
+  public withValue(key: string, value: ConfigurationValue): EndpointConfiguration {
+    return new EndpointConfiguration({ ...this.toObject(), [key]: value });
+  }
+
+  /** @internal */
+  public toObject(): Configuration {
+    return Object.freeze(Object.fromEntries(this.values));
+  }
 }
 
 function configurationEntries(
-  configuration: Configuration = {},
+  configuration:
+    | Configuration
+    | OperatorConfiguration
+    | EndpointConfiguration = {},
 ): NativeConfigurationEntry[] {
-  return Object.entries(configuration)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([key, entry]) =>
+  const values = configuration instanceof OperatorConfiguration ||
+      configuration instanceof EndpointConfiguration
+    ? configuration.values
+    : configurationValues(configuration);
+  return values.map(([key, entry]) =>
       typeof entry === 'string'
         ? { key, value: entry }
         : { key, value: entry.value, sensitive: true },
@@ -669,14 +1142,31 @@ function configurationEntries(
 export class Operator {
   readonly #native: NativeOperatorHandle;
   /** Stable identifier of the registered implementation. */
-  public readonly id: string;
+  public readonly operatorId: string;
+  /** Immutable declaration configuration. */
+  public readonly configuration: OperatorConfiguration;
 
   /** Declare one configured Operator. No worker starts in the constructor. */
-  public constructor(id: string, configuration: Configuration = {}) {
-    this.id = id;
+  public constructor(
+    operatorId: string,
+    configuration: Configuration | OperatorConfiguration = {},
+  ) {
+    this.operatorId = operatorId;
+    this.configuration = configuration instanceof OperatorConfiguration
+      ? configuration
+      : new OperatorConfiguration(configuration);
     this.#native = nativeCallSync(
-      () => new (nativeAddon().NativeOperator)(id, configurationEntries(configuration)),
+      () => new (nativeAddon().NativeOperator)(
+        operatorId,
+        configurationEntries(this.configuration),
+      ),
     );
+    Object.freeze(this);
+  }
+
+  /** @deprecated Use `operatorId`. */
+  public get id(): string {
+    return this.operatorId;
   }
 
   /** @internal */
@@ -686,30 +1176,56 @@ export class Operator {
 }
 
 /** Declares one configured Endpoint implementation by its stable identifiers. */
-export class EndpointDefinition {
+export class EndpointDescriptor {
   readonly #native: NativeEndpointDefinitionHandle;
   /** Stable node type resolved by the Core compiler. */
-  public readonly nodeType: string;
+  public readonly nodeTypeId: string;
   /** Stable identifier of the registered Endpoint implementation. */
   public readonly operatorId: string;
+  /** Immutable Endpoint declaration configuration. */
+  public readonly configuration: EndpointConfiguration;
+  /** Optional route override compiled for this Endpoint. */
+  public readonly routeSettings: RouteSettings | undefined;
 
   /** Declare one configured native destination. */
   public constructor(
-    nodeType: string,
+    nodeTypeId: string,
     operatorId: string,
-    options: { configuration?: Configuration; route?: RouteSettings } = {},
+    options: {
+      configuration?: Configuration | EndpointConfiguration;
+      routeSettings?: RouteSettings;
+      /** @deprecated Use `routeSettings`. */
+      route?: RouteSettings;
+    } = {},
   ) {
-    this.nodeType = nodeType;
+    if (
+      options.routeSettings !== undefined &&
+      options.route !== undefined &&
+      options.routeSettings !== options.route
+    ) {
+      throw new TypeError('routeSettings and route must match when both are provided');
+    }
+    this.nodeTypeId = nodeTypeId;
     this.operatorId = operatorId;
+    this.configuration = options.configuration instanceof EndpointConfiguration
+      ? options.configuration
+      : new EndpointConfiguration(options.configuration);
+    this.routeSettings = options.routeSettings ?? options.route;
     this.#native = nativeCallSync(
       () =>
         new (nativeAddon().NativeEndpointDefinition)(
-          nodeType,
+          nodeTypeId,
           operatorId,
-          configurationEntries(options.configuration),
-          options.route?._nativeHandle(),
+          configurationEntries(this.configuration),
+          this.routeSettings?._nativeHandle(),
         ),
     );
+    Object.freeze(this);
+  }
+
+  /** @deprecated Use `nodeTypeId`. */
+  public get nodeType(): string {
+    return this.nodeTypeId;
   }
 
   /** @internal */
@@ -717,6 +1233,9 @@ export class EndpointDefinition {
     return this.#native;
   }
 }
+
+/** @deprecated Use `EndpointDescriptor`. */
+export class EndpointDefinition extends EndpointDescriptor {}
 
 function signalFromNative(native: NativeSignalSpecHandle): SignalSpec {
   const options: SignalOptions = {

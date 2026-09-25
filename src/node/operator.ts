@@ -1,7 +1,9 @@
 import {
   DeliveryPolicy,
+  LossPolicy,
   MediaCaps,
   Operator,
+  OperatorConfiguration,
   PortSpec,
   RouteSettings,
   SignalSpec,
@@ -32,6 +34,7 @@ import type {
 } from './native.js';
 import type { OperatorInstance } from './session.js';
 import type { SignalEnvelope } from './signals.js';
+import type { RuntimeSessionId } from './identity.js';
 
 /** Complete Core policy for one application-authored off-realtime Operator. */
 export class OperatorManifest {
@@ -67,22 +70,18 @@ export class OperatorManifest {
     this.outputs = ports(options.outputs, 'output');
     assertCommonMedia(this.inputs, 'input');
     assertCommonMedia(this.outputs, 'output');
-    this.revision = positiveInteger(options.revision ?? 1, 'revision');
-    this.implementationGeneration = positiveInteger(
+    this.revision = positiveUint32(options.revision ?? 1, 'revision');
+    this.implementationGeneration = positiveUint32(
       options.implementationGeneration ?? 1,
       'implementationGeneration',
     );
-    this.queueCapacitySignals = boundedInteger(
+    this.queueCapacitySignals = positiveSafeInteger(
       options.queueCapacitySignals ?? 8,
       'queueCapacitySignals',
-      1,
-      1_024,
     );
-    this.processTimeoutMs = boundedInteger(
+    this.processTimeoutMs = positiveUint32(
       options.processTimeoutMs ?? 30_000,
       'processTimeoutMs',
-      1,
-      300_000,
     );
     this.networkAllowed = options.networkAllowed ?? false;
     this.filesystemAllowed = options.filesystemAllowed ?? false;
@@ -248,7 +247,7 @@ export class OperatorProvider {
     this.manifest = options.manifest;
     this.factory = options.factory;
     this.deadlines = options.deadlines ?? new OperatorDeadlines({
-      processMs: options.manifest.processTimeoutMs,
+      processMs: Math.min(30_000, options.manifest.processTimeoutMs),
     });
     if (this.deadlines.processMs > this.manifest.processTimeoutMs) {
       throw new RangeError('Operator process deadline cannot exceed the Core manifest deadline');
@@ -361,13 +360,13 @@ export class OperatorProvider {
 
 /** Session-bound Operator registration used to declare configured instances. */
 export class RegisteredOperator {
-  readonly #sessionId: bigint;
+  readonly #sessionId: RuntimeSessionId;
   readonly #provider: OperatorProvider;
   readonly #declare: (operator: Operator) => OperatorInstance;
 
   /** @internal */
   public constructor(
-    sessionId: bigint,
+    sessionId: RuntimeSessionId,
     provider: OperatorProvider,
     declare: (operator: Operator) => OperatorInstance,
   ) {
@@ -376,11 +375,16 @@ export class RegisteredOperator {
     this.#declare = declare;
   }
 
-  public get sessionId(): bigint { return this.#sessionId; }
+  public get sessionId(): RuntimeSessionId { return this.#sessionId; }
   public get operatorId(): string { return this.#provider.manifest.operatorId; }
 
-  public declare(configuration: Configuration = {}): OperatorInstance {
-    return this.#declare(new Operator(this.operatorId, configuration));
+  public declare(
+    configuration: Configuration | OperatorConfiguration = {},
+  ): OperatorInstance {
+    const values = configuration instanceof OperatorConfiguration
+      ? configuration.toObject()
+      : configuration;
+    return this.#declare(new Operator(this.operatorId, values));
   }
 }
 
@@ -480,14 +484,14 @@ function routeFromCompiledContext(
     delivery = delivery.withMaxPayloadBytes(value.maxPayloadBytes);
   }
   const route = RouteSettings.create(mediaFromCompiledContext(mediaValue), delivery);
-  const compiled = route.delivery;
+  const compiled = route.deliveryPolicy;
   if (
     compiled.clock !== value.clock
     || (compiled.latencyBudgetMs ?? null) !== (value.latencyBudgetMs ?? null)
     || (compiled.jitterBudgetMs ?? null) !== (value.jitterBudgetMs ?? null)
     || compiled.queuePressure !== value.backpressure
     || compiled.delivery !== value.delivery
-    || compiled.loss !== value.loss
+    || compiled.loss !== canonicalLossPolicy(value.loss)
     || compiled.frameOwnership !== value.copyPolicy
     || compiled.observability !== value.observability
     || (compiled.maxPayloadBytes ?? null) !== (value.maxPayloadBytes ?? null)
@@ -495,6 +499,17 @@ function routeFromCompiledContext(
     throw new TypeError('Core returned an Operator route policy JavaScript could not preserve exactly');
   }
   return route;
+}
+
+function canonicalLossPolicy(value: string): LossPolicy {
+  if (value === 'conceal-audio' || value === 'conceal-for-audio') {
+    return LossPolicy.CONCEAL_FOR_AUDIO;
+  }
+  if (value === 'deliver-or-fail' || value === 'must-deliver-or-fail') {
+    return LossPolicy.MUST_DELIVER_OR_FAIL;
+  }
+  if (value === 'drop-allowed') return LossPolicy.DROP_ALLOWED;
+  throw new TypeError(`Core returned unsupported loss policy ${JSON.stringify(value)}`);
 }
 
 function requiredPort(
@@ -550,8 +565,17 @@ function exactText(value: string, name: string): string {
   return value;
 }
 
-function positiveInteger(value: number, name: string): number {
-  if (!Number.isInteger(value) || value < 1) throw new RangeError(`${name} must be positive`);
+function positiveUint32(value: number, name: string): number {
+  if (!Number.isInteger(value) || value < 1 || value > 0xffff_ffff) {
+    throw new RangeError(`${name} must be a positive unsigned 32-bit integer`);
+  }
+  return value;
+}
+
+function positiveSafeInteger(value: number, name: string): number {
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new RangeError(`${name} must be a positive safe integer`);
+  }
   return value;
 }
 

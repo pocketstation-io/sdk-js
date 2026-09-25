@@ -120,8 +120,8 @@ describe('advanced Operator authoring', () => {
     });
     expect(prepared?.inputs[0]?.edgeId).toBeDefined();
     expect(prepared?.inputs[0]?.signal.wireId).toBe(inputSignal.wireId);
-    expect(prepared?.inputs[0]?.routeSettings.delivery.queuePressure).toBe('drop-newest');
-    expect(prepared?.inputs[0]?.routeSettings.delivery.frameOwnership).toBe('copy');
+    expect(prepared?.inputs[0]?.routeSettings.deliveryPolicy.queuePressure).toBe('drop-newest');
+    expect(prepared?.inputs[0]?.routeSettings.deliveryPolicy.frameOwnership).toBe('copy');
     expect(prepared?.outputs[0]?.signal.wireId).toBe(outputSignal.wireId);
     expect(lifecycle).toEqual(['prepare', 'process:prompt', 'close']);
   });
@@ -201,6 +201,29 @@ describe('advanced Operator authoring', () => {
     expect(() => OperatorEmission.audio(new Float32Array(8), {
       signal: SignalSpec.text(),
     })).toThrow('does not match its SignalSpec');
+  });
+
+  it('accepts Core-valid capacities and timeouts above the former JavaScript limits', () => {
+    const signal = SignalSpec.text();
+    const manifest = new OperatorManifest({
+      operatorId: 'org.example.operator.large-bounds.v1',
+      inputs: [PortSpec.input('input', signal)],
+      outputs: [PortSpec.output('output', signal)],
+      queueCapacitySignals: 0x1_0000_0000,
+      processTimeoutMs: 600_000,
+    });
+
+    expect(manifest.queueCapacitySignals).toBe(0x1_0000_0000);
+    expect(manifest.processTimeoutMs).toBe(600_000);
+    const provider = OperatorProvider.withNode(manifest, () => ({ process: () => [] }));
+    expect(provider.deadlines.processMs).toBe(30_000);
+    expect(() => new Session().registerOperator(provider)).not.toThrow();
+    expect(() => new OperatorManifest({
+      operatorId: 'org.example.operator.invalid-safe-integer.v1',
+      inputs: [PortSpec.input('input', signal)],
+      outputs: [PortSpec.output('output', signal)],
+      queueCapacitySignals: Number.MAX_SAFE_INTEGER + 1,
+    })).toThrow('positive safe integer');
   });
 
   it('emits owned PCM through Core reentry and multistem recording', async () => {

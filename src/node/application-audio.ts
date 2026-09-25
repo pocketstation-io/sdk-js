@@ -2,7 +2,34 @@ import { Buffer } from 'node:buffer';
 import { setTimeout as wait } from 'node:timers/promises';
 
 import { PocketStationError } from '../errors.js';
-import { nativeCallSync } from './errors.js';
+import {
+  AudioInputAbortError,
+  AudioInputBufferError,
+  AudioInputCancelledError,
+  AudioInputClosedError,
+  AudioInputConfigurationError,
+  AudioInputError,
+  AudioInputFullError,
+  AudioInputTimeoutError,
+  OutputCancelledError,
+  OutputGenerationLimitError,
+  OutputOwnershipError,
+  nativeCallSync,
+} from './errors.js';
+export {
+  AudioInputAbortError,
+  AudioInputBufferError,
+  AudioInputCancelledError,
+  AudioInputClosedError,
+  AudioInputConfigurationError,
+  AudioInputError,
+  AudioInputFullError,
+  AudioInputTimeoutError,
+  OutputCancelledError,
+  OutputGenerationLimitError,
+  OutputOwnershipError,
+} from './errors.js';
+import { SourceId, StreamId } from './identity.js';
 import type {
   NativeAudioInputHandle,
   NativeAudioInputObservations,
@@ -81,117 +108,6 @@ export interface AudioInputObservations {
   readonly closed: boolean;
 }
 
-/** Base class for application-audio write failures. */
-export class AudioInputError extends PocketStationError {
-  /** Create a typed application-audio failure. */
-  public constructor(code: string, message: string, options?: { cause?: unknown }) {
-    super(code, message, options);
-    this.name = 'AudioInputError';
-  }
-}
-
-/** An AudioInput name, format, frame size, or capacity is invalid. */
-export class AudioInputConfigurationError extends AudioInputError {
-  /** Create an invalid-configuration failure. */
-  public constructor(message: string, options?: { cause?: unknown }) {
-    super('audio_input.invalid_configuration', message, options);
-    this.name = 'AudioInputConfigurationError';
-  }
-}
-
-/** Core had no capacity for another complete frame. */
-export class AudioInputFullError extends AudioInputError {
-  /** Create a capacity failure from the native result. */
-  public constructor(message = 'audio input is full', options?: { cause?: unknown }) {
-    super('audio_input.full', message, options);
-    this.name = 'AudioInputFullError';
-  }
-}
-
-/** A write was attempted after the AudioInput closed. */
-export class AudioInputClosedError extends AudioInputError {
-  /** Create a closed-input failure from the native result. */
-  public constructor(message = 'audio input is closed', options?: { cause?: unknown }) {
-    super('audio_input.closed', message, options);
-    this.name = 'AudioInputClosedError';
-  }
-}
-
-/** The owning Session was cancelled before Core accepted the frame. */
-export class AudioInputCancelledError extends AudioInputError {
-  /** Create a Session-cancelled input failure from the native result. */
-  public constructor(message = 'audio input Session was cancelled', options?: { cause?: unknown }) {
-    super('audio_input.cancelled', message, options);
-    this.name = 'AudioInputCancelledError';
-  }
-}
-
-/** Samples did not match the configured float32 frame. */
-export class AudioInputBufferError extends AudioInputError {
-  /** Create an invalid-samples failure from the native result. */
-  public constructor(message: string, options?: { cause?: unknown }) {
-    super('audio_input.invalid_buffer', message, options);
-    this.name = 'AudioInputBufferError';
-  }
-}
-
-/** Core did not have capacity before the write deadline. */
-export class AudioInputTimeoutError extends AudioInputError {
-  /** Configured deadline in milliseconds. */
-  public readonly timeoutMs: number;
-
-  /** Create a finite-wait failure. */
-  public constructor(timeoutMs: number, options?: { cause?: unknown }) {
-    super(
-      'audio_input.timeout',
-      `audio input remained full for ${timeoutMs} ms`,
-      options,
-    );
-    this.name = 'AudioInputTimeoutError';
-    this.timeoutMs = timeoutMs;
-  }
-}
-
-/** A write was rejected because its replaceable output is no longer active. */
-export class OutputCancelledError extends AudioInputError {
-  /** Create an inactive-output failure. */
-  public constructor(message = 'output is no longer active', options?: { cause?: unknown }) {
-    super('audio_input.output_cancelled', message, options);
-    this.name = 'OutputCancelledError';
-  }
-}
-
-/** Replaceable output was created by a different AudioInput. */
-export class OutputOwnershipError extends AudioInputError {
-  /** Create an output-ownership failure. */
-  public constructor(message: string, options?: { cause?: unknown }) {
-    super('audio_input.wrong_output_input', message, options);
-    this.name = 'OutputOwnershipError';
-  }
-}
-
-/** Core cannot assign another output identity to this AudioInput. */
-export class OutputGenerationLimitError extends AudioInputError {
-  /** Create an output-identity exhaustion failure. */
-  public constructor(message: string, options?: { cause?: unknown }) {
-    super('audio_input.output_generation_limit', message, options);
-    this.name = 'OutputGenerationLimitError';
-  }
-}
-
-/** An AbortSignal stopped a pending write. */
-export class AudioInputAbortError extends AudioInputError {
-  /** Reason supplied to AbortController.abort(), when present. */
-  public readonly reason: unknown;
-
-  /** Create an aborted-wait failure. */
-  public constructor(reason?: unknown, options?: { cause?: unknown }) {
-    super('audio_input.aborted', 'audio input write was aborted', options);
-    this.name = 'AbortError';
-    this.reason = reason;
-  }
-}
-
 /** Float32 PCM samples accepted by AudioInput. */
 export type AudioInputSamples = Float32Array | Buffer;
 
@@ -243,9 +159,9 @@ export interface PcmSource extends Disposable {
   /** Resolved format, frame size, and capacity. */
   readonly config: AudioInputConfig;
   /** Stable Source identity assigned by Core. */
-  readonly sourceId: bigint;
+  readonly sourceId: SourceId;
   /** Stable stream identity assigned by Core. */
-  readonly streamId: bigint;
+  readonly streamId: StreamId;
   /** Source output used with send, connect, through, or record. */
   readonly output: SourceOutput;
   /** Start a replaceable output while keeping this source and Session alive. */
@@ -291,13 +207,13 @@ export class AudioInput implements PcmSource {
   }
 
   /** Stable Source identity assigned by Core. */
-  public get sourceId(): bigint {
-    return BigInt(this.#native.sourceId);
+  public get sourceId(): SourceId {
+    return SourceId(BigInt(this.#native.sourceId));
   }
 
   /** Stable stream identity assigned by Core. */
-  public get streamId(): bigint {
-    return BigInt(this.#native.streamId);
+  public get streamId(): StreamId {
+    return StreamId(BigInt(this.#native.streamId));
   }
 
   /** Source output used with send, connect, through, or record. */

@@ -87,7 +87,7 @@ describe('Advanced Endpoint authoring', () => {
     expect(inputs[0]).toMatchObject({ portName: 'audio' });
     expect(inputs[0]?.signal.wireId).toBe('pks.signal.pcm-audio.v1');
     expect(inputs[0]?.media.kind).toBe('audio-pcm');
-    expect(inputs[0]?.routeSettings.delivery.queuePressure).toBe('drop-newest');
+    expect(inputs[0]?.routeSettings.deliveryPolicy.queuePressure).toBe('drop-newest');
     expect(inputs[0]?.context).toMatchObject({
       sessionId: session.id,
       endpointId: endpoint.id,
@@ -447,7 +447,7 @@ describe('Advanced Endpoint authoring', () => {
     source.output.send(session.registerEndpoint(provider).declare({}, {
       routeSettings: RouteSettings.create(
         MediaCaps.audio({ sampleRateHz: 48_000, frameSamples: 480, channelLayout: 'mono' }),
-        RouteSettings.buffered().delivery,
+        RouteSettings.buffered().deliveryPolicy,
       ),
     }));
     source.tryWrite(new Float32Array(480));
@@ -455,7 +455,7 @@ describe('Advanced Endpoint authoring', () => {
 
     const running = await session.start();
     await waitFor(() => input !== undefined);
-    expect(input?.routeSettings.delivery.queuePressure).toBe('buffer');
+    expect(input?.routeSettings.deliveryPolicy.queuePressure).toBe('buffer');
     expect((await running.stop()).success).toBe(true);
   });
 });

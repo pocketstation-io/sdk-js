@@ -1,4 +1,21 @@
-import { nativeCall, nativeCallSync } from './errors.js';
+import {
+  SessionCompileDiagnostic,
+  SessionDeclarationError,
+  SessionStartError,
+  nativeCall,
+  nativeCallSync,
+} from './errors.js';
+import {
+  ConnectorId,
+  EndpointId,
+  OperatorInstanceId,
+  RouteId,
+  RuntimeSessionId,
+  SourceId,
+  SourceInstanceId,
+  StemId,
+  StreamId,
+} from './identity.js';
 import {
   type NativeAudioInputHandle,
   nativeAddon,
@@ -38,13 +55,43 @@ import {
 import {
   DeliveryPolicy,
   type Configuration,
-  EndpointDefinition,
+  EndpointConfiguration,
+  EndpointDescriptor,
+  MediaCaps,
   Operator,
+  OperatorConfiguration,
   RouteSettings,
   SignalSpec,
+  SourceConfiguration,
+  type SourceConfigurationInput,
 } from './graph.js';
-import { Source, nativeSource } from './sources.js';
-import { RuntimeSessionId, SourceId, StemId } from './identity.js';
+import { Source, SourceSelectorKind, nativeSource } from './sources.js';
+import { _captureNativeFormatFromNative, type OpenedNativeFormat } from './observations.js';
+
+/** One explicit microphone change; the logical Stem and its routes remain unchanged. */
+export interface SourceReplacement {
+  readonly stemId: StemId;
+  readonly requestedSelectorKind: 'microphone-default' | 'microphone-id';
+  readonly requestedDeviceId?: string;
+  readonly previousSourceId: SourceId;
+  readonly sourceId: SourceId;
+  readonly sourceGeneration: number;
+  readonly discontinuityEpoch: bigint;
+  readonly openedNativeFormat?: OpenedNativeFormat;
+}
+
+function sourceReplacement(value: NativeSourceReplacement, source: Source): SourceReplacement {
+  return Object.freeze({
+    stemId: StemId(BigInt(value.stemId)),
+    requestedSelectorKind: source.selectorKind as SourceReplacement['requestedSelectorKind'],
+    requestedDeviceId: source.selectorKind === SourceSelectorKind.MICROPHONE_ID && typeof source.selectorValue === 'string' ? source.selectorValue : undefined,
+    previousSourceId: SourceId(BigInt(value.previousSourceId)),
+    sourceId: SourceId(BigInt(value.sourceId)),
+    sourceGeneration: value.sourceGeneration,
+    discontinuityEpoch: BigInt(value.discontinuityEpoch),
+    openedNativeFormat: value.openedNativeFormat == null ? undefined : _captureNativeFormatFromNative(value.openedNativeFormat),
+  });
+}
 import {
   AudioStream,
   type AudioBatch,
@@ -86,46 +133,10 @@ import {
   _recordingOutcomeFromNative,
   _sessionMetricsFromNative,
   _traceOutcomeFromNative,
-  _captureNativeFormatFromNative,
-  type OpenedNativeFormat,
   type RecordingOutcome,
   type SessionMetrics,
   type SessionTraceOutcome,
 } from './observations.js';
-
-/** One explicit microphone change; the logical Stem and routes remain unchanged. */
-export interface SourceReplacement {
-  readonly stemId: StemId;
-  readonly requestedSelectorKind: 'microphone-default' | 'microphone-id';
-  readonly requestedDeviceId?: string;
-  readonly previousSourceId: SourceId;
-  readonly sourceId: SourceId;
-  readonly sourceGeneration: number;
-  readonly discontinuityEpoch: bigint;
-  readonly openedNativeFormat?: OpenedNativeFormat;
-}
-
-function sourceReplacement(
-  value: NativeSourceReplacement,
-  source: Source,
-): SourceReplacement {
-  return Object.freeze({
-    stemId: StemId(BigInt(value.stemId)),
-    requestedSelectorKind: source.selectorKind as SourceReplacement['requestedSelectorKind'],
-    requestedDeviceId:
-      source.selectorKind === 'microphone-id' && typeof source.selectorValue === 'string'
-        ? source.selectorValue
-        : undefined,
-    previousSourceId: SourceId(BigInt(value.previousSourceId)),
-    sourceId: SourceId(BigInt(value.sourceId)),
-    sourceGeneration: value.sourceGeneration,
-    discontinuityEpoch: BigInt(value.discontinuityEpoch),
-    openedNativeFormat:
-      value.openedNativeFormat == null
-        ? undefined
-        : _captureNativeFormatFromNative(value.openedNativeFormat),
-  });
-}
 
 /** Finite native event trace written alongside a Session. */
 export interface SessionTraceOptions {
@@ -147,6 +158,40 @@ export interface SessionOptions {
   recordingRoot?: string;
   /** Optional native lifecycle and failure trace. */
   trace?: SessionTraceOptions;
+}
+
+/** Select one named Endpoint or Operator input without losing legacy callers. */
+export interface RouteInputOptions {
+  /** Canonical named input port. */
+  readonly inputPort?: string;
+  /** @deprecated Use `inputPort`. */
+  readonly input?: string;
+}
+
+/** Select explicit Operator ports while applying an Operator. */
+export interface OperatorPortOptions extends RouteInputOptions {
+  /** Canonical named output port. */
+  readonly outputPort?: string;
+  /** @deprecated Use `outputPort`. */
+  readonly output?: string;
+}
+
+function selectedPort(
+  canonical: string | undefined,
+  legacy: string | undefined,
+  canonicalName: string,
+  legacyName: string,
+): string | undefined {
+  if (canonical !== undefined && legacy !== undefined && canonical !== legacy) {
+    throw new TypeError(
+      `${canonicalName} and deprecated ${legacyName} must match when both are provided`,
+    );
+  }
+  return canonical ?? legacy;
+}
+
+function foreignEndpoint(message: string): SessionDeclarationError {
+  return new SessionDeclarationError('session.foreign_endpoint', message);
 }
 
 /** Final result returned after a running Session stops or is cancelled. */
@@ -191,41 +236,15 @@ export interface StopResult {
   readonly metricsUnavailableReason?: string;
 }
 
-/** String settings passed to an externally registered Source. */
-export type SourceConfiguration = Readonly<Record<string, string>>;
-
-/** Stable location details returned when Core rejects a Session declaration. */
-export interface CompileDiagnostic {
-  /** Stable Core diagnostic code. */
-  readonly code: string;
-  /** Zero-based node index when one declaration caused the failure. */
-  readonly nodeIndex?: number;
-  /** Zero-based route index when one connection caused the failure. */
-  readonly edgeIndex?: number;
-  /** Registered Operator identifier involved in the failure. */
-  readonly operatorId?: string;
-  /** Session-local Operator instance identity. */
-  readonly operatorInstanceId?: bigint;
-  /** Node type involved in the failure. */
-  readonly nodeTypeId?: string;
-  /** Source type involved in the failure. */
-  readonly sourceTypeId?: string;
-  /** Named port involved in the failure. */
-  readonly portName?: string;
-  /** Input or output direction when relevant. */
-  readonly direction?: string;
-  /** Value required by the compiler. */
-  readonly expected?: string;
-  /** Value found in the Session declaration. */
-  readonly actual?: string;
-}
+/** @deprecated Use `SessionCompileDiagnostic`. */
+export type CompileDiagnostic = SessionCompileDiagnostic;
 
 function compileDiagnosticFromNative(
   diagnostic?: NativeCompileDiagnostic | null,
-): CompileDiagnostic | undefined {
+): SessionCompileDiagnostic | undefined {
   return diagnostic == null
     ? undefined
-    : Object.freeze({
+    : new SessionCompileDiagnostic({
         code: diagnostic.code,
         nodeIndex: diagnostic.nodeIndex ?? undefined,
         edgeIndex: diagnostic.edgeIndex ?? undefined,
@@ -233,7 +252,7 @@ function compileDiagnosticFromNative(
         operatorInstanceId:
           diagnostic.operatorInstanceId == null
             ? undefined
-            : BigInt(diagnostic.operatorInstanceId),
+            : OperatorInstanceId(BigInt(diagnostic.operatorInstanceId)),
         nodeTypeId: diagnostic.nodeTypeId ?? undefined,
         sourceTypeId: diagnostic.sourceTypeId ?? undefined,
         portName: diagnostic.portName ?? undefined,
@@ -241,23 +260,6 @@ function compileDiagnosticFromNative(
         expected: diagnostic.expected ?? undefined,
         actual: diagnostic.actual ?? undefined,
       });
-}
-
-/** Startup failure reported by the native Session runtime. */
-export class SessionStartError extends PocketStationError {
-  /** Precise Core location data when startup failed during compilation. */
-  public readonly diagnostic: CompileDiagnostic | undefined;
-
-  /** Create a typed projection of one native startup failure. */
-  public constructor(
-    code: string,
-    message: string,
-    diagnostic?: CompileDiagnostic,
-  ) {
-    super(code, message);
-    this.name = 'SessionStartError';
-    this.diagnostic = diagnostic;
-  }
 }
 
 /** A destination declared in a Session. */
@@ -276,8 +278,8 @@ export class Endpoint {
   }
 
   /** Session-local Endpoint identity. */
-  public get id(): bigint {
-    return BigInt(this.#native.id);
+  public get id(): EndpointId {
+    return EndpointId(BigInt(this.#native.id));
   }
 
   /** Session identity that owns this Endpoint. */
@@ -286,8 +288,10 @@ export class Endpoint {
   }
 
   /** Core-assigned Connector identity, when this is a Connector destination. */
-  public get connectorId(): bigint | undefined {
-    return this.#native.connectorId == null ? undefined : BigInt(this.#native.connectorId);
+  public get connectorId(): ConnectorId | undefined {
+    return this.#native.connectorId == null
+      ? undefined
+      : ConnectorId(BigInt(this.#native.connectorId));
   }
 
   /** @internal */
@@ -375,43 +379,51 @@ export class Stem {
 
   /** Session identity that owns this Stem. */
   public get sessionId(): RuntimeSessionId {
-    return RuntimeSessionId(this.#session.id);
+    return this.#session.id;
   }
 
   /** Route this Stem to an Endpoint and return the Session-local route identity. */
-  public send(endpoint: Endpoint, options: { input?: string } = {}): bigint {
+  public send(endpoint: Endpoint, options: RouteInputOptions = {}): RouteId {
     if (!endpoint._belongsTo(this.#session)) {
-      throw new TypeError('Stem and Endpoint belong to different Sessions');
+      throw foreignEndpoint('Stem and Endpoint belong to different Sessions');
     }
-    return BigInt(
+    const inputPort = selectedPort(options.inputPort, options.input, 'inputPort', 'input');
+    return RouteId(BigInt(
       nativeCallSync(() =>
-        this.#native.send(endpoint._nativeHandle(), options.input),
+        this.#native.send(endpoint._nativeHandle(), inputPort),
       ),
-    );
+    ));
   }
 
   /** Send this Stem to one application-owned Connector. */
-  public sendTo(connector: Connector): bigint {
+  public sendTo(connector: Connector): RouteId {
     return this.send(this.#session.destination(connector));
   }
 
   /** Connect this Stem to one named Operator input. */
-  public connect(input: OperatorInput): bigint {
-    return BigInt(nativeCallSync(() => this.#native.connect(input._nativeHandle())));
+  public connect(input: OperatorInput): RouteId {
+    if (!input._belongsTo(this.#session)) {
+      throw foreignEndpoint('Stem and OperatorInput belong to different Sessions');
+    }
+    return RouteId(BigInt(
+      nativeCallSync(() => this.#native.connect(input._nativeHandle())),
+    ));
   }
 
   /** Apply one Operator and select its output. */
   public through(
     operator: Operator,
-    options: { input?: string; output?: string } = {},
+    options: OperatorPortOptions = {},
   ): DerivedStream {
+    const inputPort = selectedPort(options.inputPort, options.input, 'inputPort', 'input');
+    const outputPort = selectedPort(options.outputPort, options.output, 'outputPort', 'output');
     return DerivedStream._create(
       this.#session,
       nativeCallSync(() =>
         this.#native.through(
           operator._nativeHandle(),
-          options.input,
-          options.output,
+          inputPort,
+          outputPort,
         ),
       ),
     );
@@ -447,23 +459,23 @@ export class SourceOutput {
   }
 
   /** Native Session that owns this output. */
-  public get sessionId(): bigint {
-    return BigInt(this.#native.sessionId);
+  public get sessionId(): RuntimeSessionId {
+    return RuntimeSessionId(BigInt(this.#native.sessionId));
   }
 
   /** Session-local identity of the registered Source instance. */
-  public get sourceInstanceId(): bigint {
-    return BigInt(this.#native.sourceInstanceId);
+  public get sourceInstanceId(): SourceInstanceId {
+    return SourceInstanceId(BigInt(this.#native.sourceInstanceId));
   }
 
   /** Stable Source identity assigned by Core. */
-  public get sourceId(): bigint {
-    return BigInt(this.#native.sourceId);
+  public get sourceId(): SourceId {
+    return SourceId(BigInt(this.#native.sourceId));
   }
 
   /** Stable stream identity assigned by Core. */
-  public get streamId(): bigint {
-    return BigInt(this.#native.streamId);
+  public get streamId(): StreamId {
+    return StreamId(BigInt(this.#native.streamId));
   }
 
   /** Named output port declared by this Source. */
@@ -471,43 +483,56 @@ export class SourceOutput {
     return this.#native.outputPort;
   }
 
+  /** Canonical named output port declared by this Source. */
+  public get outputPort(): string {
+    return this.#native.outputPort;
+  }
+
   /** Route this output to an Endpoint. */
-  public send(endpoint: Endpoint, options: { input?: string } = {}): bigint {
+  public send(endpoint: Endpoint, options: RouteInputOptions = {}): RouteId {
     if (!endpoint._belongsTo(this.#session)) {
-      throw new TypeError('SourceOutput and Endpoint belong to different Sessions');
+      throw foreignEndpoint('SourceOutput and Endpoint belong to different Sessions');
     }
-    const routeId = BigInt(
+    const inputPort = selectedPort(options.inputPort, options.input, 'inputPort', 'input');
+    const routeId = RouteId(BigInt(
       nativeCallSync(() =>
-        this.#native.send(endpoint._nativeHandle(), options.input),
+        this.#native.send(endpoint._nativeHandle(), inputPort),
       ),
-    );
+    ));
     this.#conversationRouteIds.add(routeId);
     this.#conversationEndpointIds.add(endpoint.id);
     return routeId;
   }
 
   /** Send this output to one application-owned Connector. */
-  public sendTo(connector: Connector): bigint {
+  public sendTo(connector: Connector): RouteId {
     return this.send(this.#session.destination(connector));
   }
 
   /** Connect this output to one named Operator input. */
-  public connect(input: OperatorInput): bigint {
-    return BigInt(nativeCallSync(() => this.#native.connect(input._nativeHandle())));
+  public connect(input: OperatorInput): RouteId {
+    if (!input._belongsTo(this.#session)) {
+      throw foreignEndpoint('SourceOutput and OperatorInput belong to different Sessions');
+    }
+    return RouteId(BigInt(
+      nativeCallSync(() => this.#native.connect(input._nativeHandle())),
+    ));
   }
 
   /** Apply an Operator and select its output. */
   public through(
     operator: Operator,
-    options: { input?: string; output?: string } = {},
+    options: OperatorPortOptions = {},
   ): DerivedStream {
+    const inputPort = selectedPort(options.inputPort, options.input, 'inputPort', 'input');
+    const outputPort = selectedPort(options.outputPort, options.output, 'outputPort', 'output');
     return DerivedStream._create(
       this.#session,
       nativeCallSync(() =>
         this.#native.through(
           operator._nativeHandle(),
-          options.input,
-          options.output,
+          inputPort,
+          outputPort,
         ),
       ),
     );
@@ -564,18 +589,23 @@ export class SourceInstance {
   }
 
   /** Native Session that owns this Source. */
-  public get sessionId(): bigint {
-    return BigInt(this.#native.sessionId);
+  public get sessionId(): RuntimeSessionId {
+    return RuntimeSessionId(BigInt(this.#native.sessionId));
   }
 
   /** Session-local Source instance identity. */
-  public get id(): bigint {
-    return BigInt(this.#native.instanceId);
+  public get id(): SourceInstanceId {
+    return SourceInstanceId(BigInt(this.#native.instanceId));
+  }
+
+  /** Canonical Session-local Source instance identity. */
+  public get instanceId(): SourceInstanceId {
+    return this.id;
   }
 
   /** Stable Source identity assigned by Core. */
-  public get sourceId(): bigint {
-    return BigInt(this.#native.sourceId);
+  public get sourceId(): SourceId {
+    return SourceId(BigInt(this.#native.sourceId));
   }
 
   /** Select one named output declared by the Source. */
@@ -589,15 +619,17 @@ export class SourceInstance {
 
 /** One named input on a Session-owned Operator instance. */
 export class OperatorInput {
+  readonly #session: Session;
   readonly #native: NativeOperatorInputHandle;
 
-  private constructor(native: NativeOperatorInputHandle) {
+  private constructor(session: Session, native: NativeOperatorInputHandle) {
+    this.#session = session;
     this.#native = native;
   }
 
   /** @internal */
-  public static _create(native: NativeOperatorInputHandle): OperatorInput {
-    return new OperatorInput(native);
+  public static _create(session: Session, native: NativeOperatorInputHandle): OperatorInput {
+    return new OperatorInput(session, native);
   }
 
   /** Named input selected on the Operator instance. */
@@ -605,9 +637,19 @@ export class OperatorInput {
     return this.#native.portName;
   }
 
+  /** Canonical named input port. */
+  public get portName(): string {
+    return this.#native.portName;
+  }
+
   /** @internal */
   public _nativeHandle(): NativeOperatorInputHandle {
     return this.#native;
+  }
+
+  /** @internal */
+  public _belongsTo(session: Session): boolean {
+    return this.#session === session;
   }
 }
 
@@ -630,13 +672,24 @@ export class OperatorInstance {
   }
 
   /** Session-local Operator instance identity. */
-  public get id(): bigint {
-    return BigInt(this.#native.instanceId);
+  public get id(): OperatorInstanceId {
+    return OperatorInstanceId(BigInt(this.#native.instanceId));
+  }
+
+  /** Session identity that owns this Operator instance. */
+  public get sessionId(): RuntimeSessionId {
+    return this.#session.id;
+  }
+
+  /** Canonical Session-local Operator identity. */
+  public get instanceId(): OperatorInstanceId {
+    return this.id;
   }
 
   /** Select a named input without starting the Operator. */
   public input(name: string): OperatorInput {
     return OperatorInput._create(
+      this.#session,
       nativeCallSync(() => this.#native.input(name)),
     );
   }
@@ -669,12 +722,27 @@ export class DerivedStream {
   }
 
   /** Session-local identity of the Operator that emits this stream. */
-  public get operatorId(): bigint {
-    return BigInt(this.#native.operatorInstanceId);
+  public get operatorId(): OperatorInstanceId {
+    return OperatorInstanceId(BigInt(this.#native.operatorInstanceId));
+  }
+
+  /** Session identity that owns this derived stream. */
+  public get sessionId(): RuntimeSessionId {
+    return this.#session.id;
+  }
+
+  /** Canonical Session-local Operator identity. */
+  public get operatorInstanceId(): OperatorInstanceId {
+    return this.operatorId;
   }
 
   /** Selected output port, or `undefined` before an explicit output is chosen. */
   public get outputName(): string | undefined {
+    return this.#native.outputPort ?? undefined;
+  }
+
+  /** Canonical selected output port. */
+  public get outputPort(): string | undefined {
     return this.#native.outputPort ?? undefined;
   }
 
@@ -687,39 +755,47 @@ export class DerivedStream {
   }
 
   /** Connect this output to one named Operator input. */
-  public connect(input: OperatorInput): bigint {
-    return BigInt(nativeCallSync(() => this.#native.connect(input._nativeHandle())));
+  public connect(input: OperatorInput): RouteId {
+    if (!input._belongsTo(this.#session)) {
+      throw foreignEndpoint('DerivedStream and OperatorInput belong to different Sessions');
+    }
+    return RouteId(BigInt(
+      nativeCallSync(() => this.#native.connect(input._nativeHandle())),
+    ));
   }
 
   /** Route this output to an Endpoint. */
-  public send(endpoint: Endpoint, options: { input?: string } = {}): bigint {
+  public send(endpoint: Endpoint, options: RouteInputOptions = {}): RouteId {
     if (!endpoint._belongsTo(this.#session)) {
-      throw new TypeError('DerivedStream and Endpoint belong to different Sessions');
+      throw foreignEndpoint('DerivedStream and Endpoint belong to different Sessions');
     }
-    return BigInt(
+    const inputPort = selectedPort(options.inputPort, options.input, 'inputPort', 'input');
+    return RouteId(BigInt(
       nativeCallSync(() =>
-        this.#native.send(endpoint._nativeHandle(), options.input),
+        this.#native.send(endpoint._nativeHandle(), inputPort),
       ),
-    );
+    ));
   }
 
   /** Send this output to one application-owned Connector. */
-  public sendTo(connector: Connector): bigint {
+  public sendTo(connector: Connector): RouteId {
     return this.send(this.#session.destination(connector));
   }
 
   /** Apply another Operator and select its output. */
   public through(
     operator: Operator,
-    options: { input?: string; output?: string } = {},
+    options: OperatorPortOptions = {},
   ): DerivedStream {
+    const inputPort = selectedPort(options.inputPort, options.input, 'inputPort', 'input');
+    const outputPort = selectedPort(options.outputPort, options.output, 'outputPort', 'output');
     return DerivedStream._create(
       this.#session,
       nativeCallSync(() =>
         this.#native.through(
           operator._nativeHandle(),
-          options.input,
-          options.output,
+          inputPort,
+          outputPort,
         ),
       ),
     );
@@ -1112,15 +1188,17 @@ export class Session {
   /** Declare one instance of an externally registered Source. */
   public source(
     source: string | SourceFactory | SourceProvider,
-    configuration: SourceConfiguration = {},
+    configuration: SourceConfiguration | SourceConfigurationInput = {},
   ): SourceInstance {
+    const values = configuration instanceof SourceConfiguration
+      ? configuration.toObject()
+      : new SourceConfiguration(configuration).toObject();
     if (source instanceof SourceProvider) {
-      return this.registerSource(source).declare(configuration);
+      return this.registerSource(source).declare(values);
     }
     const sourceTypeId = typeof source === 'string' ? source : source.id;
     if (source instanceof SourceFactory) this.registerSource(source);
-    const entries = Object.entries(configuration)
-      .sort(([left], [right]) => left.localeCompare(right))
+    const entries = Object.entries(values)
       .map(([key, value]) => ({ key, value, sensitive: false }));
     return SourceInstance._create(
       this,
@@ -1241,6 +1319,20 @@ export class Session {
   /** Declare the bounded managed-language polling Endpoint. */
   public polledAudio(route?: RouteSettings): Endpoint {
     return this.audio(route);
+  }
+
+  /** Declare the shared browser or remote-receiver Endpoint. */
+  public browser(receiverUri: string): Endpoint {
+    if (receiverUri.trim().length === 0) {
+      throw new SessionDeclarationError(
+        'session.invalid_endpoint',
+        'receiver URI cannot be empty',
+      );
+    }
+    return Endpoint._create(
+      this,
+      nativeCallSync(() => this.#native.browser(receiverUri)),
+    );
   }
 
   /** Publish one or more named audio buses through one native Relay connection. */
@@ -1387,25 +1479,28 @@ export class Session {
     return registered;
   }
 
-  #allocateConnectorIdentity(): bigint {
+  #allocateConnectorIdentity(): ConnectorId {
     this.#nextConnectorIdentity += 1n;
-    return this.#nextConnectorIdentity;
+    return ConnectorId(this.#nextConnectorIdentity);
   }
 
   /** Declare one configured Operator and select its named ports. */
   public operator(
     operator: Operator | OperatorFactory | OperatorProvider,
-    configuration: Configuration = {},
+    configuration: Configuration | OperatorConfiguration = {},
   ): OperatorInstance {
     if (operator instanceof OperatorProvider) {
       return this.registerOperator(operator).declare(configuration);
     }
     if (operator instanceof OperatorFactory) this.registerOperator(operator);
-    if (!(operator instanceof OperatorFactory) && Object.keys(configuration).length !== 0) {
+    const values = configuration instanceof OperatorConfiguration
+      ? configuration.toObject()
+      : configuration;
+    if (!(operator instanceof OperatorFactory) && Object.keys(values).length !== 0) {
       throw new TypeError('Pass configuration to the Operator constructor or supply an OperatorFactory');
     }
     const declaration = operator instanceof OperatorFactory
-      ? operator.configured(configuration)
+      ? operator.configured(values)
       : operator;
     return OperatorInstance._create(
       this,
@@ -1448,18 +1543,21 @@ export class Session {
 
   /** Declare one native or application-owned Endpoint implementation. */
   public endpoint(
-    definition: EndpointDefinition | EndpointFactory | EndpointProvider,
+    definition: EndpointDescriptor | EndpointFactory | EndpointProvider,
     configuration: Configuration | EndpointConfigurationInput = {},
   ): Endpoint {
     if (definition instanceof EndpointProvider) {
       return this.registerEndpoint(definition).declare(configuration);
     }
+    const values = configuration instanceof EndpointConfiguration
+      ? configuration.toObject()
+      : configuration;
     if (definition instanceof EndpointFactory) {
       definition._bind(this.id);
       this.#nextEndpointRegistration += 1;
       const registrationId = `${definition.id}.endpoint.${this.#nextEndpointRegistration}`;
       const declared = nativeCallSync(() =>
-        definition._register(this.#native, registrationId, configuration),
+        definition._register(this.#native, registrationId, values),
       );
       const endpoint = Endpoint._create(
         this,
@@ -1468,9 +1566,9 @@ export class Session {
       this.#providers.add(definition);
       return endpoint;
     }
-    if (Object.keys(configuration).length !== 0) {
+    if (Object.keys(values).length !== 0) {
       throw new TypeError(
-        'Pass configuration to EndpointDefinition or supply an EndpointFactory',
+        'Pass configuration to EndpointDescriptor or supply an EndpointFactory',
       );
     }
     return Endpoint._create(
@@ -1486,12 +1584,27 @@ export class Session {
    */
   public subscribe(
     stream: SourceOutput | DerivedStream,
-    options: { signal: SignalSpec; route?: RouteSettings },
+    options: {
+      signal: SignalSpec;
+      routeSettings?: RouteSettings;
+      /** @deprecated Use `routeSettings`. */
+      route?: RouteSettings;
+    },
   ): BusSubscription {
     if (!stream._belongsTo(this)) {
       throw new TypeError('Signal output belongs to a different Session');
     }
-    const route = options.route ?? RouteSettings.buffered();
+    if (
+      options.routeSettings !== undefined &&
+      options.route !== undefined &&
+      options.routeSettings !== options.route
+    ) {
+      throw new TypeError(
+        'routeSettings and deprecated route must match when both are provided',
+      );
+    }
+    const route = options.routeSettings ?? options.route
+      ?? RouteSettings.boundedAsync().withMedia(MediaCaps.forSignal(options.signal));
     const native = stream instanceof SourceOutput
       ? nativeCallSync(() =>
           this.#native.subscribeSourceOutput(
