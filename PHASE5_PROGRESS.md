@@ -1036,3 +1036,13 @@ registry build remains `BLOCKED` on PocketStation Core `1.1.11` publication.
   committed.
 - No Bluetooth/HFP, Teams, physical-device, automatic fallback, or Minutes
   integration claim is made by this component evidence.
+
+## 2026-09-25: installed Session audio-input parity
+
+- `Session.pcmSource()` now accepts one resolved `AudioInputConfig` and returns
+  the explicit `PcmSource` surface used by the equivalent Python API.
+- The method delegates to the existing bounded `audioInput()` implementation;
+  it adds no queue, worker, native media path, or alternate lifecycle.
+- TypeScript checking, focused Session/audio-input tests, and the clean packed
+  wheel/npm cross-language consumer pass. The result is `LOOPBACK-ONLY` and
+  makes no physical-device, browser, network, or release claim.

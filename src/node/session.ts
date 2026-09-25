@@ -20,8 +20,10 @@ import {
   AudioInput,
   AudioInputConfigurationError,
   _audioInputFailure,
+  type AudioInputConfig,
   type AudioInputOptions,
   type AudioInputSamples,
+  type PcmSource,
 } from './application-audio.js';
 import {
   EventInput,
@@ -1207,6 +1209,16 @@ export class Session {
       throw _audioInputFailure(failure);
     }
     return AudioInput._create(this, native, config);
+  }
+
+  /** Open the explicit source-output and PCM writer API from a resolved configuration. */
+  public pcmSource(config: AudioInputConfig): PcmSource {
+    return this.audioInput(config.name, {
+      sampleRateHz: config.sampleRateHz,
+      channels: config.channels,
+      capacityFrames: config.capacityFrames,
+      frameSamplesPerChannel: config.frameSamplesPerChannel,
+    });
   }
 
   /** Add bounded application-owned JSON events as one typed Source. */
