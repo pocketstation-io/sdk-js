@@ -1039,10 +1039,12 @@ registry build remains `BLOCKED` on PocketStation Core `1.1.11` publication.
 
 ## 2026-09-25: installed Session audio-input parity
 
-- `Session.pcmSource()` now accepts one resolved `AudioInputConfig` and returns
-  the explicit `PcmSource` surface used by the equivalent Python API.
-- The method delegates to the existing bounded `audioInput()` implementation;
-  it adds no queue, worker, native media path, or alternate lifecycle.
+- `Session.pcmSource()` accepts one resolved `AudioInputConfig`, and
+  `Session.polledAudio()` names the bounded managed-language Endpoint used by
+  the equivalent Python API.
+- Both methods delegate to the existing `audioInput()` and `audio()`
+  implementations; they add no queue, worker, native media path, or alternate
+  lifecycle.
 - TypeScript checking, focused Session/audio-input tests, and the clean packed
   wheel/npm cross-language consumer pass. The result is `LOOPBACK-ONLY` and
   makes no physical-device, browser, network, or release claim.
