@@ -1,5 +1,22 @@
 # JavaScript SDK progress
 
+## W21 graph execution parity — 2026-09-25
+
+- Status: `SAFE-TO-TEST`. The Node graph surface now uses the same Core-owned
+  signal, media, route, configuration, Operator, Endpoint, and Connector
+  semantics as Python for the active graph-execution inventory. Exact graph and
+  Endpoint contract codes, source configuration keys, signal-specific default
+  subscription media, queue capacities above the former u32 ceiling, and exact
+  u32 revision, generation, and timeout bounds are covered directly.
+- Exact staged-tree gates pass TypeScript checking, 89 focused native-backed
+  assertions, 20 native unit tests, API extraction, all-feature Clippy, and
+  diff checks. The installed wheel/npm referee remains required before this
+  slice can be accepted.
+- This adds no media queue, provider implementation, scaffold, mock,
+  loopback-only product path, physical-device claim, deployment, or release.
+  Core remains authoritative for compilation, capacity, lifecycle, delivery,
+  cancellation, and shutdown.
+
 ## W21 Session lifecycle parity — 2026-09-25
 
 - Status: `SAFE-TO-TEST`. `RunningSession` now exposes the Core-owned lifecycle

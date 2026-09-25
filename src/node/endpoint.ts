@@ -1,5 +1,6 @@
 import { PocketStationError } from '../errors.js';
 import {
+  EndpointConfiguration,
   EndpointDefinition,
   MediaCaps,
   PortSpec,
@@ -8,6 +9,15 @@ import {
   type Configuration,
 } from './graph.js';
 import type { EndpointFailureStage } from './events.js';
+import {
+  ConnectorId,
+  EndpointId,
+  RouteId,
+  RuntimeSessionId,
+  SourceId,
+  StemId,
+  StreamId,
+} from './identity.js';
 import {
   EndpointFactory,
   type EndpointDeliveryOutcome,
@@ -22,7 +32,7 @@ import type {
 import type { Endpoint } from './session.js';
 
 /** String and explicitly redacted values accepted by an Endpoint declaration. */
-export type EndpointConfigurationInput = Configuration;
+export type EndpointConfigurationInput = Configuration | EndpointConfiguration;
 
 /** Finite shutdown policy selected by Core for an Endpoint runtime. */
 export const EndpointShutdownMode = { Drain: 'drain', Abort: 'abort' } as const;
@@ -31,8 +41,14 @@ export type EndpointShutdownMode =
 
 /** Retry guidance retained with a structured Endpoint failure. */
 export const EndpointFailureRetryability = {
+  NEVER: 'never',
+  RETRYABLE: 'retryable',
+  RECONFIGURATION_REQUIRED: 'reconfiguration-required',
+  /** @deprecated Use `NEVER`. */
   Never: 'never',
+  /** @deprecated Use `RETRYABLE`. */
   Retryable: 'retryable',
+  /** @deprecated Use `RECONFIGURATION_REQUIRED`. */
   ReconfigurationRequired: 'reconfiguration-required',
 } as const;
 export type EndpointFailureRetryability =
@@ -135,30 +151,38 @@ export class EndpointStartGate {
 
 /** Session-owned route identity and configuration for one Endpoint input. */
 export class EndpointPrepareContext {
-  public readonly sessionId: bigint;
-  public readonly endpointId: bigint;
-  public readonly connectorId?: bigint;
-  public readonly routeId: bigint;
+  public readonly sessionId: RuntimeSessionId;
+  public readonly endpointId: EndpointId;
+  public readonly connectorId?: ConnectorId;
+  public readonly routeId: RouteId;
   public readonly originKind: string;
-  public readonly sourceId?: bigint;
-  public readonly streamId?: bigint;
-  public readonly stemId?: bigint;
+  public readonly sourceId?: SourceId;
+  public readonly streamId?: StreamId;
+  public readonly stemId?: StemId;
   public readonly sessionTimelineOriginNs: bigint;
-  public readonly configuration: Readonly<EndpointConfigurationInput>;
+  public readonly configuration: Readonly<Configuration>;
 
   /** @internal */
   public constructor(
     native: NativeEndpointInputDescriptor,
-    configuration: EndpointConfigurationInput,
+    configuration: Configuration,
   ) {
-    this.sessionId = BigInt(required(native.sessionId, 'sessionId'));
-    this.endpointId = BigInt(native.endpointId);
-    this.connectorId = optionalBigInt(native.connectorId);
-    this.routeId = BigInt(native.routeId);
+    this.sessionId = RuntimeSessionId(BigInt(required(native.sessionId, 'sessionId')));
+    this.endpointId = EndpointId(BigInt(native.endpointId));
+    this.connectorId = native.connectorId == null
+      ? undefined
+      : ConnectorId(BigInt(native.connectorId));
+    this.routeId = RouteId(BigInt(native.routeId));
     this.originKind = required(native.originKind, 'originKind');
-    this.sourceId = optionalBigInt(native.sourceId);
-    this.streamId = optionalBigInt(native.streamId);
-    this.stemId = optionalBigInt(native.stemId);
+    this.sourceId = native.sourceId == null
+      ? undefined
+      : SourceId(BigInt(native.sourceId));
+    this.streamId = native.streamId == null
+      ? undefined
+      : StreamId(BigInt(native.streamId));
+    this.stemId = native.stemId == null
+      ? undefined
+      : StemId(BigInt(native.stemId));
     this.sessionTimelineOriginNs = BigInt(
       required(native.sessionTimelineOriginNs, 'sessionTimelineOriginNs'),
     );
@@ -242,15 +266,15 @@ export interface EndpointDriverFactory {
     inputs: readonly EndpointPortInput[],
   ): PreparedEndpointDriver | Promise<PreparedEndpointDriver>;
   preparationGroup?(
-    routeId: bigint,
-    configuration: Readonly<EndpointConfigurationInput>,
+    routeId: RouteId,
+    configuration: Readonly<Configuration>,
   ): string | undefined;
 }
 
 /** Select route-local preparation or a stable shared group. */
 export type EndpointPreparationGroup = (
-  routeId: bigint,
-  configuration: Readonly<EndpointConfigurationInput>,
+  routeId: RouteId,
+  configuration: Readonly<Configuration>,
 ) => string | undefined;
 
 /** Finite waits for every asynchronous Endpoint lifecycle operation. */
@@ -270,12 +294,12 @@ interface ResolvedEndpointDeadlines {
 
 /** Final application-owned observations for one prepared input group. */
 export interface EndpointRuntimeObservations extends EndpointDriverObservations {
-  readonly endpointIds: readonly bigint[];
+  readonly endpointIds: readonly EndpointId[];
   readonly finalized: boolean;
 }
 
 interface EndpointRuntime {
-  readonly endpointIds: readonly bigint[];
+  readonly endpointIds: readonly EndpointId[];
   readonly controller: AbortController;
   observations: EndpointDriverObservations;
   finalized: boolean;
@@ -289,16 +313,16 @@ export class EndpointProvider {
   public readonly maximumBatchItems: number;
   public readonly idleEnabled: boolean;
   public readonly validateConfiguration?: (
-    configuration: Readonly<EndpointConfigurationInput>,
+    configuration: Readonly<Configuration>,
   ) => void | Promise<void>;
   public readonly preparationGroup?: EndpointPreparationGroup;
 
-  readonly #declarations = new Map<bigint, {
-    readonly configuration: EndpointConfigurationInput;
+  readonly #declarations = new Map<EndpointId, {
+    readonly configuration: Configuration;
     readonly route: RouteSettings;
   }>();
   readonly #runtimes: EndpointRuntime[] = [];
-  #sessionId?: bigint;
+  #sessionId?: RuntimeSessionId;
 
   public constructor(options: {
     readonly manifest: EndpointManifest;
@@ -307,7 +331,7 @@ export class EndpointProvider {
     readonly maximumBatchItems?: number;
     readonly idleEnabled?: boolean;
     readonly validateConfiguration?: (
-      configuration: Readonly<EndpointConfigurationInput>,
+      configuration: Readonly<Configuration>,
     ) => void | Promise<void>;
     readonly preparationGroup?: EndpointPreparationGroup;
   }) {
@@ -328,7 +352,7 @@ export class EndpointProvider {
   }
 
   /** @internal */
-  public _bind(sessionId: bigint): void {
+  public _bind(sessionId: RuntimeSessionId): void {
     if (this.#sessionId !== undefined && this.#sessionId !== sessionId) {
       throw new TypeError('An Endpoint provider cannot be shared by different Sessions');
     }
@@ -348,15 +372,18 @@ export class EndpointProvider {
       },
       preparationGroup: this.preparationGroup === undefined
         ? () => undefined
-        : (routeId, configuration) => this.preparationGroup?.(routeId, configuration),
+        : (routeId, configuration) => this.preparationGroup?.(
+            RouteId(routeId),
+            configuration,
+          ),
       create: (configuration, nativeInputs) => this.#createNode(configuration, nativeInputs),
     });
   }
 
   /** @internal */
   public _track(
-    endpointId: bigint,
-    configuration: EndpointConfigurationInput,
+    endpointId: EndpointId,
+    configuration: Configuration,
     route: RouteSettings,
   ): void {
     this.#declarations.set(endpointId, {
@@ -385,7 +412,7 @@ export class EndpointProvider {
           code: 'endpoint.prepare.undeclared_input',
         });
       }
-      const endpointId = BigInt(native.endpointId);
+      const endpointId = EndpointId(BigInt(native.endpointId));
       const declaration = this.#declarations.get(endpointId);
       const configuration = declaration?.configuration ?? encodedConfiguration;
       return new EndpointPortInput({
@@ -409,7 +436,7 @@ export class EndpointProvider {
     let shutdownRequested = false;
 
     const delivery = (item: EndpointItem): EndpointDriverItem => {
-      const input = byRoute.get(item.routeId);
+      const input = byRoute.get(RouteId(item.routeId));
       if (input === undefined || input.portName !== item.input) {
         throw new EndpointDriverError('Endpoint input metadata is unavailable', {
           code: 'endpoint.delivery.input_unavailable',
@@ -545,21 +572,21 @@ export class EndpointProvider {
 
 /** Session-bound registration that declares configured Endpoint instances. */
 export class RegisteredEndpoint {
-  readonly #sessionId: bigint;
+  readonly #sessionId: RuntimeSessionId;
   readonly #provider: EndpointProvider;
   readonly #declare: (
     definition: EndpointDefinition,
-    configuration: EndpointConfigurationInput,
+    configuration: Configuration,
     route: RouteSettings,
   ) => Endpoint;
 
   /** @internal */
   public constructor(
-    sessionId: bigint,
+    sessionId: RuntimeSessionId,
     provider: EndpointProvider,
     declare: (
       definition: EndpointDefinition,
-      configuration: EndpointConfigurationInput,
+      configuration: Configuration,
       route: RouteSettings,
     ) => Endpoint,
   ) {
@@ -568,21 +595,24 @@ export class RegisteredEndpoint {
     this.#declare = declare;
   }
 
-  public get sessionId(): bigint { return this.#sessionId; }
+  public get sessionId(): RuntimeSessionId { return this.#sessionId; }
 
   public declare(
     configuration: EndpointConfigurationInput = {},
     options: { readonly routeSettings?: RouteSettings } = {},
   ): Endpoint {
-    validateConfiguration(configuration);
+    const values = configuration instanceof EndpointConfiguration
+      ? configuration.toObject()
+      : configuration;
+    validateConfiguration(values);
     const route = options.routeSettings ?? defaultRoute(this.#provider.manifest);
     const definition = new EndpointDefinition(
       this.#provider.manifest.nodeTypeId,
       this.#provider.manifest.operatorId,
-      { configuration, route },
+      { configuration: values, route },
     );
-    const endpoint = this.#declare(definition, configuration, route);
-    this.#provider._track(endpoint.id, configuration, route);
+    const endpoint = this.#declare(definition, values, route);
+    this.#provider._track(endpoint.id, values, route);
     return endpoint;
   }
 
@@ -604,7 +634,7 @@ function defaultRoute(manifest: EndpointManifest): RouteSettings {
     : RouteSettings.buffered();
 }
 
-function validateConfiguration(configuration: EndpointConfigurationInput): void {
+function validateConfiguration(configuration: Configuration): void {
   for (const [key, value] of Object.entries(configuration)) {
     if (key.length === 0 || key.trim() !== key) {
       throw new TypeError('Endpoint configuration keys must be non-empty and exact');
@@ -716,8 +746,4 @@ function required(value: string | null | undefined, name: string): string {
     });
   }
   return value;
-}
-
-function optionalBigInt(value: string | null | undefined): bigint | undefined {
-  return value == null ? undefined : BigInt(value);
 }

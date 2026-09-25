@@ -2,7 +2,6 @@ import { PocketStationError } from '../errors.js';
 import * as graph from './graph.js';
 import type {
   Configuration,
-  ConfigurationValue,
   MediaCaps,
   PortSpec,
   RouteSettings,
@@ -16,6 +15,15 @@ import type {
 } from './provider.js';
 import type { Endpoint } from './session.js';
 import type { SignalEnvelope } from './signals.js';
+import {
+  ClockDomainId,
+  ConnectorId,
+  EndpointId,
+  RouteId,
+  RuntimeSessionId,
+  SourceId,
+  StreamId,
+} from './identity.js';
 import type {
   NativeConfigurationEntry,
   NativeConnectorManifest,
@@ -119,7 +127,7 @@ export interface ConnectorObservations {
 
 /** Connector plus delivery counters for one prepared input group. */
 export interface ConnectorRuntimeObservations {
-  readonly endpointIds: readonly bigint[]; readonly connector: ConnectorObservations;
+  readonly endpointIds: readonly EndpointId[]; readonly connector: ConnectorObservations;
   readonly framesReceivedTotal: bigint; readonly framesDeliveredTotal: bigint;
   readonly framesDroppedTotal: bigint; readonly discontinuitiesTotal: bigint;
   readonly endpointFailuresTotal: bigint;
@@ -249,7 +257,7 @@ export class ConnectorConfigurationSchema {
   }
   /** @internal */ public _encode(values: ConnectorConfigurationInput): Configuration {
     const resolved = this.configuration(values);
-    return Object.freeze(Object.fromEntries(Object.entries(resolved).map(([name, value]) => [name, value.kind === 'secret' ? ({ value: value.exposeSecret(), secret: true } satisfies ConfigurationValue) : value._encoded()])));
+    return Object.freeze(Object.fromEntries(Object.entries(resolved).map(([name, value]) => [name, value.kind === 'secret' ? graph.secret(value.exposeSecret()) : value._encoded()])));
   }
   /** @internal */ public _nativeEntries(values: ConnectorConfigurationInput): NativeConfigurationEntry[] {
     const resolved = this.configuration(values);
@@ -335,17 +343,17 @@ export class ConnectorManifest {
 /** Source-aware PCM delivered to an application Connector. */
 export interface ConnectorAudioFrame {
   readonly samples: Float32Array; readonly sampleRateHz: number; readonly channels: number;
-  readonly sourceId: bigint; readonly streamId: bigint; readonly sequenceNumber: bigint;
+  readonly sourceId: SourceId; readonly streamId: StreamId; readonly sequenceNumber: bigint;
   readonly timestampNs: bigint; readonly routeEnqueuedAtNs: bigint; readonly routeReceivedAtNs: bigint;
   readonly outputGenerationId?: bigint; readonly sourceGeneration: number; readonly discontinuityEpoch: bigint;
-  readonly permissionEpoch: bigint; readonly clockId: number; readonly durationNs: bigint;
-  readonly connectorId?: bigint; readonly endpointId?: bigint; readonly routeId?: bigint;
+  readonly permissionEpoch: bigint; readonly clockId: ClockDomainId; readonly durationNs: bigint;
+  readonly connectorId?: ConnectorId; readonly endpointId?: EndpointId; readonly routeId?: RouteId;
   readonly endpointEnqueuedAtNs?: bigint; readonly polledAtNs?: bigint;
 }
 
 /** Immutable route metadata and resolved configuration for one Connector input. */
 export interface ConnectorInputDescriptor {
-  readonly endpointId: bigint; readonly connectorId?: bigint; readonly routeId: bigint;
+  readonly endpointId: EndpointId; readonly connectorId?: ConnectorId; readonly routeId: RouteId;
   readonly portName: string; readonly signalWireId: string; readonly signal: SignalSpec;
   readonly media: MediaCaps; readonly routeSettings: RouteSettings;
   readonly configuration: Readonly<Record<string, ConnectorConfigurationValue>>;
@@ -363,12 +371,12 @@ interface MutableServiceStatus {
 }
 
 class RuntimeState {
-  readonly startedNs = process.hrtime.bigint(); readonly endpointIds: readonly bigint[]; readonly controller: AbortController;
+  readonly startedNs = process.hrtime.bigint(); readonly endpointIds: readonly EndpointId[]; readonly controller: AbortController;
   readonly status: MutableServiceStatus = { deliveryReadiness: 'not-ready', health: 'healthy', recovery: 'idle', revision: 0n, lastTransitionElapsedNs: 0n };
   transitions = 0n; retries = 0n; reconnects = 0n; failures = 0n; received = 0n; delivered = 0n; dropped = 0n; discontinuities = 0n; endpointFailures = 0n;
   lastError?: ConnectorErrorSnapshot; shutdownMode?: ConnectorShutdownMode; lastDiscontinuities = new Map<bigint, bigint>();
   active = true;
-  public constructor(endpointIds: readonly bigint[], controller = new AbortController()) { this.endpointIds = Object.freeze([...new Set(endpointIds)]); this.controller = controller; }
+  public constructor(endpointIds: readonly EndpointId[], controller = new AbortController()) { this.endpointIds = Object.freeze([...new Set(endpointIds)]); this.controller = controller; }
   public transition(change: () => void): boolean {
     const before = `${this.status.deliveryReadiness}|${this.status.health}|${this.status.recovery}|${this.status.readinessReasonCode}|${this.status.healthReasonCode}|${this.status.recoveryReasonCode}`;
     change(); const after = `${this.status.deliveryReadiness}|${this.status.health}|${this.status.recovery}|${this.status.readinessReasonCode}|${this.status.healthReasonCode}|${this.status.recoveryReasonCode}`;
@@ -427,18 +435,46 @@ export type ConnectorDriverBuilder = (inputs: readonly ConnectorInputDescriptor[
 /** Build one finite-batch Connector worker for a prepared input group. */
 export type ConnectorWorkerBuilder = (inputs: readonly ConnectorInputDescriptor[]) => ConnectorWorker | Promise<ConnectorWorker>;
 /** Driver factory with optional preparation grouping. */
-export interface ConnectorDriverFactory { prepare(inputs: readonly ConnectorInputDescriptor[]): ConnectorDriver | Promise<ConnectorDriver>; preparationGroup?(routeId: bigint, configuration: Readonly<Record<string, ConnectorConfigurationValue>>): string | undefined; }
+export interface ConnectorDriverFactory { prepare(inputs: readonly ConnectorInputDescriptor[]): ConnectorDriver | Promise<ConnectorDriver>; preparationGroup?(routeId: RouteId, configuration: Readonly<Record<string, ConnectorConfigurationValue>>): string | undefined; }
 /** Batch-worker factory with optional preparation grouping. */
-export interface ConnectorFactory { prepare(inputs: readonly ConnectorInputDescriptor[]): ConnectorWorker | Promise<ConnectorWorker>; preparationGroup?(routeId: bigint, configuration: Readonly<Record<string, ConnectorConfigurationValue>>): string | undefined; }
+export interface ConnectorFactory { prepare(inputs: readonly ConnectorInputDescriptor[]): ConnectorWorker | Promise<ConnectorWorker>; preparationGroup?(routeId: RouteId, configuration: Readonly<Record<string, ConnectorConfigurationValue>>): string | undefined; }
 /** Handler used by `Connector.fromHandler()`. */
 export type ConnectorHandler = (item: ConnectorItem, context: ConnectorContext) => ConnectorDeliveryOutcome | void | Promise<ConnectorDeliveryOutcome | void>;
 /** PCM-only handler used by `Connector.fromAudioHandler()`. */
 export type AudioConnectorHandler = (frame: ConnectorAudioFrame, context: ConnectorContext) => ConnectorDeliveryOutcome | void | Promise<ConnectorDeliveryOutcome | void>;
 /** Optional preparation grouping callback. */
-export type ConnectorPreparationGroup = (routeId: bigint, configuration: Readonly<Record<string, ConnectorConfigurationValue>>) => string | undefined;
+export type ConnectorPreparationGroup = (routeId: RouteId, configuration: Readonly<Record<string, ConnectorConfigurationValue>>) => string | undefined;
 
-/** Finite waits for asynchronous Connector work. */
-export interface ConnectorDeadlines { readonly prepareMs?: number; readonly startMs?: number; readonly deliveryMs?: number; readonly shutdownMs?: number; }
+/** Construction options for finite Connector waits. */
+export interface ConnectorDeadlinesOptions {
+  readonly prepareS?: number;
+  readonly startS?: number;
+  readonly deliveryS?: number;
+  readonly shutdownS?: number;
+  /** @deprecated Use `prepareS`. */ readonly prepareMs?: number;
+  /** @deprecated Use `startS`. */ readonly startMs?: number;
+  /** @deprecated Use `deliveryS`. */ readonly deliveryMs?: number;
+  /** @deprecated Use `shutdownS`. */ readonly shutdownMs?: number;
+}
+/** Finite waits for asynchronous Connector work, measured in seconds. */
+export class ConnectorDeadlines {
+  public readonly prepareS: number;
+  public readonly startS: number;
+  public readonly deliveryS: number;
+  public readonly shutdownS: number;
+  public constructor(options: ConnectorDeadlinesOptions = {}) {
+    this.prepareS = connectorDeadlineSeconds('prepare', options.prepareS, options.prepareMs, 5);
+    this.startS = connectorDeadlineSeconds('start', options.startS, options.startMs, 5);
+    this.deliveryS = connectorDeadlineSeconds('delivery', options.deliveryS, options.deliveryMs, 30);
+    this.shutdownS = connectorDeadlineSeconds('shutdown', options.shutdownS, options.shutdownMs, 5);
+    Object.freeze(this);
+  }
+  public get prepareMs(): number { return Math.round(this.prepareS * 1_000); }
+  public get startMs(): number { return Math.round(this.startS * 1_000); }
+  public get deliveryMs(): number { return Math.round(this.deliveryS * 1_000); }
+  public get shutdownMs(): number { return Math.round(this.shutdownS * 1_000); }
+}
+export type ConnectorDeadlinesInput = ConnectorDeadlines | ConnectorDeadlinesOptions;
 interface ResolvedDeadlines { prepareMs: number; startMs: number; deliveryMs: number; shutdownMs: number; }
 interface AdvancedConnector { readonly manifest: ConnectorManifest; readonly factory: ConnectorDriverFactory | ConnectorDriverBuilder | ConnectorFactory | ConnectorWorkerBuilder; readonly worker: boolean; readonly maximumBatchItems: number; readonly deadlines: ResolvedDeadlines; }
 
@@ -449,11 +485,11 @@ export type ConnectorSend = (frame: ConnectorAudioFrame, context: ConnectorConte
 
 /** Application-owned destination with concise PCM and full manifest-driven forms. */
 export abstract class Connector {
-  readonly #deadlineMs: number; readonly #capacityFrames: number; #sessionId?: bigint;
-  #connectorId?: bigint;
+  readonly #deadlineMs: number; readonly #capacityFrames: number; #sessionId?: RuntimeSessionId;
+  #connectorId?: ConnectorId;
   #controller = new AbortController(); #state: 'new' | 'starting' | 'running' | 'stopping' | 'closed' = 'new';
   #advanced?: AdvancedConnector; readonly #runtimes: RuntimeState[] = [];
-  readonly #declarations = new Map<bigint, { configuration: Readonly<Record<string, ConnectorConfigurationValue>>; route: RouteSettings }>();
+  readonly #declarations = new Map<EndpointId, { configuration: Readonly<Record<string, ConnectorConfigurationValue>>; route: RouteSettings }>();
   protected constructor(options: ConnectorOptions = {}) {
     this.#deadlineMs = options.deadlineMs ?? 5_000; this.#capacityFrames = options.capacityFrames ?? 8;
     deadline('deadlineMs', this.#deadlineMs, 60_000); if (!Number.isInteger(this.#capacityFrames) || this.#capacityFrames < 1 || this.#capacityFrames > 63) throw new RangeError('capacityFrames must be an integer from 1 through 63');
@@ -463,38 +499,38 @@ export abstract class Connector {
   public stop(_mode: ConnectorShutdownMode, _context: ConnectorContext): void | Promise<void> {}
   /** Full manifest for an advanced Connector. */ public get manifest(): ConnectorManifest { if (this.#advanced === undefined) throw new TypeError('Concise Connectors receive an internal manifest during Session registration'); return this.#advanced.manifest; }
   /** Driver or worker factory for an advanced Connector. */ public get factory(): AdvancedConnector['factory'] { if (this.#advanced === undefined) throw new TypeError('Concise Connectors receive an internal factory during Session registration'); return this.#advanced.factory; }
-  public static withDriver(manifest: ConnectorManifest, factory: ConnectorDriverFactory | ConnectorDriverBuilder, options: { deadlines?: ConnectorDeadlines } = {}): Connector { return advancedConnector(manifest, factory, false, 1, options.deadlines); }
-  public static withWorker(manifest: ConnectorManifest, factory: ConnectorFactory | ConnectorWorkerBuilder, options: { maximumBatchItems?: number; deadlines?: ConnectorDeadlines } = {}): Connector { const maximum = options.maximumBatchItems ?? 32; if (!Number.isInteger(maximum) || maximum < 1 || maximum > 1024) throw new RangeError('maximumBatchItems must be between 1 and 1024'); return advancedConnector(manifest, factory, true, maximum, options.deadlines); }
-  public static fromHandler(manifest: ConnectorManifest, handler: ConnectorHandler, options: { deadlines?: ConnectorDeadlines } = {}): Connector { return Connector.withDriver(manifest, () => new (class extends ConnectorDriver { public deliver(item: ConnectorItem, context: ConnectorContext) { return handler(item, context); } })(), options); }
-  public static fromAudioHandler(operatorId: string, handler: AudioConnectorHandler, options: { packageVersion: string; portName?: string; deadlines?: ConnectorDeadlines }): Connector {
+  public static withDriver(manifest: ConnectorManifest, factory: ConnectorDriverFactory | ConnectorDriverBuilder, options: { deadlines?: ConnectorDeadlinesInput } = {}): Connector { return advancedConnector(manifest, factory, false, 1, options.deadlines); }
+  public static withWorker(manifest: ConnectorManifest, factory: ConnectorFactory | ConnectorWorkerBuilder, options: { maximumBatchItems?: number; deadlines?: ConnectorDeadlinesInput } = {}): Connector { const maximum = options.maximumBatchItems ?? 32; if (!Number.isInteger(maximum) || maximum < 1 || maximum > 1024) throw new RangeError('maximumBatchItems must be between 1 and 1024'); return advancedConnector(manifest, factory, true, maximum, options.deadlines); }
+  public static fromHandler(manifest: ConnectorManifest, handler: ConnectorHandler, options: { deadlines?: ConnectorDeadlinesInput } = {}): Connector { return Connector.withDriver(manifest, () => new (class extends ConnectorDriver { public deliver(item: ConnectorItem, context: ConnectorContext) { return handler(item, context); } })(), options); }
+  public static fromAudioHandler(operatorId: string, handler: AudioConnectorHandler, options: { packageVersion: string; portName?: string; deadlines?: ConnectorDeadlinesInput }): Connector {
     return Connector.fromHandler(ConnectorManifest.audio(operatorId, { packageVersion: options.packageVersion, portName: options.portName }), (item, context) => { if (item.kind !== 'audio') throw new ConnectorError('Audio Connector received a non-audio item', { code: 'connector.delivery.signal_mismatch', stage: 'delivery' }); return handler(item.audio, context); }, { deadlines: options.deadlines });
   }
   /** @internal */ public _isAdvanced(): boolean { return this.#advanced !== undefined; }
   /** @internal */ public _usesWorker(): boolean { return this.#advanced?.worker ?? false; }
   /** @internal */ public _setAdvanced(value: AdvancedConnector): void { this.#advanced = value; }
-  /** @internal */ public _bind(sessionId: bigint, connectorId: bigint): void { if (this.#sessionId !== undefined && this.#sessionId !== sessionId) throw new TypeError('A Connector object cannot be shared by different Sessions'); if (this.#state === 'closed') throw new TypeError('A closed Connector cannot be registered again'); if (this.#connectorId !== undefined && this.#connectorId !== connectorId) throw new TypeError('A Connector identity cannot change inside one Session'); this.#sessionId = sessionId; this.#connectorId = connectorId; }
+  /** @internal */ public _bind(sessionId: RuntimeSessionId, connectorId: ConnectorId): void { if (this.#sessionId !== undefined && this.#sessionId !== sessionId) throw new TypeError('A Connector object cannot be shared by different Sessions'); if (this.#state === 'closed') throw new TypeError('A closed Connector cannot be registered again'); if (this.#connectorId !== undefined && this.#connectorId !== connectorId) throw new TypeError('A Connector identity cannot change inside one Session'); this.#sessionId = sessionId; this.#connectorId = connectorId; }
   /** @internal */ public _deadline(): number { return this.#advanced === undefined ? this.#deadlineMs : Math.max(...Object.values(this.#advanced.deadlines)); }
   /** @internal */ public _capacityFrames(): number { return this.#capacityFrames; }
   /** @internal */ public _abort(reason?: unknown): void { if (!this.#controller.signal.aborted) this.#controller.abort(reason); for (const runtime of this.#runtimes) if (!runtime.controller.signal.aborted) runtime.controller.abort(reason); }
-  /** @internal */ public _trackDeclaration(endpointId: bigint, configuration: ConnectorConfigurationInput, route: RouteSettings): void { this.#declarations.set(endpointId, { configuration: this.manifest.configuration.configuration(configuration), route }); }
+  /** @internal */ public _trackDeclaration(endpointId: EndpointId, configuration: ConnectorConfigurationInput, route: RouteSettings): void { this.#declarations.set(endpointId, { configuration: this.manifest.configuration.configuration(configuration), route }); }
   /** @internal */ public _observations(): readonly ConnectorRuntimeObservations[] { return Object.freeze(this.#runtimes.map((runtime) => runtime.snapshot())); }
-  /** @internal */ public _observation(endpointId: bigint): ConnectorObservations | undefined { return this.#runtimes.find((runtime) => runtime.endpointIds.includes(endpointId))?.snapshot().connector; }
+  /** @internal */ public _observation(endpointId: EndpointId): ConnectorObservations | undefined { return this.#runtimes.find((runtime) => runtime.endpointIds.includes(endpointId))?.snapshot().connector; }
   /** @internal */ public _endpointFactoryOptions(): EndpointFactoryOptions {
     const advanced = this.#advanced; if (advanced === undefined) throw new TypeError('Concise Connector has no advanced Endpoint factory');
     const group = preparationGroup(advanced.factory);
     return { id: advanced.manifest.operatorId, nodeType: advanced.manifest.nodeTypeId, inputs: advanced.manifest.inputs,
       deadlineMs: Math.max(...Object.values(advanced.deadlines)), maximumBatchItems: advanced.worker ? advanced.maximumBatchItems : 1,
       validate: (configuration) => { advanced.manifest.configuration._decode(configuration); },
-      preparationGroup: group === undefined ? () => undefined : (routeId, configuration) => group(routeId, advanced.manifest.configuration._decode(configuration)),
+      preparationGroup: group === undefined ? () => undefined : (routeId, configuration) => group(RouteId(routeId), advanced.manifest.configuration._decode(configuration)),
       create: (configuration, nativeInputs) => this.#createAdvancedNode(advanced, configuration, nativeInputs) };
   }
   #createAdvancedNode(advanced: AdvancedConnector, encoded: SourceConfiguration, nativeInputs: readonly NativeEndpointInputDescriptor[]): EndpointNode {
     const configuration = advanced.manifest.configuration._decode(encoded);
     const descriptors = nativeInputs.map((input): ConnectorInputDescriptor => {
-      const endpointId = BigInt(input.endpointId); const port = advanced.manifest.inputs.find((candidate) => candidate.name === input.portName);
+      const endpointId = EndpointId(BigInt(input.endpointId)); const port = advanced.manifest.inputs.find((candidate) => candidate.name === input.portName);
       if (port === undefined) throw new ConnectorError(`Connector received undeclared input ${input.portName}`, { code: 'connector.prepare.undeclared_input', stage: 'prepare' });
       const declaration = this.#declarations.get(endpointId); const route = declaration?.route ?? defaultRoute(advanced.manifest);
-      return Object.freeze({ endpointId, ...(input.connectorId == null ? {} : { connectorId: BigInt(input.connectorId) }), routeId: BigInt(input.routeId), portName: input.portName, signalWireId: port.signal.wireId, signal: port.signal, media: port.media, routeSettings: route, configuration: declaration?.configuration ?? configuration });
+      return Object.freeze({ endpointId, ...(input.connectorId == null ? {} : { connectorId: ConnectorId(BigInt(input.connectorId)) }), routeId: RouteId(BigInt(input.routeId)), portName: input.portName, signalWireId: port.signal.wireId, signal: port.signal, media: port.media, routeSettings: route, configuration: declaration?.configuration ?? configuration });
     });
     const runtime = new RuntimeState(descriptors.map((input) => input.endpointId)); this.#runtimes.push(runtime); const context = new ConnectorContext(runtime);
     let implementation: ConnectorDriver | ConnectorWorker | undefined; let started = false;
@@ -551,9 +587,9 @@ export abstract class Connector {
 
 /** Session-bound registration that can declare multiple configured destinations. */
 export class RegisteredConnector {
-  readonly #sessionId: bigint; readonly #connector: Connector; readonly #declare: (configuration: ConnectorConfigurationInput, route: RouteSettings) => Endpoint;
-  /** @internal */ public constructor(sessionId: bigint, connector: Connector, declare: (configuration: ConnectorConfigurationInput, route: RouteSettings) => Endpoint) { this.#sessionId = sessionId; this.#connector = connector; this.#declare = declare; }
-  public get sessionId(): bigint { return this.#sessionId; }
+  readonly #sessionId: RuntimeSessionId; readonly #connector: Connector; readonly #declare: (configuration: ConnectorConfigurationInput, route: RouteSettings) => Endpoint;
+  /** @internal */ public constructor(sessionId: RuntimeSessionId, connector: Connector, declare: (configuration: ConnectorConfigurationInput, route: RouteSettings) => Endpoint) { this.#sessionId = sessionId; this.#connector = connector; this.#declare = declare; }
+  public get sessionId(): RuntimeSessionId { return this.#sessionId; }
   public declare(configuration: ConnectorConfigurationInput = {}, options: { routeSettings?: RouteSettings } = {}): Endpoint { const route = options.routeSettings ?? defaultRoute(this.#connector.manifest); this.#connector.manifest.configuration.configuration(configuration); const endpoint = this.#declare(configuration, route); this.#connector._trackDeclaration(endpoint.id, configuration, route); return endpoint; }
   public observations(): readonly ConnectorRuntimeObservations[] { return this.#connector._observations(); }
   public observation(endpoint: Endpoint): ConnectorObservations | undefined { return this.#connector._observation(endpoint.id); }
@@ -562,22 +598,23 @@ export class RegisteredConnector {
 /** Create a concise PCM Connector from one delivery function. */
 export function connector(send: ConnectorSend, options?: ConnectorOptions): Connector;
 /** Decorate an advanced item handler with a manifest. */
-export function connector(manifest: ConnectorManifest, options?: { deadlines?: ConnectorDeadlines }): (handler: ConnectorHandler) => Connector;
-export function connector(first: ConnectorSend | ConnectorManifest, options: ConnectorOptions | { deadlines?: ConnectorDeadlines } = {}): Connector | ((handler: ConnectorHandler) => Connector) {
-  if (first instanceof ConnectorManifest) return (handler) => Connector.fromHandler(first, handler, options as { deadlines?: ConnectorDeadlines });
+export function connector(manifest: ConnectorManifest, options?: { deadlines?: ConnectorDeadlinesInput }): (handler: ConnectorHandler) => Connector;
+export function connector(first: ConnectorSend | ConnectorManifest, options: ConnectorOptions | { deadlines?: ConnectorDeadlinesInput } = {}): Connector | ((handler: ConnectorHandler) => Connector) {
+  if (first instanceof ConnectorManifest) return (handler) => Connector.fromHandler(first, handler, options as { deadlines?: ConnectorDeadlinesInput });
   return new (class extends Connector { public constructor() { super(options as ConnectorOptions); } public send(frame: ConnectorAudioFrame, context: ConnectorContext) { return first(frame, context); } })();
 }
 
 /** @internal */
 export function _audioFrameFromNative(value: NativeProviderAudio): ConnectorAudioFrame {
   const bytes = value.samplesF32Le;
-  return Object.freeze({ samples: new Float32Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)), sampleRateHz: value.sampleRateHz, channels: value.channelCount, sourceId: BigInt(value.sourceId), streamId: BigInt(value.streamId), sequenceNumber: BigInt(value.sequenceNumber), timestampNs: BigInt(value.timestampNs), routeEnqueuedAtNs: BigInt(value.routeEnqueuedAtNs), routeReceivedAtNs: BigInt(value.routeReceivedAtNs), sourceGeneration: value.sourceGeneration, discontinuityEpoch: BigInt(value.discontinuityEpoch), permissionEpoch: BigInt(value.permissionEpoch), clockId: value.clockId, durationNs: BigInt(value.durationNs), ...(value.outputGenerationId == null ? {} : { outputGenerationId: BigInt(value.outputGenerationId) }), ...(value.connectorId == null ? {} : { connectorId: BigInt(value.connectorId) }) });
+  return Object.freeze({ samples: new Float32Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)), sampleRateHz: value.sampleRateHz, channels: value.channelCount, sourceId: SourceId(BigInt(value.sourceId)), streamId: StreamId(BigInt(value.streamId)), sequenceNumber: BigInt(value.sequenceNumber), timestampNs: BigInt(value.timestampNs), routeEnqueuedAtNs: BigInt(value.routeEnqueuedAtNs), routeReceivedAtNs: BigInt(value.routeReceivedAtNs), sourceGeneration: value.sourceGeneration, discontinuityEpoch: BigInt(value.discontinuityEpoch), permissionEpoch: BigInt(value.permissionEpoch), clockId: ClockDomainId(value.clockId), durationNs: BigInt(value.durationNs), ...(value.outputGenerationId == null ? {} : { outputGenerationId: BigInt(value.outputGenerationId) }), ...(value.connectorId == null ? {} : { connectorId: ConnectorId(BigInt(value.connectorId)) }) });
 }
 
-function advancedConnector(manifest: ConnectorManifest, factory: AdvancedConnector['factory'], worker: boolean, maximumBatchItems: number, deadlines?: ConnectorDeadlines): Connector { const value = new (class extends Connector { public constructor() { super(); } public send(): never { throw new ConnectorError('Advanced Connector delivery uses its declared driver', { code: 'connector.delivery.invalid_path', stage: 'delivery' }); } })(); value._setAdvanced({ manifest, factory, worker, maximumBatchItems, deadlines: resolveDeadlines(deadlines) }); return value; }
+function advancedConnector(manifest: ConnectorManifest, factory: AdvancedConnector['factory'], worker: boolean, maximumBatchItems: number, deadlines?: ConnectorDeadlinesInput): Connector { const value = new (class extends Connector { public constructor() { super(); } public send(): never { throw new ConnectorError('Advanced Connector delivery uses its declared driver', { code: 'connector.delivery.invalid_path', stage: 'delivery' }); } })(); value._setAdvanced({ manifest, factory, worker, maximumBatchItems, deadlines: resolveDeadlines(deadlines) }); return value; }
 function preparationGroup(factory: AdvancedConnector['factory']): ConnectorPreparationGroup | undefined { return typeof factory === 'function' ? undefined : factory.preparationGroup?.bind(factory); }
 async function resolvePrepare(factory: AdvancedConnector['factory'], inputs: readonly ConnectorInputDescriptor[]): Promise<ConnectorDriver | ConnectorWorker> { return typeof factory === 'function' ? factory(inputs) : factory.prepare(inputs); }
-function resolveDeadlines(value: ConnectorDeadlines = {}): ResolvedDeadlines { const result = { prepareMs: value.prepareMs ?? 5_000, startMs: value.startMs ?? 5_000, deliveryMs: value.deliveryMs ?? 30_000, shutdownMs: value.shutdownMs ?? 5_000 }; for (const [name, amount] of Object.entries(result)) deadline(name, amount, 300_000); return result; }
+function resolveDeadlines(value?: ConnectorDeadlinesInput): ResolvedDeadlines { const deadlines = value instanceof ConnectorDeadlines ? value : new ConnectorDeadlines(value); return { prepareMs: deadlines.prepareMs, startMs: deadlines.startMs, deliveryMs: deadlines.deliveryMs, shutdownMs: deadlines.shutdownMs }; }
+function connectorDeadlineSeconds(name: string, seconds: number | undefined, milliseconds: number | undefined, fallback: number): number { if (seconds !== undefined && milliseconds !== undefined) throw new TypeError(`${name} deadline cannot specify both seconds and milliseconds`); const value = seconds ?? (milliseconds === undefined ? fallback : milliseconds / 1_000); if (!Number.isFinite(value) || value <= 0 || value > 300) throw new RangeError(`${name} deadline must be greater than 0 and at most 300 seconds`); return value; }
 async function within<T>(promise: Promise<T>, milliseconds: number, stage: ConnectorErrorStage): Promise<T> { let timer: ReturnType<typeof setTimeout> | undefined; try { return await Promise.race([promise, new Promise<never>((_resolve, reject) => { timer = setTimeout(() => reject(new ConnectorError(`Connector ${stage} exceeded ${milliseconds} milliseconds`, { code: 'javascript.connector.timeout', stage, retryability: 'retryable' })), milliseconds); })]); } finally { if (timer !== undefined) clearTimeout(timer); } }
 function asConnectorError(error: unknown, stage: ConnectorErrorStage): ConnectorError { return error instanceof ConnectorError ? error : new ConnectorError(error instanceof Error ? error.message : String(error), { code: 'javascript.connector_failed', stage, cause: error }); }
 function nativeConnectorError(error: ConnectorError): Error { return new Error(`PKSCE1:${error.code}:${error.stage}:${error.retryability}:${error.message}`); }

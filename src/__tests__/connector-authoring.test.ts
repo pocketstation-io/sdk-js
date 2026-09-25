@@ -4,6 +4,7 @@ import {
   ConnectorConfigurationField,
   ConnectorConfigurationSchema,
   ConnectorConfigurationValue,
+  ConnectorDeadlines,
   ConnectorDriver,
   ConnectorError,
   ConnectorManifest,
@@ -18,6 +19,25 @@ import {
 } from '../node/index.js';
 
 describe('Connector authoring', () => {
+  it('uses finite second-based lifecycle deadlines with millisecond conversion', () => {
+    const deadlines = new ConnectorDeadlines({
+      prepareS: 1.25,
+      startS: 2,
+      deliveryS: 3.5,
+      shutdownS: 0.05,
+    });
+    expect(deadlines.prepareMs).toBe(1_250);
+    expect(deadlines.startMs).toBe(2_000);
+    expect(deadlines.deliveryMs).toBe(3_500);
+    expect(deadlines.shutdownMs).toBe(50);
+    expect(() => new ConnectorDeadlines({ prepareS: 1, prepareMs: 1_000 })).toThrow(
+      'cannot specify both seconds and milliseconds',
+    );
+    expect(() => new ConnectorDeadlines({ deliveryS: 301 })).toThrow(
+      'at most 300 seconds',
+    );
+  });
+
   it('uses one class instance for multiple source-aware routes', async () => {
     const lifecycle: string[] = [];
     const received: ConnectorAudioFrame[] = [];

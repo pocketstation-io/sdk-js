@@ -258,9 +258,12 @@ export class AudioInputBufferError extends AudioInputError {
 }
 
 /** An AudioInput name, format, frame size, or capacity is invalid. */
-export class AudioInputConfigurationError extends AudioInputBufferError {
-  public constructor(message: string, options?: { cause?: unknown }) {
-    super(message, { ...options, code: 'audio_input.invalid_configuration' });
+export class AudioInputConfigurationError extends AudioInputError {
+  public constructor(
+    message: string,
+    options?: { cause?: unknown; code?: string },
+  ) {
+    super(options?.code ?? 'audio_input.invalid_configuration', message, options);
     this.name = 'AudioInputConfigurationError';
   }
 }
@@ -363,10 +366,10 @@ export function fromNativeError(failure: unknown): PocketStationError {
   if (code === 'audio_input.cancelled') {
     return new AudioInputCancelledError(detail, { cause: failure });
   }
-  if (code === 'audio_input.invalid_configuration') {
-    return new AudioInputConfigurationError(detail, { cause: failure });
+  if (code === 'audio_input.invalid_configuration' || code === 'audio_input.declaration_failed') {
+    return new AudioInputConfigurationError(detail, { cause: failure, code });
   }
-  if (code === 'audio_input.invalid_buffer' || code === 'audio_input.declaration_failed') {
+  if (code === 'audio_input.invalid_buffer') {
     return new AudioInputBufferError(detail, { cause: failure, code });
   }
   if (code === 'audio_input.output_cancelled') {

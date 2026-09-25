@@ -348,7 +348,7 @@ impl NativeStem {
     pub fn send(&self, endpoint: &NativeEndpoint, input_port: Option<String>) -> Result<String> {
         if endpoint.session_id != self.session_id {
             return Err(error(
-                "session.mismatched_resource",
+                "session.foreign_endpoint",
                 "Stem and Endpoint belong to different Sessions",
             ));
         }
@@ -540,6 +540,25 @@ impl NativeSession {
     }
 
     #[napi]
+    pub fn browser(&self, receiver_uri: String) -> Result<NativeEndpoint> {
+        if receiver_uri.trim().is_empty() {
+            return Err(error(
+                "session.invalid_endpoint",
+                "receiver URI cannot be empty",
+            ));
+        }
+        self.with_session(|session| {
+            session
+                .browser(receiver_uri)
+                .map(|handle| NativeEndpoint {
+                    session_id: self.session_id,
+                    handle,
+                })
+                .map_err(|failure| error("session.invalid_endpoint", failure.to_string()))
+        })
+    }
+
+    #[napi]
     pub fn audio_connector(
         &self,
         dispatch: Function<'_, NativeProviderCall, Promise<NativeProviderResult>>,
@@ -674,7 +693,7 @@ impl NativeSession {
         generation: u32,
         inputs: Vec<ClassInstance<'_, NativePortSpec>>,
         outputs: Vec<ClassInstance<'_, NativePortSpec>>,
-        queue_capacity: u32,
+        queue_capacity: String,
         process_timeout_ms: u32,
         network_allowed: bool,
         filesystem_allowed: bool,

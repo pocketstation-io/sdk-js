@@ -301,7 +301,7 @@ fn require_same_session(left: u64, right: u64) -> Result<()> {
         Ok(())
     } else {
         Err(error(
-            "session.mismatched_resource",
+            "session.foreign_endpoint",
             "resources belong to different Sessions",
         ))
     }

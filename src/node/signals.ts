@@ -194,6 +194,11 @@ export class BusSubscription {
     return BigInt(this.#native.routeId);
   }
 
+  /** Canonical delivery and media settings used by this route. */
+  public get routeSettings(): RouteSettings {
+    return this.route;
+  }
+
   /** @internal */
   public _belongsTo(session: Session): boolean {
     return this.#session === session;

@@ -35,8 +35,22 @@ export class AudioBatch implements Iterable<AudioFrame> {
 export type AudioBatchReadResult = AudioBatch | EndOfStream | undefined;
 
 // @public
-export interface AudioCaps {
+export class AudioCaps {
+    constructor(options?: AudioCapsOptions);
+    // (undocumented)
+    readonly channelLayout: ChannelLayout;
+    // (undocumented)
+    readonly format: SampleFormat;
+    // (undocumented)
+    readonly frameSamples: number | undefined;
+    // (undocumented)
+    readonly sampleRateHz: number | undefined;
+}
+
+// @public
+export interface AudioCapsOptions {
     readonly channelLayout?: ChannelLayout;
+    readonly format?: SampleFormat;
     readonly frameSamples?: number;
     readonly sampleRateHz?: number;
 }
@@ -83,8 +97,8 @@ export class AudioInput implements PcmSource {
     get config(): AudioInputConfig;
     observations(): AudioInputObservations;
     get output(): SourceOutput;
-    get sourceId(): bigint;
-    get streamId(): bigint;
+    get sourceId(): SourceId;
+    get streamId(): StreamId;
     tryWrite(samples: AudioInputSamples, options?: AudioInputTryWriteOptions): void;
     write(samples: AudioInputSamples, options?: AudioInputWriteOptions): Promise<void>;
 }
@@ -94,6 +108,7 @@ export class AudioInputAbortError extends AudioInputError {
     constructor(reason?: unknown, options?: {
         cause?: unknown;
     });
+    // (undocumented)
     readonly reason: unknown;
 }
 
@@ -101,6 +116,7 @@ export class AudioInputAbortError extends AudioInputError {
 export class AudioInputBufferError extends AudioInputError {
     constructor(message: string, options?: {
         cause?: unknown;
+        code?: string;
     });
 }
 
@@ -131,6 +147,7 @@ export interface AudioInputConfig {
 export class AudioInputConfigurationError extends AudioInputError {
     constructor(message: string, options?: {
         cause?: unknown;
+        code?: string;
     });
 }
 
@@ -178,6 +195,7 @@ export class AudioInputTimeoutError extends AudioInputError {
     constructor(timeoutMs: number, options?: {
         cause?: unknown;
     });
+    // (undocumented)
     readonly timeoutMs: number;
 }
 
@@ -299,13 +317,33 @@ export interface AuthorizationOptions {
 }
 
 // @public
-export type BinaryFormat = 'raw' | 'protobuf' | 'flatbuffers' | 'cbor';
+export const BackpressurePolicy: Readonly<{
+    readonly DROP_NEWEST: "drop-newest";
+    readonly DROP_OLDEST: "drop-oldest";
+    readonly BOUNDED_QUEUE: "bounded-queue";
+    readonly BLOCK_FORBIDDEN: "block-forbidden";
+}>;
+
+// @public
+export type BackpressurePolicy = (typeof BackpressurePolicy)[keyof typeof BackpressurePolicy];
+
+// @public
+export const BinaryFormat: Readonly<{
+    readonly RAW: "raw";
+    readonly PROTOBUF: "protobuf";
+    readonly FLATBUFFERS: "flatbuffers";
+    readonly CBOR: "cbor";
+}>;
+
+// @public
+export type BinaryFormat = (typeof BinaryFormat)[keyof typeof BinaryFormat];
 
 // @public
 export class BusSubscription {
     get id(): bigint;
     readonly route: RouteSettings;
     get routeId(): bigint;
+    get routeSettings(): RouteSettings;
     get sessionId(): bigint;
     readonly signal: SignalSpec;
 }
@@ -391,10 +429,8 @@ export const CaptureCapabilityState: Readonly<{
 // @public (undocumented)
 export type CaptureCapabilityState = (typeof CaptureCapabilityState)[keyof typeof CaptureCapabilityState];
 
-// Warning: (ae-forgotten-export) The symbol "SessionStartError_2" needs to be exported by the entry point index.d.ts
-//
 // @public
-export class CaptureError extends SessionStartError_2 {
+export class CaptureError extends SessionStartError {
     constructor(code: string, message: string, cause?: unknown);
 }
 
@@ -471,10 +507,28 @@ export type CaptureSessionGrant = (typeof CaptureSessionGrant)[keyof typeof Capt
 export type CaptureSettings = Omit<CaptureOptions, 'application'>;
 
 // @public
-export type ChannelLayout = 'mono' | 'stereo' | 'any';
+export const ChannelLayout: Readonly<{
+    readonly MONO: "mono";
+    readonly STEREO: "stereo";
+    readonly ANY: "any";
+    readonly channelCount: (layout: "mono" | "stereo" | "any") => number | undefined;
+}>;
 
 // @public
-export type ClockDomain = 'capture' | 'playback' | 'network' | 'inherited' | 'wallclock';
+export type ChannelLayout = typeof ChannelLayout.MONO | typeof ChannelLayout.STEREO | typeof ChannelLayout.ANY;
+
+// @public
+export const ClockDomain: Readonly<{
+    readonly CAPTURE: "capture";
+    readonly PLAYBACK: "playback";
+    readonly NETWORK: "network";
+    readonly INHERITED: "inherited";
+    readonly WALLCLOCK: "wallclock";
+    readonly isRealtime: (domain: "capture" | "playback" | "network" | "inherited" | "wallclock") => boolean;
+}>;
+
+// @public
+export type ClockDomain = typeof ClockDomain.CAPTURE | typeof ClockDomain.PLAYBACK | typeof ClockDomain.NETWORK | typeof ClockDomain.INHERITED | typeof ClockDomain.WALLCLOCK;
 
 // @public
 export interface ClockDomainDescriptor {
@@ -499,35 +553,32 @@ export type ClockDomainKind = 'unspecified' | 'process-monotonic' | 'provider-de
 export type ClockDomainOrigin = 'unspecified' | 'process-start' | 'provider-defined';
 
 // @public
-export const Codec: {
+export const Codec: Readonly<{
+    readonly OPUS: "opus";
+    readonly AAC: "aac";
+    readonly MP3: "mp3";
+    readonly G711_ULAW: "g711-ulaw";
+    readonly G711_ALAW: "g711-alaw";
+    readonly WEBM_OPUS: "webm-opus";
     readonly Opus: "opus";
     readonly Aac: "aac";
     readonly Mp3: "mp3";
     readonly G711Ulaw: "g711-ulaw";
     readonly G711Alaw: "g711-alaw";
     readonly WebmOpus: "webm-opus";
-};
+}>;
 
 // @public
 export type Codec = (typeof Codec)[keyof typeof Codec];
 
-// @public
-export interface CompileDiagnostic {
-    readonly actual?: string;
-    readonly code: string;
-    readonly direction?: string;
-    readonly edgeIndex?: number;
-    readonly expected?: string;
-    readonly nodeIndex?: number;
-    readonly nodeTypeId?: string;
-    readonly operatorId?: string;
-    readonly operatorInstanceId?: bigint;
-    readonly portName?: string;
-    readonly sourceTypeId?: string;
-}
+// @public @deprecated (undocumented)
+export type CompileDiagnostic = SessionCompileDiagnostic;
 
 // @public
 export type Configuration = Readonly<Record<string, ConfigurationValue>>;
+
+// @public
+export type ConfigurationInput = Configuration | Iterable<readonly [string, ConfigurationValue]>;
 
 // @public
 export type ConfigurationValue = string | SecretValue;
@@ -541,11 +592,11 @@ export abstract class Connector {
     static fromAudioHandler(operatorId: string, handler: AudioConnectorHandler, options: {
         packageVersion: string;
         portName?: string;
-        deadlines?: ConnectorDeadlines;
+        deadlines?: ConnectorDeadlinesInput;
     }): Connector;
     // (undocumented)
     static fromHandler(manifest: ConnectorManifest, handler: ConnectorHandler, options?: {
-        deadlines?: ConnectorDeadlines;
+        deadlines?: ConnectorDeadlinesInput;
     }): Connector;
     get manifest(): ConnectorManifest;
     // (undocumented)
@@ -556,12 +607,12 @@ export abstract class Connector {
     stop(_mode: ConnectorShutdownMode, _context: ConnectorContext): void | Promise<void>;
     // (undocumented)
     static withDriver(manifest: ConnectorManifest, factory: ConnectorDriverFactory | ConnectorDriverBuilder, options?: {
-        deadlines?: ConnectorDeadlines;
+        deadlines?: ConnectorDeadlinesInput;
     }): Connector;
     // (undocumented)
     static withWorker(manifest: ConnectorManifest, factory: ConnectorFactory | ConnectorWorkerBuilder, options?: {
         maximumBatchItems?: number;
-        deadlines?: ConnectorDeadlines;
+        deadlines?: ConnectorDeadlinesInput;
     }): Connector;
 }
 
@@ -570,7 +621,7 @@ export function connector(send: ConnectorSend, options?: ConnectorOptions): Conn
 
 // @public
 export function connector(manifest: ConnectorManifest, options?: {
-    deadlines?: ConnectorDeadlines;
+    deadlines?: ConnectorDeadlinesInput;
 }): (handler: ConnectorHandler) => Connector;
 
 // @public
@@ -578,9 +629,9 @@ export interface ConnectorAudioFrame {
     // (undocumented)
     readonly channels: number;
     // (undocumented)
-    readonly clockId: number;
+    readonly clockId: ClockDomainId;
     // (undocumented)
-    readonly connectorId?: bigint;
+    readonly connectorId?: ConnectorId;
     // (undocumented)
     readonly discontinuityEpoch: bigint;
     // (undocumented)
@@ -588,7 +639,7 @@ export interface ConnectorAudioFrame {
     // (undocumented)
     readonly endpointEnqueuedAtNs?: bigint;
     // (undocumented)
-    readonly endpointId?: bigint;
+    readonly endpointId?: EndpointId;
     // (undocumented)
     readonly outputGenerationId?: bigint;
     // (undocumented)
@@ -598,7 +649,7 @@ export interface ConnectorAudioFrame {
     // (undocumented)
     readonly routeEnqueuedAtNs: bigint;
     // (undocumented)
-    readonly routeId?: bigint;
+    readonly routeId?: RouteId;
     // (undocumented)
     readonly routeReceivedAtNs: bigint;
     // (undocumented)
@@ -610,9 +661,9 @@ export interface ConnectorAudioFrame {
     // (undocumented)
     readonly sourceGeneration: number;
     // (undocumented)
-    readonly sourceId: bigint;
+    readonly sourceId: SourceId;
     // (undocumented)
-    readonly streamId: bigint;
+    readonly streamId: StreamId;
     // (undocumented)
     readonly timestampNs: bigint;
 }
@@ -764,15 +815,47 @@ export class ConnectorContext {
 }
 
 // @public
-export interface ConnectorDeadlines {
+export class ConnectorDeadlines {
+    constructor(options?: ConnectorDeadlinesOptions);
     // (undocumented)
+    get deliveryMs(): number;
+    // (undocumented)
+    readonly deliveryS: number;
+    // (undocumented)
+    get prepareMs(): number;
+    // (undocumented)
+    readonly prepareS: number;
+    // (undocumented)
+    get shutdownMs(): number;
+    // (undocumented)
+    readonly shutdownS: number;
+    // (undocumented)
+    get startMs(): number;
+    // (undocumented)
+    readonly startS: number;
+}
+
+// @public (undocumented)
+export type ConnectorDeadlinesInput = ConnectorDeadlines | ConnectorDeadlinesOptions;
+
+// @public
+export interface ConnectorDeadlinesOptions {
+    // @deprecated (undocumented)
     readonly deliveryMs?: number;
     // (undocumented)
+    readonly deliveryS?: number;
+    // @deprecated (undocumented)
     readonly prepareMs?: number;
     // (undocumented)
+    readonly prepareS?: number;
+    // @deprecated (undocumented)
     readonly shutdownMs?: number;
     // (undocumented)
+    readonly shutdownS?: number;
+    // @deprecated (undocumented)
     readonly startMs?: number;
+    // (undocumented)
+    readonly startS?: number;
 }
 
 // @public
@@ -813,7 +896,7 @@ export type ConnectorDriverBuilder = (inputs: readonly ConnectorInputDescriptor[
 // @public
 export interface ConnectorDriverFactory {
     // (undocumented)
-    preparationGroup?(routeId: bigint, configuration: Readonly<Record<string, ConnectorConfigurationValue>>): string | undefined;
+    preparationGroup?(routeId: RouteId, configuration: Readonly<Record<string, ConnectorConfigurationValue>>): string | undefined;
     // (undocumented)
     prepare(inputs: readonly ConnectorInputDescriptor[]): ConnectorDriver | Promise<ConnectorDriver>;
 }
@@ -862,7 +945,7 @@ export type ConnectorErrorStage = (typeof ConnectorErrorStage)[keyof typeof Conn
 // @public
 export interface ConnectorFactory {
     // (undocumented)
-    preparationGroup?(routeId: bigint, configuration: Readonly<Record<string, ConnectorConfigurationValue>>): string | undefined;
+    preparationGroup?(routeId: RouteId, configuration: Readonly<Record<string, ConnectorConfigurationValue>>): string | undefined;
     // (undocumented)
     prepare(inputs: readonly ConnectorInputDescriptor[]): ConnectorWorker | Promise<ConnectorWorker>;
 }
@@ -892,15 +975,15 @@ export interface ConnectorInputDescriptor {
     // (undocumented)
     readonly configuration: Readonly<Record<string, ConnectorConfigurationValue>>;
     // (undocumented)
-    readonly connectorId?: bigint;
+    readonly connectorId?: ConnectorId;
     // (undocumented)
-    readonly endpointId: bigint;
+    readonly endpointId: EndpointId;
     // (undocumented)
     readonly media: MediaCaps;
     // (undocumented)
     readonly portName: string;
     // (undocumented)
-    readonly routeId: bigint;
+    readonly routeId: RouteId;
     // (undocumented)
     readonly routeSettings: RouteSettings;
     // (undocumented)
@@ -1010,7 +1093,7 @@ export interface ConnectorOptions {
 }
 
 // @public
-export type ConnectorPreparationGroup = (routeId: bigint, configuration: Readonly<Record<string, ConnectorConfigurationValue>>) => string | undefined;
+export type ConnectorPreparationGroup = (routeId: RouteId, configuration: Readonly<Record<string, ConnectorConfigurationValue>>) => string | undefined;
 
 // @public
 export const ConnectorRecovery: {
@@ -1042,6 +1125,11 @@ export const ConnectorRetryability: {
 export type ConnectorRetryability = (typeof ConnectorRetryability)[keyof typeof ConnectorRetryability];
 
 // @public
+export class ConnectorRuntimeError extends PocketStationError {
+    constructor(code: string, message: string, cause?: unknown);
+}
+
+// @public
 export interface ConnectorRuntimeObservations {
     // (undocumented)
     readonly connector: ConnectorObservations;
@@ -1050,7 +1138,7 @@ export interface ConnectorRuntimeObservations {
     // (undocumented)
     readonly endpointFailuresTotal: bigint;
     // (undocumented)
-    readonly endpointIds: readonly bigint[];
+    readonly endpointIds: readonly EndpointId[];
     // (undocumented)
     readonly framesDeliveredTotal: bigint;
     // (undocumented)
@@ -1111,6 +1199,16 @@ export abstract class ConnectorWorker {
 export type ConnectorWorkerBuilder = (inputs: readonly ConnectorInputDescriptor[]) => ConnectorWorker | Promise<ConnectorWorker>;
 
 // @public
+export const CopyPolicy: Readonly<{
+    readonly MOVE_EXCLUSIVE: "move-exclusive";
+    readonly SHARE_READ_ONLY: "share-read-only";
+    readonly COPY_TO_BRANCH_POOL: "copy-to-branch-pool";
+}>;
+
+// @public
+export type CopyPolicy = (typeof CopyPolicy)[keyof typeof CopyPolicy];
+
+// @public
 export function defineEndpoint(options: EndpointFactoryOptions): EndpointFactory;
 
 // @public
@@ -1124,25 +1222,42 @@ export function defineSource(options: SourceFactoryOptions): SourceFactory;
 
 // @public
 export class DeliveryPolicy {
+    get backpressure(): BackpressurePolicy;
+    static boundedAsync(): DeliveryPolicy;
+    // @deprecated (undocumented)
     static buffered(): DeliveryPolicy;
     get clock(): ClockDomain;
+    get copyPolicy(): CopyPolicy;
     get delivery(): DeliverySemantics;
+    // @deprecated (undocumented)
     get frameOwnership(): FrameOwnership;
     get jitterBudgetMs(): number | undefined;
     get latencyBudgetMs(): number | undefined;
     get loss(): LossPolicy;
     get maxPayloadBytes(): number | undefined;
     get observability(): RouteObservability;
+    // @deprecated (undocumented)
     get queuePressure(): QueuePressure;
     static realtimeAudio(): DeliveryPolicy;
+    withBackpressure(value: BackpressurePolicy): DeliveryPolicy;
+    withCopyPolicy(value: CopyPolicy): DeliveryPolicy;
+    // @deprecated (undocumented)
     withFrameOwnership(value: FrameOwnership): DeliveryPolicy;
     withJitterBudgetMs(value?: number): DeliveryPolicy;
     withMaxPayloadBytes(value: number): DeliveryPolicy;
+    // @deprecated (undocumented)
     withQueuePressure(value: QueuePressure): DeliveryPolicy;
 }
 
 // @public
-export type DeliverySemantics = 'best-effort-realtime' | 'ordered' | 'exactly-once-not-realtime';
+export const DeliverySemantics: Readonly<{
+    readonly BEST_EFFORT_REALTIME: "best-effort-realtime";
+    readonly ORDERED: "ordered";
+    readonly EXACTLY_ONCE_NOT_REALTIME: "exactly-once-not-realtime";
+}>;
+
+// @public
+export type DeliverySemantics = (typeof DeliverySemantics)[keyof typeof DeliverySemantics];
 
 // @public
 export interface DerivedRouteMetrics {
@@ -1158,19 +1273,17 @@ export interface DerivedRouteMetrics {
 
 // @public
 export class DerivedStream {
-    connect(input: OperatorInput): bigint;
-    get operatorId(): bigint;
+    connect(input: OperatorInput): RouteId;
+    get operatorId(): OperatorInstanceId;
+    get operatorInstanceId(): OperatorInstanceId;
     output(name: string): DerivedStream;
     get outputName(): string | undefined;
+    get outputPort(): string | undefined;
     reenterAudio(): Stem;
-    send(endpoint: Endpoint, options?: {
-        input?: string;
-    }): bigint;
-    sendTo(connector: Connector): bigint;
-    through(operator: Operator, options?: {
-        input?: string;
-        output?: string;
-    }): DerivedStream;
+    send(endpoint: Endpoint, options?: RouteInputOptions): RouteId;
+    sendTo(connector: Connector): RouteId;
+    get sessionId(): RuntimeSessionId;
+    through(operator: Operator, options?: OperatorPortOptions): DerivedStream;
 }
 
 // @public
@@ -1202,8 +1315,8 @@ export class EndOfStream {
 
 // @public
 export class Endpoint {
-    get connectorId(): bigint | undefined;
-    get id(): bigint;
+    get connectorId(): ConnectorId | undefined;
+    get id(): EndpointId;
     get sessionId(): RuntimeSessionId;
 }
 
@@ -1222,7 +1335,16 @@ export interface EndpointAudioItem {
 }
 
 // @public
-export type EndpointConfigurationInput = Configuration;
+export class EndpointConfiguration {
+    constructor(values?: ConfigurationInput);
+    // (undocumented)
+    readonly values: readonly (readonly [string, ConfigurationValue])[];
+    // (undocumented)
+    withValue(key: string, value: ConfigurationValue): EndpointConfiguration;
+}
+
+// @public
+export type EndpointConfigurationInput = Configuration | EndpointConfiguration;
 
 // @public
 export interface EndpointContext {
@@ -1241,18 +1363,27 @@ export interface EndpointDeadlines {
     readonly startMs?: number;
 }
 
-// @public
-export class EndpointDefinition {
-    constructor(nodeType: string, operatorId: string, options?: {
-        configuration?: Configuration;
-        route?: RouteSettings;
-    });
-    readonly nodeType: string;
-    readonly operatorId: string;
+// @public @deprecated (undocumented)
+export class EndpointDefinition extends EndpointDescriptor {
 }
 
 // @public
 export type EndpointDeliveryOutcome = 'delivered' | 'dropped';
+
+// @public
+export class EndpointDescriptor {
+    constructor(nodeTypeId: string, operatorId: string, options?: {
+        configuration?: Configuration | EndpointConfiguration;
+        routeSettings?: RouteSettings;
+        route?: RouteSettings;
+    });
+    readonly configuration: EndpointConfiguration;
+    // @deprecated (undocumented)
+    get nodeType(): string;
+    readonly nodeTypeId: string;
+    readonly operatorId: string;
+    readonly routeSettings: RouteSettings | undefined;
+}
 
 // @public
 export type EndpointDriverBuilder = (inputs: readonly EndpointPortInput[]) => PreparedEndpointDriver | Promise<PreparedEndpointDriver>;
@@ -1274,7 +1405,7 @@ export class EndpointDriverError extends PocketStationError {
 // @public
 export interface EndpointDriverFactory {
     // (undocumented)
-    preparationGroup?(routeId: bigint, configuration: Readonly<EndpointConfigurationInput>): string | undefined;
+    preparationGroup?(routeId: RouteId, configuration: Readonly<Configuration>): string | undefined;
     // (undocumented)
     prepare(inputs: readonly EndpointPortInput[]): PreparedEndpointDriver | Promise<PreparedEndpointDriver>;
 }
@@ -1362,6 +1493,9 @@ export interface EndpointFailureEvent {
 
 // @public
 export const EndpointFailureRetryability: {
+    readonly NEVER: "never";
+    readonly RETRYABLE: "retryable";
+    readonly RECONFIGURATION_REQUIRED: "reconfiguration-required";
     readonly Never: "never";
     readonly Retryable: "retryable";
     readonly ReconfigurationRequired: "reconfiguration-required";
@@ -1455,30 +1589,30 @@ export class EndpointPortInput {
 }
 
 // @public
-export type EndpointPreparationGroup = (routeId: bigint, configuration: Readonly<EndpointConfigurationInput>) => string | undefined;
+export type EndpointPreparationGroup = (routeId: RouteId, configuration: Readonly<Configuration>) => string | undefined;
 
 // @public
 export class EndpointPrepareContext {
     // (undocumented)
-    readonly configuration: Readonly<EndpointConfigurationInput>;
+    readonly configuration: Readonly<Configuration>;
     // (undocumented)
-    readonly connectorId?: bigint;
+    readonly connectorId?: ConnectorId;
     // (undocumented)
-    readonly endpointId: bigint;
+    readonly endpointId: EndpointId;
     // (undocumented)
     readonly originKind: string;
     // (undocumented)
-    readonly routeId: bigint;
+    readonly routeId: RouteId;
     // (undocumented)
-    readonly sessionId: bigint;
+    readonly sessionId: RuntimeSessionId;
     // (undocumented)
     readonly sessionTimelineOriginNs: bigint;
     // (undocumented)
-    readonly sourceId?: bigint;
+    readonly sourceId?: SourceId;
     // (undocumented)
-    readonly stemId?: bigint;
+    readonly stemId?: StemId;
     // (undocumented)
-    readonly streamId?: bigint;
+    readonly streamId?: StreamId;
 }
 
 // @public
@@ -1489,7 +1623,7 @@ export class EndpointProvider {
         readonly deadlines?: EndpointDeadlines;
         readonly maximumBatchItems?: number;
         readonly idleEnabled?: boolean;
-        readonly validateConfiguration?: (configuration: Readonly<EndpointConfigurationInput>) => void | Promise<void>;
+        readonly validateConfiguration?: (configuration: Readonly<Configuration>) => void | Promise<void>;
         readonly preparationGroup?: EndpointPreparationGroup;
     });
     // (undocumented)
@@ -1506,7 +1640,7 @@ export class EndpointProvider {
     // (undocumented)
     readonly preparationGroup?: EndpointPreparationGroup;
     // (undocumented)
-    readonly validateConfiguration?: (configuration: Readonly<EndpointConfigurationInput>) => void | Promise<void>;
+    readonly validateConfiguration?: (configuration: Readonly<Configuration>) => void | Promise<void>;
 }
 
 // @public
@@ -1524,7 +1658,7 @@ export type EndpointReceive = (item: EndpointItem, context: EndpointContext) => 
 // @public
 export interface EndpointRuntimeObservations extends EndpointDriverObservations {
     // (undocumented)
-    readonly endpointIds: readonly bigint[];
+    readonly endpointIds: readonly EndpointId[];
     // (undocumented)
     readonly finalized: boolean;
 }
@@ -1565,7 +1699,15 @@ export function evaluateSourceActivity(value: SourceActivityObservation, policy:
 export function evaluateSourceSignal(value: SourceSignalObservation, policy: SourceSignalPolicy): SourceSignalEvaluation;
 
 // @public
-export type EventFormat = 'json' | 'protobuf' | 'flatbuffers' | 'cbor';
+export const EventFormat: Readonly<{
+    readonly JSON: "json";
+    readonly PROTOBUF: "protobuf";
+    readonly FLATBUFFERS: "flatbuffers";
+    readonly CBOR: "cbor";
+}>;
+
+// @public
+export type EventFormat = (typeof EventFormat)[keyof typeof EventFormat];
 
 // @public
 export class EventInput implements AsyncDisposable {
@@ -1772,6 +1914,11 @@ export type FinalizationFailureStage = 'stop-capture' | 'drain-runtime' | 'drain
 export type FrameOwnership = 'move' | 'share' | 'copy';
 
 // @public
+export class GraphError extends PocketStationError {
+    constructor(code: string, message: string, cause?: unknown);
+}
+
+// @public
 export interface LatencyHistogram {
     // (undocumented)
     readonly futureTotal: bigint;
@@ -1799,18 +1946,26 @@ export interface LifecycleEvent {
 }
 
 // @public
-export type LossPolicy = 'conceal-audio' | 'deliver-or-fail' | 'drop-allowed';
+export const LossPolicy: Readonly<{
+    readonly CONCEAL_FOR_AUDIO: "conceal-for-audio";
+    readonly MUST_DELIVER_OR_FAIL: "must-deliver-or-fail";
+    readonly DROP_ALLOWED: "drop-allowed";
+}>;
+
+// @public
+export type LossPolicy = (typeof LossPolicy)[keyof typeof LossPolicy];
 
 // @public
 export class MediaCaps {
     static any(): MediaCaps;
-    static audio(caps?: AudioCaps): MediaCaps;
+    static audio(caps?: AudioCaps | AudioCapsOptions): MediaCaps;
+    get audioCaps(): AudioCaps | undefined;
     static binary(format?: BinaryFormat): MediaCaps;
     get channelLayout(): ChannelLayout | undefined;
     static control(): MediaCaps;
     static encodedAudio(codec: Codec): MediaCaps;
     static event(): MediaCaps;
-    get format(): string | undefined;
+    get format(): MediaFormat | undefined;
     static forSignal(signal: SignalSpec): MediaCaps;
     get frameSamples(): number | undefined;
     isCompatibleWith(other: MediaCaps): boolean;
@@ -1823,13 +1978,34 @@ export class MediaCaps {
 }
 
 // @public
-export type MediaKind = 'audio-pcm' | 'audio-encoded' | 'text' | 'event' | 'metrics' | 'control' | 'binary' | 'any';
+export type MediaFormat = Codec | BinaryFormat;
+
+// @public
+export const MediaKind: Readonly<{
+    readonly AUDIO_PCM: "audio-pcm";
+    readonly AUDIO_ENCODED: "audio-encoded";
+    readonly TEXT: "text";
+    readonly EVENT: "event";
+    readonly METRICS: "metrics";
+    readonly CONTROL: "control";
+    readonly BINARY: "binary";
+    readonly ANY: "any";
+}>;
+
+// @public
+export type MediaKind = (typeof MediaKind)[keyof typeof MediaKind];
 
 // @public
 export function microphonePermissionObservation(): Promise<PermissionObservation>;
 
 // @public
-export type Multiplicity = 'one' | 'many';
+export const Multiplicity: Readonly<{
+    readonly ONE: "one";
+    readonly MANY: "many";
+}>;
+
+// @public
+export type Multiplicity = (typeof Multiplicity)[keyof typeof Multiplicity];
 
 // @public
 export interface NativeExtensionLibrary {
@@ -1861,8 +2037,11 @@ export interface OpenedNativeFormat {
 
 // @public
 export class Operator {
-    constructor(id: string, configuration?: Configuration);
-    readonly id: string;
+    constructor(operatorId: string, configuration?: Configuration | OperatorConfiguration);
+    readonly configuration: OperatorConfiguration;
+    // @deprecated (undocumented)
+    get id(): string;
+    readonly operatorId: string;
 }
 
 // @public
@@ -1870,6 +2049,15 @@ export function operator(manifest: OperatorManifest, options?: {
     readonly validateConfig?: OperatorConfigValidator;
     readonly deadlines?: OperatorDeadlines;
 }): (handler: OperatorHandler) => OperatorProvider;
+
+// @public
+export class OperatorConfiguration {
+    constructor(values?: ConfigurationInput);
+    // (undocumented)
+    readonly values: readonly (readonly [string, ConfigurationValue])[];
+    // (undocumented)
+    withValue(key: string, value: ConfigurationValue): OperatorConfiguration;
+}
 
 // @public (undocumented)
 export type OperatorConfigValidator = (configuration: Readonly<Record<string, string>>) => void | Promise<void>;
@@ -1930,6 +2118,11 @@ export type OperatorEmissionInput = OperatorEmission | {
     readonly data: string | Uint8Array | Float32Array;
     readonly signal?: SignalSpec;
 };
+
+// @public
+export class OperatorError extends PocketStationError {
+    constructor(code: string, message: string, cause?: unknown);
+}
 
 // @public
 export class OperatorFactory {
@@ -2000,6 +2193,7 @@ export type OperatorHandler = (inputPort: string, envelope: SignalEnvelope) => r
 // @public
 export class OperatorInput {
     get name(): string;
+    get portName(): string;
 }
 
 // @public
@@ -2012,9 +2206,11 @@ export interface OperatorInputMetrics {
 
 // @public
 export class OperatorInstance {
-    get id(): bigint;
+    get id(): OperatorInstanceId;
     input(name: string): OperatorInput;
+    get instanceId(): OperatorInstanceId;
     output(name: string): DerivedStream;
+    get sessionId(): RuntimeSessionId;
 }
 
 // @public
@@ -2123,6 +2319,13 @@ export class OperatorPortContext {
 }
 
 // @public
+export interface OperatorPortOptions extends RouteInputOptions {
+    // @deprecated (undocumented)
+    readonly output?: string;
+    readonly outputPort?: string;
+}
+
+// @public
 export class OperatorPrepareContext implements OperatorContext {
     // (undocumented)
     readonly executionPartition: string;
@@ -2227,8 +2430,8 @@ export interface PcmSource extends Disposable {
     readonly config: AudioInputConfig;
     observations(): AudioInputObservations;
     readonly output: SourceOutput;
-    readonly sourceId: bigint;
-    readonly streamId: bigint;
+    readonly sourceId: SourceId;
+    readonly streamId: StreamId;
     tryWrite(samples: AudioInputSamples, options?: AudioInputTryWriteOptions): void;
 }
 
@@ -2304,7 +2507,13 @@ export interface PolledAudioMetrics {
 }
 
 // @public
-export type PortDirection = 'input' | 'output';
+export const PortDirection: Readonly<{
+    readonly INPUT: "input";
+    readonly OUTPUT: "output";
+}>;
+
+// @public
+export type PortDirection = (typeof PortDirection)[keyof typeof PortDirection];
 
 // @public
 export class PortSpec {
@@ -2435,7 +2644,7 @@ export class RegisteredConnector {
     // (undocumented)
     observations(): readonly ConnectorRuntimeObservations[];
     // (undocumented)
-    get sessionId(): bigint;
+    get sessionId(): RuntimeSessionId;
 }
 
 // @public
@@ -2447,23 +2656,23 @@ export class RegisteredEndpoint {
     // (undocumented)
     observations(): readonly EndpointRuntimeObservations[];
     // (undocumented)
-    get sessionId(): bigint;
+    get sessionId(): RuntimeSessionId;
 }
 
 // @public
 export class RegisteredOperator {
     // (undocumented)
-    declare(configuration?: Configuration): OperatorInstance;
+    declare(configuration?: Configuration | OperatorConfiguration): OperatorInstance;
     // (undocumented)
     get operatorId(): string;
     // (undocumented)
-    get sessionId(): bigint;
+    get sessionId(): RuntimeSessionId;
 }
 
 // @public
 export class RegisteredSource {
     // (undocumented)
-    declare(configuration?: SourceConfiguration_2): SourceInstance;
+    declare(configuration?: SourceConfiguration | SourceConfigurationInput): SourceInstance;
     // (undocumented)
     get sessionId(): bigint;
     // (undocumented)
@@ -2551,6 +2760,13 @@ export function RouteId(value: bigint): RouteId;
 export type RouteId = BigIntIdentity<'RouteId'>;
 
 // @public
+export interface RouteInputOptions {
+    // @deprecated (undocumented)
+    readonly input?: string;
+    readonly inputPort?: string;
+}
+
+// @public
 export interface RouteMetrics {
     // (undocumented)
     readonly delivery: RouteDeliveryMetrics;
@@ -2573,16 +2789,53 @@ export interface RouteMetrics {
 }
 
 // @public
-export type RouteObservability = 'off' | 'counters' | 'full';
+export const RouteObservability: Readonly<{
+    readonly OFF: "off";
+    readonly COUNTERS: "counters";
+    readonly FULL: "full";
+    readonly rank: (value: "off" | "counters" | "full") => number;
+}>;
+
+// @public
+export type RouteObservability = typeof RouteObservability.OFF | typeof RouteObservability.COUNTERS | typeof RouteObservability.FULL;
 
 // @public
 export class RouteSettings {
+    // (undocumented)
+    get backpressure(): BackpressurePolicy;
+    static boundedAsync(): RouteSettings;
+    // @deprecated (undocumented)
     static buffered(): RouteSettings;
+    // (undocumented)
+    get clock(): ClockDomain;
+    // (undocumented)
+    get copyPolicy(): CopyPolicy;
     static create(media: MediaCaps, delivery: DeliveryPolicy): RouteSettings;
-    get delivery(): DeliveryPolicy;
+    get delivery(): DeliverySemantics;
+    get deliveryPolicy(): DeliveryPolicy;
+    // (undocumented)
+    get jitterBudgetMs(): number | undefined;
+    // (undocumented)
+    get latencyBudgetMs(): number | undefined;
+    // (undocumented)
+    get loss(): LossPolicy;
+    // (undocumented)
+    get maxPayloadBytes(): number | undefined;
     get media(): MediaCaps;
+    // (undocumented)
+    get observability(): RouteObservability;
     static realtimeAudio(): RouteSettings;
+    // (undocumented)
+    withBackpressure(policy: BackpressurePolicy): RouteSettings;
+    // (undocumented)
+    withCopyPolicy(policy: CopyPolicy): RouteSettings;
+    // @deprecated (undocumented)
     withDelivery(delivery: DeliveryPolicy): RouteSettings;
+    withDeliveryPolicy(delivery: DeliveryPolicy): RouteSettings;
+    // (undocumented)
+    withJitterBudgetMs(value?: number): RouteSettings;
+    // (undocumented)
+    withMaxPayloadBytes(value: number): RouteSettings;
     withMedia(media: MediaCaps): RouteSettings;
 }
 
@@ -2652,6 +2905,14 @@ export function RuntimeSessionId(value: bigint): RuntimeSessionId;
 export type RuntimeSessionId = BigIntIdentity<'RuntimeSessionId'>;
 
 // @public
+export const SampleFormat: Readonly<{
+    readonly F32_INTERLEAVED: "f32-interleaved";
+}>;
+
+// @public
+export type SampleFormat = (typeof SampleFormat)[keyof typeof SampleFormat];
+
+// @public
 export const SampleRepresentation: Readonly<{
     readonly SIGNED_INTEGER_8: "signed-integer-8";
     readonly SIGNED_INTEGER_16: "signed-integer-16";
@@ -2676,6 +2937,7 @@ export function secret(value: string): SecretValue;
 // @public
 export interface SecretValue {
     readonly secret: true;
+    toJSON(): '<redacted>';
     readonly value: string;
 }
 
@@ -2696,6 +2958,7 @@ export class Session {
     constructor(options?: SessionOptions);
     audio(route?: RouteSettings): Endpoint;
     audioInput(name: string, options?: AudioInputOptions): AudioInput;
+    browser(receiverUri: string): Endpoint;
     capture(source: Source): Stem;
     // Warning: (ae-forgotten-export) The symbol "ConversationDeclarationOptions" needs to be exported by the entry point index.d.ts
     // Warning: (ae-forgotten-export) The symbol "Conversation" needs to be exported by the entry point index.d.ts
@@ -2704,11 +2967,13 @@ export class Session {
         configuration?: ConnectorConfigurationInput;
         routeSettings?: RouteSettings;
     }): Endpoint;
-    endpoint(definition: EndpointDefinition | EndpointFactory | EndpointProvider, configuration?: Configuration | EndpointConfigurationInput): Endpoint;
+    endpoint(definition: EndpointDescriptor | EndpointFactory | EndpointProvider, configuration?: Configuration | EndpointConfigurationInput): Endpoint;
     eventInput(name: string, options?: EventInputOptions): EventInput;
     get id(): RuntimeSessionId;
     loadNativeExtensionLibrary(path: string): Promise<NativeExtensionLibrary>;
-    operator(operator: Operator | OperatorFactory | OperatorProvider, configuration?: Configuration): OperatorInstance;
+    operator(operator: Operator | OperatorFactory | OperatorProvider, configuration?: Configuration | OperatorConfiguration): OperatorInstance;
+    pcmSource(config: AudioInputConfig): PcmSource;
+    polledAudio(route?: RouteSettings): Endpoint;
     registerConnector(connector: Connector): RegisteredConnector;
     registerEndpoint(provider: EndpointProvider): RegisteredEndpoint;
     registerOperator(operator: OperatorFactory): OperatorFactory;
@@ -2718,12 +2983,66 @@ export class Session {
     registerSource(source: SourceProvider): RegisteredSource;
     relay(options: RelayPublisherOptions): RelayPublisher;
     run(work: (running: RunningSession) => void | Promise<void>): Promise<StopResult>;
-    source(source: string | SourceFactory | SourceProvider, configuration?: SourceConfiguration): SourceInstance;
+    source(source: string | SourceFactory | SourceProvider, configuration?: SourceConfiguration | SourceConfigurationInput): SourceInstance;
     start(): Promise<RunningSession>;
     subscribe(stream: SourceOutput | DerivedStream, options: {
         signal: SignalSpec;
+        routeSettings?: RouteSettings;
         route?: RouteSettings;
     }): BusSubscription;
+}
+
+// @public
+export class SessionCompileDiagnostic {
+    constructor(options: SessionCompileDiagnosticOptions);
+    // (undocumented)
+    readonly actual: string | undefined;
+    // (undocumented)
+    readonly code: string;
+    // (undocumented)
+    readonly direction: string | undefined;
+    // (undocumented)
+    readonly edgeIndex: number | undefined;
+    // (undocumented)
+    readonly expected: string | undefined;
+    // (undocumented)
+    readonly nodeIndex: number | undefined;
+    // (undocumented)
+    readonly nodeTypeId: string | undefined;
+    // (undocumented)
+    readonly operatorId: string | undefined;
+    // (undocumented)
+    readonly operatorInstanceId: OperatorInstanceId | undefined;
+    // (undocumented)
+    readonly portName: string | undefined;
+    // (undocumented)
+    readonly sourceTypeId: string | undefined;
+}
+
+// @public
+export interface SessionCompileDiagnosticOptions {
+    // (undocumented)
+    readonly actual?: string;
+    // (undocumented)
+    readonly code: string;
+    // (undocumented)
+    readonly direction?: string;
+    // (undocumented)
+    readonly edgeIndex?: number;
+    // (undocumented)
+    readonly expected?: string;
+    // (undocumented)
+    readonly nodeIndex?: number;
+    // (undocumented)
+    readonly nodeTypeId?: string;
+    // (undocumented)
+    readonly operatorId?: string;
+    // (undocumented)
+    readonly operatorInstanceId?: OperatorInstanceId;
+    // (undocumented)
+    readonly portName?: string;
+    // (undocumented)
+    readonly sourceTypeId?: string;
 }
 
 // @public
@@ -2751,10 +3070,13 @@ export interface SessionControlFailureEvent {
     readonly type: 'rollback-failure' | 'finalization-failure';
 }
 
-// Warning: (ae-forgotten-export) The symbol "SessionError" needs to be exported by the entry point index.d.ts
-//
 // @public
 export class SessionDeclarationError extends SessionError {
+    constructor(code: string, message: string, cause?: unknown);
+}
+
+// @public
+export class SessionError extends PocketStationError {
     constructor(code: string, message: string, cause?: unknown);
 }
 
@@ -2811,9 +3133,15 @@ export interface SessionOptions {
 }
 
 // @public
-export class SessionStartError extends PocketStationError {
-    constructor(code: string, message: string, diagnostic?: CompileDiagnostic);
-    readonly diagnostic: CompileDiagnostic | undefined;
+export class SessionRuntimeError extends SessionError {
+    constructor(code: string, message: string, cause?: unknown);
+}
+
+// @public
+export class SessionStartError extends SessionError {
+    constructor(code: string, message: string, diagnostic?: SessionCompileDiagnostic, cause?: unknown);
+    // (undocumented)
+    readonly diagnostic: SessionCompileDiagnostic | undefined;
 }
 
 // @public
@@ -3096,7 +3424,23 @@ export interface SignalEnvelope {
 }
 
 // @public
-export type SignalKind = 'any' | 'pcm-audio' | 'encoded-audio' | 'text' | 'event' | 'metrics' | 'control' | 'binary' | 'custom';
+export type SignalFormat = Codec | TextFormat | EventFormat | BinaryFormat;
+
+// @public
+export const SignalKind: Readonly<{
+    readonly ANY: "any";
+    readonly PCM_AUDIO: "pcm-audio";
+    readonly ENCODED_AUDIO: "encoded-audio";
+    readonly TEXT: "text";
+    readonly EVENT: "event";
+    readonly METRICS: "metrics";
+    readonly CONTROL: "control";
+    readonly BINARY: "binary";
+    readonly CUSTOM: "custom";
+}>;
+
+// @public
+export type SignalKind = (typeof SignalKind)[keyof typeof SignalKind];
 
 // @public
 export interface SignalLineage {
@@ -3152,7 +3496,7 @@ export class SignalSpec {
     get customId(): string | undefined;
     static encodedAudio(codec: Codec, options?: SignalOptions): SignalSpec;
     static event(format?: EventFormat, options?: SignalOptions): SignalSpec;
-    get format(): string | undefined;
+    get format(): SignalFormat | undefined;
     get isAudio(): boolean;
     isCompatibleWith(other: SignalSpec): boolean;
     get kind(): SignalKind;
@@ -3274,7 +3618,16 @@ export class SourceCancellation {
 }
 
 // @public
-export type SourceConfiguration = Readonly<Record<string, string>>;
+export class SourceConfiguration {
+    constructor(values?: SourceConfigurationInput);
+    // (undocumented)
+    readonly values: readonly (readonly [string, string])[];
+    // (undocumented)
+    withValue(key: string, value: string): SourceConfiguration;
+}
+
+// @public
+export type SourceConfigurationInput = Readonly<Record<string, string>> | Iterable<readonly [string, string]>;
 
 // @public (undocumented)
 export type SourceConfigValidator = (configuration: SourceConfiguration_2) => void | Promise<void>;
@@ -3481,10 +3834,11 @@ export type SourceIdentityStrength = (typeof SourceIdentityStrength)[keyof typeo
 
 // @public
 export class SourceInstance {
-    get id(): bigint;
+    get id(): SourceInstanceId;
+    get instanceId(): SourceInstanceId;
     output(name: string): SourceOutput;
-    get sessionId(): bigint;
-    get sourceId(): bigint;
+    get sessionId(): RuntimeSessionId;
+    get sourceId(): SourceId;
 }
 
 // @public
@@ -3581,21 +3935,17 @@ export interface SourceNativeFormatObservation {
 
 // @public
 export class SourceOutput {
-    connect(input: OperatorInput): bigint;
+    connect(input: OperatorInput): RouteId;
     get outputName(): string;
+    get outputPort(): string;
     record(name: string): Endpoint;
-    send(endpoint: Endpoint, options?: {
-        input?: string;
-    }): bigint;
-    sendTo(connector: Connector): bigint;
-    get sessionId(): bigint;
-    get sourceId(): bigint;
-    get sourceInstanceId(): bigint;
-    get streamId(): bigint;
-    through(operator: Operator, options?: {
-        input?: string;
-        output?: string;
-    }): DerivedStream;
+    send(endpoint: Endpoint, options?: RouteInputOptions): RouteId;
+    sendTo(connector: Connector): RouteId;
+    get sessionId(): RuntimeSessionId;
+    get sourceId(): SourceId;
+    get sourceInstanceId(): SourceInstanceId;
+    get streamId(): StreamId;
+    through(operator: Operator, options?: OperatorPortOptions): DerivedStream;
 }
 
 // @public
@@ -3871,18 +4221,13 @@ export interface StableSourceId {
 
 // @public
 export class Stem {
-    connect(input: OperatorInput): bigint;
+    connect(input: OperatorInput): RouteId;
     get id(): StemId;
     record(name: string): Endpoint;
-    send(endpoint: Endpoint, options?: {
-        input?: string;
-    }): bigint;
-    sendTo(connector: Connector): bigint;
+    send(endpoint: Endpoint, options?: RouteInputOptions): RouteId;
+    sendTo(connector: Connector): RouteId;
     get sessionId(): RuntimeSessionId;
-    through(operator: Operator, options?: {
-        input?: string;
-        output?: string;
-    }): DerivedStream;
+    through(operator: Operator, options?: OperatorPortOptions): DerivedStream;
 }
 
 // @public
@@ -3966,7 +4311,14 @@ export interface TerminalEvent {
 }
 
 // @public
-export type TextFormat = 'utf8' | 'json' | 'markdown';
+export const TextFormat: Readonly<{
+    readonly UTF8: "utf8";
+    readonly JSON: "json";
+    readonly MARKDOWN: "markdown";
+}>;
+
+// @public
+export type TextFormat = (typeof TextFormat)[keyof typeof TextFormat];
 
 // @public
 export interface TextSignalPayload {

@@ -459,7 +459,7 @@ pub(crate) fn register_operator(
     generation: u32,
     inputs: Vec<PortSpec>,
     outputs: Vec<PortSpec>,
-    queue_capacity: u32,
+    queue_capacity: String,
     process_timeout_ms: u32,
     network_allowed: bool,
     filesystem_allowed: bool,
@@ -470,6 +470,12 @@ pub(crate) fn register_operator(
     deadline_ms: Option<u32>,
 ) -> Result<()> {
     let bridge_deadline_ms = deadline_ms.unwrap_or(DEFAULT_PROVIDER_DEADLINE_MS);
+    let queue_capacity = queue_capacity.parse::<usize>().map_err(|_| {
+        crate::errors::error(
+            "operator.invalid_contract",
+            "Operator queue capacity must fit the platform usize range",
+        )
+    })?;
     let input_media = common_operator_media(&inputs, "input")?;
     let output_media = common_operator_media(&outputs, "output")?;
     if inputs
@@ -518,7 +524,7 @@ pub(crate) fn register_operator(
         pocketstation::RouteSettings::bounded_async()
             .with_media(output_media)
             .with_copy_policy(CopyPolicy::CopyToBranchPool),
-        usize::try_from(queue_capacity).unwrap_or(usize::MAX),
+        queue_capacity,
         OperatorPermissionPolicy {
             network_allowed,
             filesystem_allowed,
@@ -590,16 +596,7 @@ pub(crate) fn register_endpoint(
     deadline_ms: Option<u32>,
     maximum_batch_items: Option<u32>,
 ) -> Result<()> {
-    if inputs.is_empty()
-        || inputs
-            .iter()
-            .any(|input| input.direction() != pocketstation::PortDirection::Input)
-    {
-        return Err(crate::errors::error(
-            "endpoint.invalid_declaration",
-            "JavaScript Endpoint inputs must contain at least one input PortSpec",
-        ));
-    }
+    validate_endpoint_inputs(&inputs)?;
     let descriptor = NodeDescriptor::new(
         NodeTypeId::from(node_type_id.as_str()),
         "JavaScript Endpoint",
@@ -609,7 +606,7 @@ pub(crate) fn register_endpoint(
         ExecutionSafety::ExternalService,
         true,
     )
-    .map_err(|failure| crate::errors::error("endpoint.invalid_declaration", failure.to_string()))?;
+    .map_err(|failure| crate::errors::error("endpoint.invalid_contract", failure.to_string()))?;
     let bridge = ProviderBridge::new(dispatch, deadline_ms)?;
     let maximum_batch_items = maximum_batch_items.unwrap_or(1);
     if maximum_batch_items == 0 || maximum_batch_items > 1_024 {
@@ -639,6 +636,20 @@ pub(crate) fn register_endpoint(
         .map_err(|failure| {
             crate::errors::error("endpoint.registration_failed", failure.to_string())
         })
+}
+
+fn validate_endpoint_inputs(inputs: &[PortSpec]) -> Result<()> {
+    if inputs.is_empty()
+        || inputs
+            .iter()
+            .any(|input| input.direction() != pocketstation::PortDirection::Input)
+    {
+        return Err(crate::errors::error(
+            "endpoint.invalid_contract",
+            "JavaScript Endpoint inputs must contain at least one input PortSpec",
+        ));
+    }
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2852,7 +2863,8 @@ fn bounded_message(mut message: String) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{bounded_message, MAXIMUM_PROVIDER_ERROR_BYTES};
+    use super::{bounded_message, validate_endpoint_inputs, MAXIMUM_PROVIDER_ERROR_BYTES};
+    use pocketstation::{MediaCaps, Multiplicity, PortDirection, PortSpec, SignalSpec, TextFormat};
 
     #[test]
     fn provider_error_limit_preserves_utf8() {
@@ -2869,5 +2881,22 @@ mod tests {
             bounded_message("  ".to_owned()),
             "JavaScript provider failed without an error message"
         );
+    }
+
+    #[test]
+    fn endpoint_output_port_reports_the_public_contract_error() {
+        let output = PortSpec::new(
+            "text",
+            PortDirection::Output,
+            SignalSpec::text(TextFormat::Utf8),
+            MediaCaps::Text,
+            Multiplicity::One,
+            true,
+        )
+        .expect("valid output port");
+
+        let failure = validate_endpoint_inputs(&[output]).expect_err("output must be rejected");
+
+        assert!(failure.to_string().contains("endpoint.invalid_contract"));
     }
 }

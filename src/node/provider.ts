@@ -425,16 +425,13 @@ export class OperatorFactory {
     this.drainQueued = options.drainQueued ?? false;
     this.continueOnFailure = options.continueOnFailure ?? false;
     this.terminalRoles = Object.freeze([...(options.terminalRoles ?? [])]);
-    requirePositiveInteger('revision', this.revision);
-    requirePositiveInteger('generation', this.generation);
-    requirePositiveInteger('queueCapacity', this.queueCapacity);
-    if (this.queueCapacity > 1024) throw new RangeError('queueCapacity cannot exceed 1024');
+    requirePositiveU32('revision', this.revision);
+    requirePositiveU32('generation', this.generation);
+    requirePositiveSafeInteger('queueCapacity', this.queueCapacity);
     if (!Number.isInteger(this.deadlineMs) || this.deadlineMs < 1 || this.deadlineMs > 300_000) {
       throw new RangeError('deadlineMs must be an integer from 1 through 300000');
     }
-    if (!Number.isInteger(this.processTimeoutMs) || this.processTimeoutMs < 1 || this.processTimeoutMs > 300_000) {
-      throw new RangeError('processTimeoutMs must be an integer from 1 through 300000');
-    }
+    requirePositiveU32('processTimeoutMs', this.processTimeoutMs);
     if (this.inputs.length === 0 || this.outputs.length === 0) {
       throw new TypeError('An Operator needs at least one input and one output');
     }
@@ -473,7 +470,7 @@ export class OperatorFactory {
       this.generation,
       this.inputs.map((port) => port._nativeHandle()),
       this.outputs.map((port) => port._nativeHandle()),
-      this.queueCapacity,
+      this.queueCapacity.toString(),
       this.processTimeoutMs,
       this.networkAllowed,
       this.filesystemAllowed,
@@ -1089,5 +1086,17 @@ function optionalU64(value: bigint | undefined, name: string): bigint | undefine
 function requirePositiveInteger(name: string, value: number): void {
   if (!Number.isInteger(value) || value < 1) {
     throw new RangeError(`${name} must be a positive integer`);
+  }
+}
+
+function requirePositiveSafeInteger(name: string, value: number): void {
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new RangeError(`${name} must be a positive safe integer`);
+  }
+}
+
+function requirePositiveU32(name: string, value: number): void {
+  if (!Number.isInteger(value) || value < 1 || value > 0xffff_ffff) {
+    throw new RangeError(`${name} must be a positive unsigned 32-bit integer`);
   }
 }
