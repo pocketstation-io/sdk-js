@@ -4,17 +4,23 @@ import { join } from 'node:path';
 import { setTimeout as wait } from 'node:timers/promises';
 
 import {
+  EndpointObservationStage,
   evaluateSourceActivity,
   evaluateSourceSignal,
+  RecordingDiscontinuityKind,
+  RecordingState,
+  RouteLatencyMeasurement,
+  RouteLatencyUnit,
+  RouteObservationInterval,
   SampleRepresentation,
   Session,
   SessionTrace,
+  SessionTraceConfiguration,
+  SessionTraceRecordType,
   Source,
+  TerminationDisposition,
 } from '../node/index.js';
-import type {
-  SourceActivityObservation,
-  SourceSignalObservation,
-} from '../node/index.js';
+import type { SourceActivityObservation, SourceSignalObservation } from '../node/index.js';
 import type {
   NativeEventQueueMetrics,
   NativeLatencyHistogram,
@@ -22,10 +28,7 @@ import type {
   NativeRouteDeliveryMetrics,
   NativeSessionMetrics,
 } from '../node/native.js';
-import {
-  _captureNativeFormatFromNative,
-  _sessionMetricsFromNative,
-} from '../node/observations.js';
+import { _captureNativeFormatFromNative, _sessionMetricsFromNative } from '../node/observations.js';
 
 const ZERO_LATENCY: NativeLatencyHistogram = {
   samplesTotal: '0',
@@ -144,6 +147,36 @@ function fixture(counter = '0'): NativeSessionMetrics {
 }
 
 describe('Session observations', () => {
+  it('exports exact native observation values and finite trace configuration', () => {
+    expect(EndpointObservationStage.FINALIZED).toBe('finalized');
+    expect(RecordingState.INCOMPLETE).toBe('incomplete');
+    expect(RecordingDiscontinuityKind.SEQUENCE_GAP).toBe('sequence-gap');
+    expect(RouteObservationInterval.ROUTE_LIFETIME_TO_SNAPSHOT).toBe(
+      'route-lifetime-to-snapshot',
+    );
+    expect(RouteLatencyMeasurement.SOURCE_TIMESTAMP_TO_ROUTE_RECEIVE).toBe(
+      'source-monotonic-timestamp-to-route-receive',
+    );
+    expect(RouteLatencyUnit.NANOSECONDS).toBe('nanoseconds');
+    expect(SessionTraceRecordType.FINALIZATION_FAILURE).toBe(
+      'finalization-failure',
+    );
+    expect(TerminationDisposition.ALREADY_STOPPED).toBe('already-stopped');
+    expect(new SessionTraceConfiguration('/tmp/session.pkst').capacityRecords).toBe(256);
+    for (const path of ['', ' ', '\t']) {
+      expect(() => new SessionTraceConfiguration(path)).toThrow(
+        'trace path cannot be empty',
+      );
+      expect(() => SessionTrace.read(path)).toThrow('trace path cannot be empty');
+    }
+    for (const capacity of [0, -1, 1.5, 1_000_001, true]) {
+      expect(() => new SessionTraceConfiguration(
+        '/tmp/session.pkst',
+        capacity as number,
+      )).toThrow('between 1 and 1000000');
+    }
+  });
+
   it('reads immutable native metrics while a Session is running and after stop', async () => {
     const session = Session._conformance();
     const stem = session.capture(Source.defaultMicrophone());
@@ -151,22 +184,13 @@ describe('Session observations', () => {
     const running = await session.start();
 
     await wait(30);
+
     const live = await running.metrics();
-    await expect(
-      running.replaceMicrophoneSource(stem, Source.systemAudio()),
-    ).rejects.toThrow('Replacement Source must select a microphone');
+    await expect(running.replaceMicrophoneSource(stem, Source.systemAudio())).rejects.toThrow('Replacement Source must select a microphone');
     const foreignStem = new Session().capture(Source.microphoneDefault());
-    await expect(
-      running.reopenMicrophoneSource(foreignStem, Source.microphoneDefault()),
-    ).rejects.toThrow('Stem belongs to a different Session');
-    const replacement = await running.replaceMicrophoneSource(
-      stem,
-      Source.microphoneId('fixture-microphone'),
-    );
-    const reopened = await running.reopenMicrophoneSource(
-      stem,
-      Source.microphoneDefault(),
-    );
+    await expect(running.reopenMicrophoneSource(foreignStem, Source.microphoneDefault())).rejects.toThrow('Stem belongs to a different Session');
+    const replacement = await running.replaceMicrophoneSource(stem, Source.microphoneId('fixture-microphone'));
+    const reopened = await running.reopenMicrophoneSource(stem, Source.microphoneDefault());
     const changed = await running.metrics();
     const stopped = await running.stop();
 
@@ -177,21 +201,21 @@ describe('Session observations', () => {
     expect(Object.isFrozen(live)).toBe(true);
     expect(Object.isFrozen(live.routes)).toBe(true);
     expect(Object.isFrozen(live.routes[0])).toBe(true);
-    expect(live.sourceNativeFormats).toEqual([
-      {
-        stemId: stem.id,
-        openedNativeFormat: {
-          sampleRateHz: 48_000,
-          channelCount: 1,
-          sampleRepresentation: 'float-32',
-        },
+    expect(live.sourceNativeFormats).toEqual([{
+      stemId: stem.id,
+      openedNativeFormat: {
+        sampleRateHz: 48_000,
+        channelCount: 1,
+        sampleRepresentation: 'float-32',
       },
-    ]);
+    }]);
     expect(live.sourceActivities[0]?.framesReceivedTotal).toBeGreaterThan(0n);
     expect(live.sourceSignals[0]?.windowSamplesTotal).toBeGreaterThan(0n);
     expect(live.sourceSignals[0]?.windowPeakLinear).toBeCloseTo(0.5);
+    expect(replacement.stemId).toBe(stem.id);
     expect(replacement.requestedSelectorKind).toBe('microphone-id');
     expect(replacement.requestedDeviceId).toBe('fixture-microphone');
+    expect(replacement.sourceGeneration).toBeGreaterThan(0);
     expect(reopened.requestedSelectorKind).toBe('microphone-default');
     expect(reopened.sourceGeneration).toBeGreaterThan(replacement.sourceGeneration);
     expect(changed.sourceReplacements[0]?.completedTotal).toBe(2n);
@@ -204,43 +228,59 @@ describe('Session observations', () => {
     expect(Object.isFrozen(stopped)).toBe(true);
   });
 
-  it('evaluates activity boundaries with unsigned nanosecond policies', () => {
+  it('evaluates activity and signal using only caller-supplied thresholds', () => {
     const activity: SourceActivityObservation = {
+      sessionStartedAtNs: 100n, observedAtNs: 200n,
+      framesReceivedTotal: 0n,
+    };
+    expect(evaluateSourceActivity(activity, { firstFrameTimeoutNs: 101n, stallTimeoutNs: 20n }).state).toBe('awaiting-first-frame');
+    expect(evaluateSourceActivity(activity, { firstFrameTimeoutNs: 100n, stallTimeoutNs: 20n }).state).toBe('first-frame-timed-out');
+    expect(evaluateSourceActivity({ ...activity, latestFrameReceivedAtNs: 181n }, { firstFrameTimeoutNs: 100n, stallTimeoutNs: 20n }).state).toBe('active');
+    expect(evaluateSourceActivity({ ...activity, latestFrameReceivedAtNs: 180n }, { firstFrameTimeoutNs: 100n, stallTimeoutNs: 20n }).state).toBe('stalled');
+    expect(() => evaluateSourceActivity(activity, { firstFrameTimeoutNs: 0n, stallTimeoutNs: 20n })).toThrow(RangeError);
+
+    const signal: SourceSignalObservation = {
+      observedAtNs: 200n, samplesObservedTotal: 0n, exactZeroSamplesObservedTotal: 0n,
+      nonzeroSamplesObservedTotal: 0n, nonfiniteSamplesObservedTotal: 0n,
+      windowDurationNs: 0n, windowSourceGeneration: 0, windowDiscontinuityEpoch: 0n,
+      windowSamplesTotal: 0n, windowExactZeroSamplesTotal: 0n, windowNonzeroSamplesTotal: 0n,
+      windowNonfiniteSamplesTotal: 0n, consecutiveExactZeroDurationNs: 0n,
+    };
+    const policy = { minimumPeakDbfs: -40, minimumRmsDbfs: -50, exactZeroTimeoutNs: 40n };
+    expect(evaluateSourceSignal(signal, policy).state).toBe('no-samples-observed');
+    expect(evaluateSourceSignal({ ...signal, windowSamplesTotal: 2n, windowExactZeroSamplesTotal: 2n, consecutiveExactZeroDurationNs: 39n }, policy).state).toBe('exact-digital-zero-pending');
+    expect(evaluateSourceSignal({ ...signal, windowSamplesTotal: 2n, windowExactZeroSamplesTotal: 2n, consecutiveExactZeroDurationNs: 40n }, policy).state).toBe('sustained-exact-digital-zero');
+    expect(evaluateSourceSignal({ ...signal, windowSamplesTotal: 2n, windowNonzeroSamplesTotal: 2n, windowPeakDbfs: -30, windowRmsDbfs: -40 }, policy).state).toBe('meets-caller-thresholds');
+    expect(evaluateSourceSignal({ ...signal, windowSamplesTotal: 2n, windowNonzeroSamplesTotal: 2n, windowPeakDbfs: -60, windowRmsDbfs: -70 }, policy).state).toBe('below-caller-thresholds');
+    expect(evaluateSourceSignal({ ...signal, windowSamplesTotal: 2n, windowNonfiniteSamplesTotal: 1n }, policy).state).toBe('nonfinite-samples-observed');
+    expect(() => evaluateSourceSignal(signal, { ...policy, minimumPeakDbfs: Number.NaN })).toThrow(RangeError);
+  });
+
+  it('rejects every out-of-range source-activity policy value', () => {
+    const observation: SourceActivityObservation = {
       sessionStartedAtNs: 100n,
       observedAtNs: 200n,
       framesReceivedTotal: 0n,
     };
-    expect(
-      evaluateSourceActivity(activity, {
-        firstFrameTimeoutNs: 101n,
-        stallTimeoutNs: 1n,
-      }).state,
-    ).toBe('awaiting-first-frame');
-    expect(
-      evaluateSourceActivity(activity, {
-        firstFrameTimeoutNs: 100n,
-        stallTimeoutNs: 1n,
-      }).state,
-    ).toBe('first-frame-timed-out');
     const maximum = 18_446_744_073_709_551_615n;
-    expect(() =>
-      evaluateSourceActivity(activity, {
-        firstFrameTimeoutNs: maximum,
-        stallTimeoutNs: maximum,
-      }),
-    ).not.toThrow();
+    expect(() => evaluateSourceActivity(observation, {
+      firstFrameTimeoutNs: maximum,
+      stallTimeoutNs: maximum,
+    })).not.toThrow();
     for (const invalid of [0n, maximum + 1n, true, 1]) {
-      expect(() =>
-        evaluateSourceActivity(activity, {
-          firstFrameTimeoutNs: invalid as bigint,
-          stallTimeoutNs: 1n,
-        }),
-      ).toThrow(RangeError);
+      expect(() => evaluateSourceActivity(observation, {
+        firstFrameTimeoutNs: invalid as bigint,
+        stallTimeoutNs: 1n,
+      })).toThrow(RangeError);
+      expect(() => evaluateSourceActivity(observation, {
+        firstFrameTimeoutNs: 1n,
+        stallTimeoutNs: invalid as bigint,
+      })).toThrow(RangeError);
     }
   });
 
-  it('evaluates measured signal boundaries without automatic recovery', () => {
-    const signal: SourceSignalObservation = {
+  it('rejects every out-of-range source-signal policy value', () => {
+    const observation: SourceSignalObservation = {
       observedAtNs: 200n,
       samplesObservedTotal: 2n,
       exactZeroSamplesObservedTotal: 2n,
@@ -255,64 +295,37 @@ describe('Session observations', () => {
       windowNonfiniteSamplesTotal: 0n,
       consecutiveExactZeroDurationNs: 40n,
     };
-    const policy = {
+    const base = {
       minimumPeakDbfs: -40,
       minimumRmsDbfs: -50,
       exactZeroTimeoutNs: 40n,
     };
-    expect(evaluateSourceSignal(signal, policy).state).toBe(
-      'sustained-exact-digital-zero',
-    );
-    expect(
-      evaluateSourceSignal(
-        {
-          ...signal,
-          windowExactZeroSamplesTotal: 0n,
-          windowNonzeroSamplesTotal: 2n,
-          windowPeakDbfs: -30,
-          windowRmsDbfs: -40,
-        },
-        policy,
-      ).state,
-    ).toBe('meets-caller-thresholds');
-    for (const value of [Number.NaN, Number.POSITIVE_INFINITY, 0.1]) {
-      expect(() =>
-        evaluateSourceSignal(signal, { ...policy, minimumPeakDbfs: value }),
-      ).toThrow(RangeError);
-      expect(() =>
-        evaluateSourceSignal(signal, { ...policy, minimumRmsDbfs: value }),
-      ).toThrow(RangeError);
+    for (const invalid of [Number.NaN, Number.POSITIVE_INFINITY, 0.1]) {
+      expect(() => evaluateSourceSignal(observation, {
+        ...base,
+        minimumPeakDbfs: invalid,
+      })).toThrow(RangeError);
+      expect(() => evaluateSourceSignal(observation, {
+        ...base,
+        minimumRmsDbfs: invalid,
+      })).toThrow(RangeError);
     }
     for (const invalid of [0n, 18_446_744_073_709_551_616n, false, 1]) {
-      expect(() =>
-        evaluateSourceSignal(signal, {
-          ...policy,
-          exactZeroTimeoutNs: invalid as bigint,
-        }),
-      ).toThrow(RangeError);
+      expect(() => evaluateSourceSignal(observation, {
+        ...base,
+        exactZeroTimeoutNs: invalid as bigint,
+      })).toThrow(RangeError);
     }
   });
 
-  it('preserves every native sample representation and rejects unknown values', () => {
+  it('preserves all Core native PCM representations and rejects unknown ones', () => {
     for (const sampleRepresentation of Object.values(SampleRepresentation)) {
-      expect(
-        _captureNativeFormatFromNative({
-          sampleRateHz: 48_000,
-          channelCount: 2,
-          sampleRepresentation,
-        }).sampleRepresentation,
-      ).toBe(sampleRepresentation);
+      expect(_captureNativeFormatFromNative({ sampleRateHz: 48_000, channelCount: 2, sampleRepresentation }).sampleRepresentation).toBe(sampleRepresentation);
     }
-    expect(() =>
-      _captureNativeFormatFromNative({
-        sampleRateHz: 48_000,
-        channelCount: 2,
-        sampleRepresentation: 'future-format',
-      }),
-    ).toThrow('unknown native PCM sample representation');
+    expect(() => _captureNativeFormatFromNative({ sampleRateHz: 48_000, channelCount: 2, sampleRepresentation: 'future-format' })).toThrow('unknown native PCM sample representation');
   });
 
-  it('rejects replacement and reopen after stop or cancel', async () => {
+  it('rejects microphone replacement and reopen after stop or cancel', async () => {
     for (const disposition of ['stop', 'cancel'] as const) {
       const session = Session._conformance();
       const stem = session.capture(Source.microphoneDefault());
@@ -349,6 +362,11 @@ describe('Session observations', () => {
     expect(() =>
       _sessionMetricsFromNative({ ...fixture(), routeCount: '2' }),
     ).toThrow('metrics counts are inconsistent');
+    expect(() =>
+      _sessionMetricsFromNative({ ...fixture(), sourceActivity: [{
+        sessionStartedAtNs: '0', observedAtNs: '0', framesReceivedTotal: '0',
+      }] }),
+    ).toThrow('source observation counts are inconsistent');
   });
 
   it('returns recording and trace artifacts after finalization', async () => {

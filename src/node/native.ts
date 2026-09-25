@@ -603,6 +603,9 @@ export interface NativeSignalLineage {
   streamId: string;
   sourceId: string;
   clockId: number;
+  clockKind: string;
+  clockOrigin: string;
+  clockTickRateHz?: string | null;
   sequenceNumber: string;
   sourceGeneration: number;
   discontinuityEpoch: string;

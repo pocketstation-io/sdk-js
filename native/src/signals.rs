@@ -457,6 +457,9 @@ pub struct NativeSignalLineage {
     pub stream_id: String,
     pub source_id: String,
     pub clock_id: u32,
+    pub clock_kind: String,
+    pub clock_origin: String,
+    pub clock_tick_rate_hz: Option<String>,
     pub sequence_number: String,
     pub source_generation: u32,
     pub discontinuity_epoch: String,
@@ -531,11 +534,25 @@ fn copy_timing(value: pocketstation::SignalTiming) -> NativeSignalTiming {
 }
 
 fn copy_lineage(value: pocketstation::SignalLineage) -> NativeSignalLineage {
+    let clock = pocketstation::timing::describe_clock_domain(value.clock_id());
+    let clock_kind = match clock.kind() {
+        pocketstation::timing::ClockDomainKind::Unspecified => "unspecified",
+        pocketstation::timing::ClockDomainKind::ProcessMonotonic => "process-monotonic",
+        pocketstation::timing::ClockDomainKind::ProviderDefined => "provider-defined",
+    };
+    let clock_origin = match clock.origin() {
+        pocketstation::timing::ClockDomainOrigin::Unspecified => "unspecified",
+        pocketstation::timing::ClockDomainOrigin::ProcessStart => "process-start",
+        pocketstation::timing::ClockDomainOrigin::ProviderDefined => "provider-defined",
+    };
     NativeSignalLineage {
         session_id: value.session_id().get().to_string(),
         stream_id: value.stream_id().get().to_string(),
         source_id: value.source_id().get().to_string(),
         clock_id: value.clock_id().get(),
+        clock_kind: clock_kind.to_owned(),
+        clock_origin: clock_origin.to_owned(),
+        clock_tick_rate_hz: clock.tick_rate_hz().map(|value| value.to_string()),
         sequence_number: value.sequence_number().to_string(),
         source_generation: value.source_generation(),
         discontinuity_epoch: value.discontinuity_epoch().to_string(),

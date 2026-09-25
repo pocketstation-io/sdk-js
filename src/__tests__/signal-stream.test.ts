@@ -4,11 +4,47 @@ import {
   Operator,
   Session,
   SignalSpec,
+  SignalStream,
   Source,
+  STREAM_EOF,
   StreamAbortError,
+  StreamError,
 } from '../node/index.js';
+import { _envelopeFromNative } from '../node/signals.js';
+import type {
+  NativeBusSubscriptionHandle,
+  NativeRunningSessionHandle,
+} from '../node/native.js';
+
+const TEST_SUBSCRIPTION = {
+  _nativeHandle: () => ({ id: '1', sessionId: '1', routeId: '1' }) as NativeBusSubscriptionHandle,
+} as Parameters<typeof SignalStream._create>[1];
 
 describe('typed signal streams', () => {
+  it.each(['audio', 'text', 'bytes', 'future'])(
+    'rejects malformed native %s payloads with the shared stream code',
+    (payloadKind) => {
+      expect(() => _envelopeFromNative({
+        signalKind: 'text',
+        signalFormat: 'utf8',
+        signalWireId: SignalSpec.text().wireId,
+        timing: { observedTimestampNs: '0' },
+        payloadKind,
+      })).toThrow(StreamError);
+      try {
+        _envelopeFromNative({
+          signalKind: 'text',
+          signalFormat: 'utf8',
+          signalWireId: SignalSpec.text().wireId,
+          timing: { observedTimestampNs: '0' },
+          payloadKind,
+        });
+      } catch (error) {
+        expect(error).toMatchObject({ code: 'stream.invalid_read' });
+      }
+    },
+  );
+
   it('reads audio, text, and bytes from real Core Operators', async () => {
     const session = Session._conformance();
     const source = session.capture(Source.defaultMicrophone());
@@ -58,6 +94,16 @@ describe('typed signal streams', () => {
     expect(textValue.payload.kind).toBe('text');
     expect(bytesValue.payload.kind).toBe('bytes');
     expect(audioValue.lineage).toBeDefined();
+    expect(audioValue.lineage?.clock.id).toBe(audioValue.lineage?.clockId);
+    expect(audioValue.lineage?.clock.kind).toBe('process-monotonic');
+    if (audioValue.payload.kind !== 'audio') {
+      throw new Error('expected audio payload');
+    }
+    expect(audioValue.payload.sampleFormat).toBe('f32le');
+    expect(audioValue.payload.sampleCount).toBe(audioValue.payload.samples.length);
+    expect(audioValue.payload.samplesF32le.byteLength).toBe(
+      audioValue.payload.sampleCount * Float32Array.BYTES_PER_ELEMENT,
+    );
     expect(audioValue.derivation?.operatorId).toContain('audio-pass-through');
     expect(textValue.derivation?.operatorId).toContain('audio-to-text');
     expect(bytesValue.derivation?.operatorId).toContain('audio-to-bytes');
@@ -67,9 +113,24 @@ describe('typed signal streams', () => {
       expect(value.receivedTotal).toBeGreaterThanOrEqual(1n);
     }
     expect(result.success).toBe(true);
+    expect(STREAM_EOF).toBe(END_OF_STREAM);
     for (const stream of streams) {
       await expect(stream.read({ timeoutMs: 0 })).resolves.toBe(END_OF_STREAM);
     }
+  });
+
+  it('exposes the canonical route settings on a BusSubscription', () => {
+    const session = Session._conformance();
+    const source = session.capture(Source.defaultMicrophone());
+    const audio = source.through(
+      new Operator(
+        'org.pocketstation.javascript.conformance.audio-pass-through.v1',
+      ),
+      { input: 'audio-in', output: 'audio-out' },
+    );
+    const subscription = session.subscribe(audio, { signal: SignalSpec.audio() });
+
+    expect(subscription.routeSettings).toBe(subscription.route);
   });
 
   it('returns the same stream and closes one subscription without stopping the Session', async () => {
@@ -146,6 +207,39 @@ describe('typed signal streams', () => {
       running.signals(subscription).read({ signal: controller.signal }),
     ).rejects.toBeInstanceOf(StreamAbortError);
     expect((await running.stop()).success).toBe(true);
+  });
+
+  it('preserves a signal accepted while its read is aborted', async () => {
+    let release: (() => void) | undefined;
+    const wait = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const running = {
+      readSignal: async () => {
+        await wait;
+        return {
+          status: 'item',
+          envelope: {
+            signalKind: 'text',
+            signalFormat: 'utf8',
+            signalWireId: SignalSpec.text().wireId,
+            timing: { observedTimestampNs: '13' },
+            payloadKind: 'text',
+            text: 'retained',
+          },
+        };
+      },
+    } as NativeRunningSessionHandle;
+    const stream = SignalStream._create(running, TEST_SUBSCRIPTION);
+    const controller = new AbortController();
+    const read = stream.read({ signal: controller.signal });
+    controller.abort('test complete');
+    release?.();
+
+    await expect(read).rejects.toBeInstanceOf(StreamAbortError);
+    await expect(stream.read()).resolves.toMatchObject({
+      payload: { kind: 'text', text: 'retained' },
+    });
   });
 
   it('rejects zero-timeout iteration instead of spinning', async () => {

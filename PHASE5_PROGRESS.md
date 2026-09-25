@@ -1065,3 +1065,22 @@ registry build remains `BLOCKED` on PocketStation Core `1.1.11` publication.
 - TypeScript checking, focused Session/audio-input tests, and the clean packed
   wheel/npm cross-language consumer pass. The result is `LOOPBACK-ONLY` and
   makes no physical-device, browser, network, or release claim.
+
+## 2026-09-25: stream, recording, and observation parity
+
+- Audio, signal, and Session-event reads use a 100 ms default and distinguish
+  finite timeout from sticky end of stream. Frames already copied from a
+  terminal native batch are drained before EOF.
+- If an AbortSignal races with native delivery, the cancelled read still
+  rejects while the accepted audio, signal, or event remains available to the
+  next reader. Retention is finite and covered by controlled race tests.
+- Stop results expose the terminal Session state, retained terminal event, and
+  exactly one of final metrics or an explicit unavailable reason. Ambiguous
+  native outcomes fail with `session.invalid_stop_result`.
+- Projected Session events and trace records use the precise `type` field;
+  externally defined native fields retain their specified names.
+- Trace paths reject blank values and trace capacity is restricted to
+  1 through 1,000,000 records.
+- TypeScript, Node API extraction, and all 31 candidate JavaScript suites pass:
+  372 tests pass. Installed npm-tarball comparison is
+  owned by the Lab referee and is not a publication or platform claim.

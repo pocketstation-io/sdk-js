@@ -24,6 +24,7 @@ const STOP_RESULT: NativeStopResult = {
   sourceSendRejectionsTotal: '0',
   runtimeEventsTotal: '0',
   sidecarOutcomes: [],
+  metricsUnavailableReason: 'fixture does not provide final metrics',
   remainingEvents: [],
 };
 
@@ -105,7 +106,16 @@ describe('native Node Session', () => {
       expect(running.sessionId).toBe(session.id);
       expect(await running.state()).toBe('running');
       expect(await running.isStopped()).toBe(false);
-      await running.metrics();
+      const metrics = await running.metrics();
+      expect(metrics.audioQueueCapacityFrames).toBe(
+        metrics.polledAudio.queueCapacityFrames,
+      );
+      expect(metrics.audioQueueFullDropsTotal).toBe(
+        metrics.polledAudio.queueFullDropsTotal,
+      );
+      expect(metrics.routes[0]?.queueCapacityFrames).toBe(
+        metrics.routes[0]?.delivery.queueCapacityFrames,
+      );
       input.close();
     });
 
@@ -178,4 +188,25 @@ describe('native Node Session', () => {
     });
     expect(attempts).toBe(2);
   });
+
+  it.each([
+    { metrics: undefined, metricsUnavailableReason: undefined },
+    { metrics: {} as never, metricsUnavailableReason: 'both were supplied' },
+  ])(
+    'rejects an ambiguous native final-metrics outcome',
+    async ({ metrics, metricsUnavailableReason }) => {
+      const native = {
+        sessionId: '1',
+        readAudio: async () => ({ frames: [], sessionState: 'running' }),
+        monotonicTimestampNs: () => '0',
+        readEvent: async () => ({ sessionState: 'running' }),
+        stop: async () => ({ ...STOP_RESULT, metrics, metricsUnavailableReason }),
+        cancel: async () => STOP_RESULT,
+      } as NativeRunningSessionHandle;
+
+      await expect(RunningSession._create(native).stop()).rejects.toMatchObject({
+        code: 'session.invalid_stop_result',
+      });
+    },
+  );
 });
