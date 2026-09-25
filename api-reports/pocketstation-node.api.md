@@ -2606,15 +2606,24 @@ export abstract class RunningEndpointDriver {
 export class RunningSession implements AsyncDisposable {
     [Symbol.asyncDispose](): Promise<void>;
     readonly audio: AudioStream;
+    audioBatches(options?: StreamReadOptions): AsyncGenerator<AudioBatch>;
     cancel(): Promise<StopResult>;
+    close(): Promise<void>;
     readonly events: EventStream;
+    isStopped(): Promise<boolean>;
     metrics(): Promise<SessionMetrics>;
+    pollAudio(options?: Omit<StreamReadOptions, 'timeoutMs'>): Promise<AudioBatch | undefined>;
+    pollEvent(options?: Omit<EventReadOptions, 'timeoutMs'>): Promise<SessionEvent | undefined>;
     reopenMicrophoneSource(stem: Stem, source: Source): Promise<SourceReplacement>;
     replaceMicrophoneSource(stem: Stem, source: Source): Promise<SourceReplacement>;
     get sessionId(): RuntimeSessionId;
     sidecar(handle: SidecarHandle): SidecarConnection;
     signals(subscription: BusSubscription): SignalStream;
+    state(): Promise<SessionState>;
     stop(): Promise<StopResult>;
+    get stopResult(): StopResult | undefined;
+    waitAudio(options?: StreamReadOptions): Promise<AudioBatch | undefined>;
+    waitEvent(options?: EventReadOptions): Promise<SessionEvent | undefined>;
 }
 
 // @public

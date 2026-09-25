@@ -98,15 +98,40 @@ describe('native Node Session', () => {
     const session = Session._conformance();
     const input = session.audioInput('test input');
     input.output.send(session.audio());
+    let active: RunningSession | undefined;
 
     const result = await session.run(async (running) => {
+      active = running;
       expect(running.sessionId).toBe(session.id);
+      expect(await running.state()).toBe('running');
+      expect(await running.isStopped()).toBe(false);
       await running.metrics();
       input.close();
     });
 
     expect(result.disposition).toBe('stopped');
     expect(result.success).toBe(true);
+    expect(active?.stopResult).toBe(result);
+    await expect(active?.isStopped()).resolves.toBe(true);
+  });
+
+  it('Provides bounded Python-equivalent Session convenience methods', async () => {
+    const session = Session._conformance();
+    const input = session.audioInput('compatibility input', {
+      frameSamplesPerChannel: 4,
+    });
+    input.output.send(session.audio());
+    const running = await session.start();
+
+    input.tryWrite(new Float32Array([0.1, 0.2, 0.3, 0.4]));
+    input.close();
+    const frame = await running.waitAudio({ timeoutMs: 1_000 });
+
+    expect(frame?.length).toBe(1);
+    await expect(running.pollAudio()).resolves.toBeUndefined();
+    await expect(running.pollEvent()).resolves.toBeDefined();
+    await running.close();
+    expect(running.stopResult?.success).toBe(true);
   });
 
   it('Given failed Session work When run Then the Session is cancelled before rethrow', async () => {
@@ -135,6 +160,7 @@ describe('native Node Session', () => {
       readAudio: async () => ({ frames: [], sessionState: 'running' }),
       monotonicTimestampNs: () => '0',
       readEvent: async () => ({ sessionState: 'running' }),
+      lifecycleState: async () => 'running',
       stop: async () => {
         attempts += 1;
         if (attempts === 1) {

@@ -1195,6 +1195,7 @@ export interface NativeRunningSessionHandle {
   ): Promise<void>;
   readSidecar(sidecarId: string, timeoutMs: number): Promise<NativeSidecarRead>;
   sidecarSnapshot(sidecarId: string): Promise<NativeSidecarSnapshot>;
+  lifecycleState(): Promise<string>;
   stop(): Promise<NativeStopResult>;
   cancel(): Promise<NativeStopResult>;
 }

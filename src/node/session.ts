@@ -43,8 +43,19 @@ import {
 } from './graph.js';
 import { Source, nativeSource } from './sources.js';
 import { RuntimeSessionId, SourceId, StemId } from './identity.js';
-import { AudioStream } from './streams.js';
-import { _eventFromNative, EventStream, type TerminalEvent } from './events.js';
+import {
+  AudioStream,
+  type AudioBatch,
+  type StreamReadOptions,
+} from './streams.js';
+import {
+  _eventFromNative,
+  EventStream,
+  type EventReadOptions,
+  type SessionEvent,
+  type SessionState,
+  type TerminalEvent,
+} from './events.js';
 import {
   BusSubscription,
   SignalStream,
@@ -802,6 +813,22 @@ function terminalSessionState(value: string): StopResult['sessionState'] {
   );
 }
 
+function runningSessionState(value: string): SessionState {
+  if (
+    value === 'starting' ||
+    value === 'running' ||
+    value === 'stopping' ||
+    value === 'stopped' ||
+    value === 'failed'
+  ) {
+    return value;
+  }
+  throw new PocketStationError(
+    'session.invalid_state',
+    `Native Session returned an unknown lifecycle state: ${value}`,
+  );
+}
+
 /** Owns a started native Session until it is stopped or cancelled. */
 export class RunningSession implements AsyncDisposable {
   readonly #native: NativeRunningSessionHandle;
@@ -810,6 +837,7 @@ export class RunningSession implements AsyncDisposable {
   /** Lifecycle and failure events reported by the native Session. */
   readonly events: EventStream;
   #finish: Promise<StopResult> | undefined;
+  #stopResult: StopResult | undefined;
   readonly #signalStreams = new Map<bigint, SignalStream>();
   readonly #sidecars = new Map<bigint, SidecarConnection>();
   readonly #providers: readonly { _abort(reason?: unknown): void }[];
@@ -835,6 +863,55 @@ export class RunningSession implements AsyncDisposable {
   /** Native Session identity. */
   public get sessionId(): RuntimeSessionId {
     return RuntimeSessionId(BigInt(this.#native.sessionId));
+  }
+
+  /** Authoritative native lifecycle state. */
+  public async state(): Promise<SessionState> {
+    if (this.#stopResult !== undefined) return this.#stopResult.sessionState;
+    if (this.#finish !== undefined) return (await this.#finish).sessionState;
+    return runningSessionState(
+      await nativeCall(() => this.#native.lifecycleState()),
+    );
+  }
+
+  /** Whether the native Session has reached a terminal state. */
+  public async isStopped(): Promise<boolean> {
+    const state = await this.state();
+    return state === 'stopped' || state === 'failed';
+  }
+
+  /** Cached terminal outcome, once stop or cancel completes. */
+  public get stopResult(): StopResult | undefined {
+    return this.#stopResult;
+  }
+
+  /** Read one native audio batch immediately. */
+  public pollAudio(
+    options: Omit<StreamReadOptions, 'timeoutMs'> = {},
+  ): Promise<AudioBatch | undefined> {
+    return this.audio.pollBatch(options);
+  }
+
+  /** Wait a finite time for one native audio batch. */
+  public waitAudio(options: StreamReadOptions = {}): Promise<AudioBatch | undefined> {
+    return this.audio.readBatch(options);
+  }
+
+  /** Iterate native audio batches without adding a JavaScript queue. */
+  public audioBatches(options: StreamReadOptions = {}): AsyncGenerator<AudioBatch> {
+    return this.audio.batches(options);
+  }
+
+  /** Read one Session event immediately. */
+  public pollEvent(
+    options: Omit<EventReadOptions, 'timeoutMs'> = {},
+  ): Promise<SessionEvent | undefined> {
+    return this.events.read({ ...options, timeoutMs: 0 });
+  }
+
+  /** Wait a finite time for one Session event. */
+  public waitEvent(options: EventReadOptions = {}): Promise<SessionEvent | undefined> {
+    return this.events.read(options);
   }
 
   /** Open the async stream declared by `Session.subscribe()`. */
@@ -922,6 +999,11 @@ export class RunningSession implements AsyncDisposable {
     return this.#finishSession('cancel');
   }
 
+  /** Deterministically stop the Session. */
+  public async close(): Promise<void> {
+    await this.stop();
+  }
+
   /** Stop the Session when used with `await using`. */
   public async [Symbol.asyncDispose](): Promise<void> {
     await this.stop();
@@ -939,7 +1021,9 @@ export class RunningSession implements AsyncDisposable {
           for (const sidecar of this.#sidecars.values()) {
             sidecar._close();
           }
-          return stopResultFromNative(result);
+          const projected = stopResultFromNative(result);
+          this.#stopResult = projected;
+          return projected;
         })
         .catch((failure: unknown) => {
           this.#finish = undefined;
