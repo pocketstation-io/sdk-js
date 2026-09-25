@@ -1238,6 +1238,11 @@ export class Session {
     );
   }
 
+  /** Declare the bounded managed-language polling Endpoint. */
+  public polledAudio(route?: RouteSettings): Endpoint {
+    return this.audio(route);
+  }
+
   /** Publish one or more named audio buses through one native Relay connection. */
   public relay(options: RelayPublisherOptions): RelayPublisher {
     validateRelayPublisherOptions(options);
