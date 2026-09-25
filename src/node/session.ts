@@ -821,6 +821,12 @@ export class DerivedStream {
 }
 
 function stopResultFromNative(result: NativeStopResult): StopResult {
+  if ((result.metrics == null) === (result.metricsUnavailableReason == null)) {
+    throw new PocketStationError(
+      'session.invalid_stop_result',
+      'Native stop result must contain final metrics or an unavailable reason',
+    );
+  }
   let terminalEvent: TerminalEvent | undefined;
   for (let index = result.remainingEvents.length - 1; index >= 0; index -= 1) {
     const event = result.remainingEvents[index];
@@ -984,7 +990,7 @@ export class RunningSession implements AsyncDisposable {
   public pollEvent(
     options: Omit<EventReadOptions, 'timeoutMs'> = {},
   ): Promise<SessionEvent | undefined> {
-    return this.events.read({ ...options, timeoutMs: 0 });
+    return this.events.poll(options);
   }
 
   /** Wait a finite time for one Session event. */

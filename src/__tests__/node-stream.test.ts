@@ -29,6 +29,7 @@ const STOP_RESULT: NativeStopResult = {
   sourceSendRejectionsTotal: '0',
   runtimeEventsTotal: '0',
   sidecarOutcomes: [],
+  metricsUnavailableReason: 'fixture does not provide final metrics',
   remainingEvents: [],
 };
 
@@ -332,7 +333,7 @@ describe('Node audio stream', () => {
     expect(result).not.toBe(END_OF_STREAM);
     expect(result).toBeDefined();
     if (result !== undefined && result !== END_OF_STREAM) {
-      expect(result.samplesF32Le.byteLength).toBe(8);
+      expect(result.samplesF32le.byteLength).toBe(8);
       expect([...result.samples]).toEqual([0.25, -0.25]);
     }
   });
@@ -411,7 +412,7 @@ describe('Node audio stream', () => {
         expect(frame.endpointEnqueuedAtNs).toBeDefined();
         expect(frame.polledAtNs).toBeDefined();
         expect(frame.sampleCount).toBe(frame.samples.length);
-        expect(frame.samplesF32Le.byteLength).toBe(
+        expect(frame.samplesF32le.byteLength).toBe(
           frame.sampleCount * Float32Array.BYTES_PER_ELEMENT,
         );
       }

@@ -4,6 +4,18 @@ import {
   StreamModeError,
   nativeCall,
 } from './errors.js';
+import {
+  ClockDomainId,
+  ConnectorId,
+  EndpointId,
+  RouteId,
+  RuntimeSessionId,
+  SourceId,
+  StemId,
+  StreamId,
+  type ClockDomainOrigin,
+  type ClockDomainKind,
+} from './identity.js';
 import type {
   NativeAudioFrame,
   NativeRunningSessionHandle,
@@ -12,11 +24,11 @@ import type {
 /** Stable semantics associated with a native clock-domain identity. */
 export interface ClockDomainDescriptor {
   /** Native clock-domain identity. */
-  readonly id: number;
+  readonly id: ClockDomainId;
   /** Authority that defines the clock. */
-  readonly kind: 'unspecified' | 'process-monotonic' | 'provider-defined';
+  readonly kind: ClockDomainKind;
   /** Epoch against which timestamps are measured. */
-  readonly origin: 'unspecified' | 'process-start' | 'provider-defined';
+  readonly origin: ClockDomainOrigin;
   /** Number of clock ticks per second, when Core knows it. */
   readonly tickRateHz: bigint | undefined;
 }
@@ -26,7 +38,7 @@ export interface AudioFrame {
   /** Interleaved floating-point PCM samples. */
   readonly samples: Float32Array;
   /** Owned little-endian float32 PCM bytes. */
-  readonly samplesF32Le: Uint8Array;
+  readonly samplesF32le: Uint8Array;
   /** Number of interleaved float32 samples. */
   readonly sampleCount: number;
   /** Stable PCM sample representation. */
@@ -36,15 +48,15 @@ export interface AudioFrame {
   /** Number of interleaved audio channels. */
   readonly channelCount: number;
   /** Session that produced this frame. */
-  readonly sessionId: bigint;
+  readonly sessionId: RuntimeSessionId;
   /** Native audio stream identity. */
-  readonly streamId: bigint;
+  readonly streamId: StreamId;
   /** Physical, application, or generated source identity. */
-  readonly sourceId: bigint;
+  readonly sourceId: SourceId;
   /** Source-aware Session stem identity. */
-  readonly stemId: bigint;
+  readonly stemId: StemId;
   /** Native clock identity used for the media timestamp. */
-  readonly clockId: number;
+  readonly clockId: ClockDomainId;
   /** Semantics Core can assert for the native clock identity. */
   readonly clock: ClockDomainDescriptor;
   /** Sequence number within the stream. */
@@ -62,11 +74,11 @@ export interface AudioFrame {
   /** Identity of generated output, when the frame came from generated audio. */
   readonly outputGenerationId: bigint | undefined;
   /** Endpoint that supplied this observed frame. */
-  readonly endpointId: bigint;
+  readonly endpointId: EndpointId;
   /** Connector identity, when a Connector supplied the frame. */
-  readonly connectorId: bigint | undefined;
+  readonly connectorId: ConnectorId | undefined;
   /** Route that delivered the frame. */
-  readonly routeId: bigint;
+  readonly routeId: RouteId;
   /** Route enqueue time in monotonic nanoseconds. */
   readonly routeEnqueuedAtNs: bigint;
   /** Route receive time in monotonic nanoseconds. */
@@ -160,28 +172,28 @@ export class StreamAbortError extends StreamError {
 }
 
 function frameFromNative(frame: NativeAudioFrame): AudioFrame {
-  const samplesF32Le = Uint8Array.from(frame.samplesF32Le);
+  const samplesF32le = Uint8Array.from(frame.samplesF32Le);
   const samples = new Float32Array(
-    samplesF32Le.buffer,
-    samplesF32Le.byteOffset,
+    samplesF32le.buffer,
+    samplesF32le.byteOffset,
     frame.sampleCount,
   );
-  const optionalBigInt = (value: string): bigint | undefined =>
-    value === '0' ? undefined : BigInt(value);
+  const optionalConnectorId = (value: string): ConnectorId | undefined =>
+    value === '0' ? undefined : ConnectorId(BigInt(value));
   return {
     samples,
-    samplesF32Le,
+    samplesF32le,
     sampleCount: frame.sampleCount,
     sampleFormat: 'f32le',
     sampleRateHz: frame.sampleRateHz,
     channelCount: frame.channelCount,
-    sessionId: BigInt(frame.sessionId),
-    streamId: BigInt(frame.streamId),
-    sourceId: BigInt(frame.sourceId),
-    stemId: BigInt(frame.stemId),
-    clockId: frame.clockId,
+    sessionId: RuntimeSessionId(BigInt(frame.sessionId)),
+    streamId: StreamId(BigInt(frame.streamId)),
+    sourceId: SourceId(BigInt(frame.sourceId)),
+    stemId: StemId(BigInt(frame.stemId)),
+    clockId: ClockDomainId(frame.clockId),
     clock: Object.freeze({
-      id: frame.clockId,
+      id: ClockDomainId(frame.clockId),
       kind: frame.clockKind as ClockDomainDescriptor['kind'],
       origin: frame.clockOrigin as ClockDomainDescriptor['origin'],
       tickRateHz:
@@ -199,13 +211,17 @@ function frameFromNative(frame: NativeAudioFrame): AudioFrame {
       frame.outputGenerationId === undefined
         ? undefined
         : BigInt(frame.outputGenerationId),
-    endpointId: BigInt(frame.endpointId),
-    connectorId: optionalBigInt(frame.connectorId),
-    routeId: BigInt(frame.routeId),
+    endpointId: EndpointId(BigInt(frame.endpointId)),
+    connectorId: optionalConnectorId(frame.connectorId),
+    routeId: RouteId(BigInt(frame.routeId)),
     routeEnqueuedAtNs: BigInt(frame.routeEnqueuedAtNs),
     routeReceivedAtNs: BigInt(frame.routeReceivedAtNs),
-    endpointEnqueuedAtNs: optionalBigInt(frame.endpointEnqueuedAtNs),
-    polledAtNs: optionalBigInt(frame.polledAtNs),
+    endpointEnqueuedAtNs:
+      frame.endpointEnqueuedAtNs === '0'
+        ? undefined
+        : BigInt(frame.endpointEnqueuedAtNs),
+    polledAtNs:
+      frame.polledAtNs === '0' ? undefined : BigInt(frame.polledAtNs),
     nodeReadResolvedAtNs: BigInt(frame.nativeReadResolvedAtNs),
   };
 }

@@ -27,13 +27,79 @@ import type {
 } from './native.js';
 import { nativeAddon } from './native.js';
 import { nativeCallSync, PocketStationError } from './errors.js';
-import { SourceId, StemId } from './identity.js';
+import {
+  EndpointId,
+  OperatorInstanceId,
+  RouteId,
+  RuntimeSessionId,
+  SourceId,
+  SourceInstanceId,
+  StemId,
+} from './identity.js';
 import type {
   EndpointFailureStage,
   FinalizationFailureStage,
   RollbackFailureStage,
   SessionState,
 } from './events.js';
+
+/** Endpoint observation availability at the snapshot boundary. */
+export const EndpointObservationStage = Object.freeze({
+  UNAVAILABLE: 'unavailable',
+  LIVE: 'live',
+  FINALIZED: 'finalized',
+} as const);
+export type EndpointObservationStage =
+  (typeof EndpointObservationStage)[keyof typeof EndpointObservationStage];
+
+/** Final multistem recording state. */
+export const RecordingState = Object.freeze({
+  RECORDING: 'recording',
+  COMPLETE: 'complete',
+  INCOMPLETE: 'incomplete',
+} as const);
+export type RecordingState =
+  (typeof RecordingState)[keyof typeof RecordingState];
+
+/** Discontinuity retained in a recording manifest. */
+export const RecordingDiscontinuityKind = Object.freeze({
+  TIMESTAMP_GAP: 'timestamp-gap',
+  SEQUENCE_GAP: 'sequence-gap',
+  OVERLAP_REJECTED: 'overlap-rejected',
+} as const);
+export type RecordingDiscontinuityKind =
+  (typeof RecordingDiscontinuityKind)[keyof typeof RecordingDiscontinuityKind];
+
+/** Time interval covered by one route snapshot. */
+export const RouteObservationInterval = Object.freeze({
+  ROUTE_LIFETIME_TO_SNAPSHOT: 'route-lifetime-to-snapshot',
+} as const);
+export type RouteObservationInterval =
+  (typeof RouteObservationInterval)[keyof typeof RouteObservationInterval];
+
+/** Timestamps used for the reported source-to-route latency. */
+export const RouteLatencyMeasurement = Object.freeze({
+  SOURCE_TIMESTAMP_TO_ROUTE_RECEIVE:
+    'source-monotonic-timestamp-to-route-receive',
+} as const);
+export type RouteLatencyMeasurement =
+  (typeof RouteLatencyMeasurement)[keyof typeof RouteLatencyMeasurement];
+
+/** Unit used by route latency observations. */
+export const RouteLatencyUnit = Object.freeze({
+  NANOSECONDS: 'nanoseconds',
+} as const);
+export type RouteLatencyUnit =
+  (typeof RouteLatencyUnit)[keyof typeof RouteLatencyUnit];
+
+/** Operation that produced a terminal Session result. */
+export const TerminationDisposition = Object.freeze({
+  STOPPED: 'stopped',
+  CANCELLED: 'cancelled',
+  ALREADY_STOPPED: 'already-stopped',
+} as const);
+export type TerminationDisposition =
+  (typeof TerminationDisposition)[keyof typeof TerminationDisposition];
 
 /** Current state and delivery totals for one finite event queue. */
 export interface EventQueueMetrics {
@@ -112,7 +178,7 @@ export interface RouteDeliveryMetrics {
 
 /** Availability and delivery totals reported by one Endpoint. */
 export interface EndpointMetrics {
-  readonly observationStage: 'unavailable' | 'live' | 'finalized';
+  readonly observationStage: EndpointObservationStage;
   readonly framesReceivedTotal: bigint;
   readonly framesDeliveredTotal: bigint;
   readonly framesDroppedTotal: bigint;
@@ -123,20 +189,26 @@ export interface EndpointMetrics {
 
 /** Current state for one Source-to-Endpoint PCM route. */
 export interface RouteMetrics {
-  readonly routeId: bigint;
-  readonly endpointId: bigint;
+  readonly routeId: RouteId;
+  readonly endpointId: EndpointId;
   readonly delivery: RouteDeliveryMetrics;
+  /** Queue capacity for this route, in frames. */
+  readonly queueCapacityFrames: bigint;
+  /** Frames delivered through this route. */
+  readonly framesDeliveredTotal: bigint;
+  /** Frames dropped by this route. */
+  readonly framesDroppedTotal: bigint;
   readonly endpoint: EndpointMetrics;
   readonly framesAttemptedTotal: bigint;
-  readonly observationInterval: 'route-lifetime-to-snapshot';
+  readonly observationInterval: RouteObservationInterval;
   readonly dropRatePct: number;
-  readonly sourceLatencyMeasurement: 'source-monotonic-timestamp-to-route-receive';
-  readonly sourceLatencyUnit: 'nanoseconds';
+  readonly sourceLatencyMeasurement: RouteLatencyMeasurement;
+  readonly sourceLatencyUnit: RouteLatencyUnit;
 }
 
 /** Native capture and Session-ingress state for one built-in Source. */
 export interface SourceMetrics {
-  readonly stemId: bigint;
+  readonly stemId: StemId;
   readonly callbackBuffersTotal: bigint;
   readonly captureFramesEnqueuedTotal: bigint;
   readonly capturePoolExhaustedTotal: bigint;
@@ -177,20 +249,19 @@ export const SampleRepresentation = Object.freeze({
 export type SampleRepresentation =
   (typeof SampleRepresentation)[keyof typeof SampleRepresentation];
 
-/** PCM format negotiated at the capture backend before Session conversion. */
+/** PCM format negotiated at the capture backend, before canonical Session conversion. */
 export interface OpenedNativeFormat {
   readonly sampleRateHz: number;
   readonly channelCount: number;
   readonly sampleRepresentation: SampleRepresentation;
 }
 
-/** Native format opened for one built-in Source. */
 export interface SourceNativeFormatObservation {
   readonly stemId: StemId;
   readonly openedNativeFormat?: OpenedNativeFormat;
 }
 
-/** Frame-delivery activity, including digitally silent frames. */
+/** Delivery activity, including digitally silent frames, on the process-monotonic clock. */
 export interface SourceActivityObservation {
   readonly sessionStartedAtNs: bigint;
   readonly observedAtNs: bigint;
@@ -199,25 +270,18 @@ export interface SourceActivityObservation {
   readonly framesReceivedTotal: bigint;
 }
 
-/** Caller-owned time bounds for evaluating source activity. */
 export interface SourceActivityPolicy {
   readonly firstFrameTimeoutNs: bigint;
   readonly stallTimeoutNs: bigint;
 }
 
-export type SourceActivityState =
-  | 'awaiting-first-frame'
-  | 'active'
-  | 'first-frame-timed-out'
-  | 'stalled';
-
+export type SourceActivityState = 'awaiting-first-frame' | 'active' | 'first-frame-timed-out' | 'stalled';
 export interface SourceActivityEvaluation {
   readonly state: SourceActivityState;
   readonly sessionAgeNs: bigint;
   readonly latestFrameAgeNs?: bigint;
 }
 
-/** Off-callback PCM measurements for one source. */
 export interface SourceSignalObservation {
   readonly observedAtNs: bigint;
   readonly samplesObservedTotal: bigint;
@@ -242,21 +306,13 @@ export interface SourceSignalObservation {
   readonly consecutiveExactZeroDurationNs: bigint;
 }
 
-/** Caller-owned thresholds for evaluating measured PCM. */
 export interface SourceSignalPolicy {
   readonly minimumPeakDbfs: number;
   readonly minimumRmsDbfs: number;
   readonly exactZeroTimeoutNs: bigint;
 }
 
-export type SourceSignalState =
-  | 'no-samples-observed'
-  | 'nonfinite-samples-observed'
-  | 'exact-digital-zero-pending'
-  | 'sustained-exact-digital-zero'
-  | 'below-caller-thresholds'
-  | 'meets-caller-thresholds';
-
+export type SourceSignalState = 'no-samples-observed' | 'nonfinite-samples-observed' | 'exact-digital-zero-pending' | 'sustained-exact-digital-zero' | 'below-caller-thresholds' | 'meets-caller-thresholds';
 export interface SourceSignalEvaluation {
   readonly state: SourceSignalState;
   readonly peakDbfs?: number;
@@ -264,7 +320,6 @@ export interface SourceSignalEvaluation {
   readonly consecutiveExactZeroDurationNs: bigint;
 }
 
-/** Replacement totals and attached source identity for one microphone stem. */
 export interface SourceReplacementObservation {
   readonly stemId: StemId;
   readonly attemptsTotal: bigint;
@@ -277,75 +332,36 @@ export interface SourceReplacementObservation {
   readonly latestCompletedAtNs?: bigint;
 }
 
-/** Evaluate source activity without starting recovery. */
-export function evaluateSourceActivity(
-  value: SourceActivityObservation,
-  policy: SourceActivityPolicy,
-): SourceActivityEvaluation {
+/** Caller-owned activity thresholds; evaluation never starts recovery. */
+export function evaluateSourceActivity(value: SourceActivityObservation, policy: SourceActivityPolicy): SourceActivityEvaluation {
   requirePositiveNanoseconds(policy.firstFrameTimeoutNs, 'firstFrameTimeoutNs');
   requirePositiveNanoseconds(policy.stallTimeoutNs, 'stallTimeoutNs');
   const sessionAgeNs = saturatingElapsed(value.observedAtNs, value.sessionStartedAtNs);
   if (value.latestFrameReceivedAtNs === undefined) {
-    return Object.freeze({
-      state:
-        sessionAgeNs >= policy.firstFrameTimeoutNs
-          ? 'first-frame-timed-out'
-          : 'awaiting-first-frame',
-      sessionAgeNs,
-    }) as SourceActivityEvaluation;
+    return Object.freeze({ state: sessionAgeNs >= policy.firstFrameTimeoutNs ? 'first-frame-timed-out' : 'awaiting-first-frame', sessionAgeNs }) as SourceActivityEvaluation;
   }
-  const latestFrameAgeNs = saturatingElapsed(
-    value.observedAtNs,
-    value.latestFrameReceivedAtNs,
-  );
-  return Object.freeze({
-    state: latestFrameAgeNs >= policy.stallTimeoutNs ? 'stalled' : 'active',
-    sessionAgeNs,
-    latestFrameAgeNs,
-  }) as SourceActivityEvaluation;
+  const latestFrameAgeNs = saturatingElapsed(value.observedAtNs, value.latestFrameReceivedAtNs);
+  return Object.freeze({ state: latestFrameAgeNs >= policy.stallTimeoutNs ? 'stalled' : 'active', sessionAgeNs, latestFrameAgeNs }) as SourceActivityEvaluation;
 }
 
-/** Evaluate PCM measurements without inferring speech, permission, or routing. */
-export function evaluateSourceSignal(
-  value: SourceSignalObservation,
-  policy: SourceSignalPolicy,
-): SourceSignalEvaluation {
-  if (!Number.isFinite(policy.minimumPeakDbfs) || policy.minimumPeakDbfs > 0) {
-    throw new RangeError('minimumPeakDbfs must be finite and no greater than 0 dBFS');
-  }
-  if (!Number.isFinite(policy.minimumRmsDbfs) || policy.minimumRmsDbfs > 0) {
-    throw new RangeError('minimumRmsDbfs must be finite and no greater than 0 dBFS');
-  }
+/** Caller-owned PCM thresholds; no speech, permission, or routing inference. */
+export function evaluateSourceSignal(value: SourceSignalObservation, policy: SourceSignalPolicy): SourceSignalEvaluation {
+  if (!Number.isFinite(policy.minimumPeakDbfs) || policy.minimumPeakDbfs > 0) throw new RangeError('minimumPeakDbfs must be finite and no greater than 0 dBFS');
+  if (!Number.isFinite(policy.minimumRmsDbfs) || policy.minimumRmsDbfs > 0) throw new RangeError('minimumRmsDbfs must be finite and no greater than 0 dBFS');
   requirePositiveNanoseconds(policy.exactZeroTimeoutNs, 'exactZeroTimeoutNs');
   let state: SourceSignalState;
-  if (value.windowSamplesTotal === 0n) {
-    state = 'no-samples-observed';
-  } else if (value.windowNonfiniteSamplesTotal > 0n) {
-    state = 'nonfinite-samples-observed';
-  } else if (value.windowExactZeroSamplesTotal === value.windowSamplesTotal) {
-    state =
-      value.consecutiveExactZeroDurationNs >= policy.exactZeroTimeoutNs
-        ? 'sustained-exact-digital-zero'
-        : 'exact-digital-zero-pending';
+  if (value.windowSamplesTotal === 0n) state = 'no-samples-observed';
+  else if (value.windowNonfiniteSamplesTotal > 0n) state = 'nonfinite-samples-observed';
+  else if (value.windowExactZeroSamplesTotal === value.windowSamplesTotal) {
+    state = value.consecutiveExactZeroDurationNs >= policy.exactZeroTimeoutNs ? 'sustained-exact-digital-zero' : 'exact-digital-zero-pending';
   } else {
-    state =
-      (value.windowPeakDbfs ?? Number.NEGATIVE_INFINITY) >= policy.minimumPeakDbfs &&
-      (value.windowRmsDbfs ?? Number.NEGATIVE_INFINITY) >= policy.minimumRmsDbfs
-        ? 'meets-caller-thresholds'
-        : 'below-caller-thresholds';
+    state = (value.windowPeakDbfs ?? Number.NEGATIVE_INFINITY) >= policy.minimumPeakDbfs && (value.windowRmsDbfs ?? Number.NEGATIVE_INFINITY) >= policy.minimumRmsDbfs ? 'meets-caller-thresholds' : 'below-caller-thresholds';
   }
-  return Object.freeze({
-    state,
-    peakDbfs: value.windowPeakDbfs,
-    rmsDbfs: value.windowRmsDbfs,
-    consecutiveExactZeroDurationNs: value.consecutiveExactZeroDurationNs,
-  });
+  return Object.freeze({ state, peakDbfs: value.windowPeakDbfs, rmsDbfs: value.windowRmsDbfs, consecutiveExactZeroDurationNs: value.consecutiveExactZeroDurationNs });
 }
 
 function requirePositiveNanoseconds(value: bigint, name: string): void {
-  if (typeof value !== 'bigint' || value <= 0n || value > 18_446_744_073_709_551_615n) {
-    throw new RangeError(`${name} must be a nonzero unsigned 64-bit nanosecond value`);
-  }
+  if (typeof value !== 'bigint' || value <= 0n || value > 18_446_744_073_709_551_615n) throw new RangeError(`${name} must be a nonzero unsigned 64-bit nanosecond value`);
 }
 
 function saturatingElapsed(observedAtNs: bigint, earlierAtNs: bigint): bigint {
@@ -354,8 +370,8 @@ function saturatingElapsed(observedAtNs: bigint, earlierAtNs: bigint): bigint {
 
 /** Lifecycle and delivery totals for one application-authored Source. */
 export interface ExternalSourceMetrics {
-  readonly sourceInstanceId: bigint;
-  readonly sourceId: bigint;
+  readonly sourceInstanceId: SourceInstanceId;
+  readonly sourceId: SourceId;
   readonly emittedTotal: bigint;
   readonly droppedTotal: bigint;
   readonly failureTotal: bigint;
@@ -405,7 +421,7 @@ export interface OperatorInputMetrics {
 
 /** Input, worker, and shutdown state for one Operator instance. */
 export interface OperatorMetrics {
-  readonly operatorInstanceId: bigint;
+  readonly operatorInstanceId: OperatorInstanceId;
   readonly inputDelivery: RouteDeliveryMetrics;
   readonly inputPorts: readonly OperatorInputMetrics[];
   readonly worker: OperatorWorkerMetrics;
@@ -414,16 +430,16 @@ export interface OperatorMetrics {
 
 /** Typed-signal delivery from an Operator output to an Endpoint. */
 export interface DerivedRouteMetrics {
-  readonly routeId: bigint;
-  readonly endpointId: bigint;
+  readonly routeId: RouteId;
+  readonly endpointId: EndpointId;
   readonly output: SignalQueueMetrics;
   readonly endpoint: EndpointMetrics;
 }
 
 /** Queue, pool, conversion, and shutdown state for generated PCM. */
 export interface AudioReentryMetrics {
-  readonly operatorInstanceId: bigint;
-  readonly stemId: bigint;
+  readonly operatorInstanceId: OperatorInstanceId;
+  readonly stemId: StemId;
   readonly queueCapacitySignals: bigint;
   readonly queueDepthSignals: bigint;
   readonly queuePeakSignals: bigint;
@@ -463,13 +479,17 @@ export interface SessionMetrics {
   readonly operatorCount: bigint;
   readonly derivedRouteCount: bigint;
   readonly audioReentryCount: bigint;
+  /** Capacity of the managed-language audio endpoint, in frames. */
+  readonly audioQueueCapacityFrames: bigint;
+  /** Frames dropped because the managed-language audio queue was full. */
+  readonly audioQueueFullDropsTotal: bigint;
 }
 
 /** One gap, overlap, or sequence break retained in a multistem recording. */
 export interface RecordingDiscontinuity {
-  readonly stemId: bigint;
+  readonly stemId: StemId;
   readonly label: string;
-  readonly kind: 'timestamp-gap' | 'sequence-gap' | 'overlap-rejected';
+  readonly kind: RecordingDiscontinuityKind;
   readonly timestampStartNs: bigint;
   readonly timestampEndNs: bigint;
   readonly sequenceStart?: bigint;
@@ -493,10 +513,10 @@ export interface RecordingStemOutcome {
 
 /** Final state and artifact locations for one multistem recording. */
 export interface RecordingOutcome {
-  readonly sessionId: bigint;
+  readonly sessionId: RuntimeSessionId;
   readonly groupId: string;
   readonly complete: boolean;
-  readonly state: 'recording' | 'complete' | 'incomplete';
+  readonly state: RecordingState;
   readonly completedStems: bigint;
   readonly failedStems: bigint;
   readonly sessionDirectory: string;
@@ -504,6 +524,30 @@ export interface RecordingOutcome {
   readonly manifestSchemaVersion: number;
   readonly errorCode?: string;
   readonly stems: readonly RecordingStemOutcome[];
+}
+
+/** Finite native trace configuration attached when a Session starts. */
+export class SessionTraceConfiguration {
+  public readonly path: string;
+  public readonly capacityRecords: number;
+
+  public constructor(path: string, capacityRecords = 256) {
+    if (path.trim().length === 0) {
+      throw new RangeError('trace path cannot be empty');
+    }
+    if (
+      !Number.isSafeInteger(capacityRecords) ||
+      capacityRecords <= 0 ||
+      capacityRecords > 1_000_000
+    ) {
+      throw new RangeError(
+        'capacityRecords must be an integer between 1 and 1000000',
+      );
+    }
+    this.path = path;
+    this.capacityRecords = capacityRecords;
+    Object.freeze(this);
+  }
 }
 
 /** Final write totals for one native Session trace artifact. */
@@ -517,26 +561,32 @@ export interface SessionTraceOutcome {
   readonly complete: boolean;
 }
 
-/** Kind of one record in a native Session trace. */
-export type SessionTraceRecordKind =
-  | 'lifecycle'
-  | 'source-failure'
-  | 'endpoint-failure'
-  | 'rollback-failure'
-  | 'finalization-failure'
-  | 'terminal';
+/** Python-compatible name for the final trace recorder result. */
+export type SessionTraceRecorderOutcome = SessionTraceOutcome;
+
+/** Type of one record in a native Session trace. */
+export const SessionTraceRecordType = Object.freeze({
+  LIFECYCLE: 'lifecycle',
+  SOURCE_FAILURE: 'source-failure',
+  ENDPOINT_FAILURE: 'endpoint-failure',
+  ROLLBACK_FAILURE: 'rollback-failure',
+  FINALIZATION_FAILURE: 'finalization-failure',
+  TERMINAL: 'terminal',
+} as const);
+export type SessionTraceRecordType =
+  (typeof SessionTraceRecordType)[keyof typeof SessionTraceRecordType];
 
 /** One validated record from a native Session trace. */
 export interface SessionTraceRecord {
   readonly sequenceIndex: bigint;
   readonly observedAtNs: bigint;
-  readonly sessionId: bigint;
-  readonly kind: SessionTraceRecordKind;
+  readonly sessionId: RuntimeSessionId;
+  readonly type: SessionTraceRecordType;
   readonly lifecycleState?: SessionState;
   readonly terminalState?: 'stopped' | 'failed';
-  readonly stemId?: bigint;
-  readonly routeId?: bigint;
-  readonly endpointId?: bigint;
+  readonly stemId?: StemId;
+  readonly routeId?: RouteId;
+  readonly endpointId?: EndpointId;
   readonly endpointStage?: EndpointFailureStage;
   readonly rollbackStage?: RollbackFailureStage;
   readonly finalizationStage?: FinalizationFailureStage;
@@ -548,7 +598,7 @@ export interface SessionTraceRecord {
 
 /** Result of validating record order, lifecycle order, identity, and terminal state. */
 export interface SessionTraceValidation {
-  readonly sessionId: bigint;
+  readonly sessionId: RuntimeSessionId;
   readonly lifecycle: readonly SessionState[];
   readonly terminalState: 'stopped' | 'failed';
   readonly sourceFailuresTotal: bigint;
@@ -575,8 +625,8 @@ export class SessionTrace {
   }
 
   /** Session identity stored in the trace header. */
-  public get sessionId(): bigint {
-    return BigInt(this.#native.sessionId);
+  public get sessionId(): RuntimeSessionId {
+    return RuntimeSessionId(BigInt(this.#native.sessionId));
   }
 
   /** Number of records stored in the artifact. */
@@ -602,9 +652,10 @@ export class SessionTrace {
 
 /** @internal */
 export function _sessionMetricsFromNative(value: NativeSessionMetrics): SessionMetrics {
+  const projectedPolledAudio = polledAudio(value.polledAudio);
   const result = Object.freeze({
     eventQueue: eventQueue(value.eventQueue),
-    polledAudio: polledAudio(value.polledAudio),
+    polledAudio: projectedPolledAudio,
     sources: Object.freeze(value.sources.map(sourceMetrics)),
     sourceNativeFormats: Object.freeze(value.sourceNativeFormats.map(sourceNativeFormat)),
     sourceActivities: Object.freeze(value.sourceActivity.map(sourceActivity)),
@@ -621,6 +672,8 @@ export function _sessionMetricsFromNative(value: NativeSessionMetrics): SessionM
     operatorCount: BigInt(value.operatorCount),
     derivedRouteCount: BigInt(value.derivedRouteCount),
     audioReentryCount: BigInt(value.audioReentryCount),
+    audioQueueCapacityFrames: projectedPolledAudio.queueCapacityFrames,
+    audioQueueFullDropsTotal: projectedPolledAudio.queueFullDropsTotal,
   });
   const expected = [
     result.sourceCount,
@@ -665,7 +718,7 @@ export function _recordingOutcomeFromNative(
   value: NativeRecordingOutcome,
 ): RecordingOutcome {
   const result: RecordingOutcome = Object.freeze({
-    sessionId: BigInt(value.sessionId),
+    sessionId: RuntimeSessionId(BigInt(value.sessionId)),
     groupId: value.groupId,
     complete: value.complete,
     state: choice(value.state, 'recording state', ['recording', 'complete', 'incomplete']),
@@ -716,7 +769,7 @@ function recordingStemOutcome(value: NativeRecordingStemOutcome): RecordingStemO
     discontinuities: Object.freeze(
       value.discontinuities.map((record) =>
         Object.freeze({
-          stemId: BigInt(record.stemId),
+          stemId: StemId(BigInt(record.stemId)),
           label: record.label,
           kind: choice(record.kind, 'recording discontinuity kind', [
             'timestamp-gap',
@@ -739,8 +792,8 @@ function traceRecordFromNative(value: NativeSessionTraceRecord): SessionTraceRec
   return Object.freeze({
     sequenceIndex: BigInt(value.sequenceIndex),
     observedAtNs: BigInt(value.observedAtNs),
-    sessionId: BigInt(value.sessionId),
-    kind: choice(value.kind, 'trace record kind', [
+    sessionId: RuntimeSessionId(BigInt(value.sessionId)),
+    type: choice(value.kind, 'trace record type', [
       'lifecycle',
       'source-failure',
       'endpoint-failure',
@@ -756,9 +809,10 @@ function traceRecordFromNative(value: NativeSessionTraceRecord): SessionTraceRec
       value.terminalState == null
         ? undefined
         : choice(value.terminalState, 'trace terminal state', TERMINAL_STATES),
-    stemId: value.stemId == null ? undefined : BigInt(value.stemId),
-    routeId: value.routeId == null ? undefined : BigInt(value.routeId),
-    endpointId: value.endpointId == null ? undefined : BigInt(value.endpointId),
+    stemId: value.stemId == null ? undefined : StemId(BigInt(value.stemId)),
+    routeId: value.routeId == null ? undefined : RouteId(BigInt(value.routeId)),
+    endpointId:
+      value.endpointId == null ? undefined : EndpointId(BigInt(value.endpointId)),
     endpointStage:
       value.endpointStage == null
         ? undefined
@@ -788,7 +842,7 @@ function traceValidationFromNative(
   value: NativeSessionTraceValidation,
 ): SessionTraceValidation {
   return Object.freeze({
-    sessionId: BigInt(value.sessionId),
+    sessionId: RuntimeSessionId(BigInt(value.sessionId)),
     lifecycle: Object.freeze(
       value.lifecycle.map((state) => choice(state, 'trace lifecycle state', SESSION_STATES)),
     ),
@@ -864,10 +918,14 @@ function endpointMetrics(value: NativeEndpointMetrics): EndpointMetrics {
 }
 
 function routeMetrics(value: NativeRouteMetrics): RouteMetrics {
+  const projectedDelivery = delivery(value.delivery);
   return Object.freeze({
-    routeId: BigInt(value.routeId),
-    endpointId: BigInt(value.endpointId),
-    delivery: delivery(value.delivery),
+    routeId: RouteId(BigInt(value.routeId)),
+    endpointId: EndpointId(BigInt(value.endpointId)),
+    delivery: projectedDelivery,
+    queueCapacityFrames: projectedDelivery.queueCapacityFrames,
+    framesDeliveredTotal: projectedDelivery.framesDeliveredTotal,
+    framesDroppedTotal: projectedDelivery.framesDroppedTotal,
     endpoint: endpointMetrics(value.endpoint),
     framesAttemptedTotal: BigInt(value.framesAttemptedTotal),
     observationInterval: choice(value.observationInterval, 'route observation interval', [
@@ -909,14 +967,13 @@ function sourceMetrics(value: NativeSourceMetrics): SourceMetrics {
       ingressFramesRejectedCancelledTotal: value.ingressFramesRejectedCancelledTotal,
       ingressFramesDiscardedTotal: value.ingressFramesDiscardedTotal,
     }),
+    stemId: StemId(BigInt(value.stemId)),
     runtimeEventQueue: eventQueue(value.runtimeEventQueue),
   }) as SourceMetrics;
 }
 
 /** @internal */
-export function _captureNativeFormatFromNative(
-  value: NativeCaptureFormat,
-): OpenedNativeFormat {
+export function _captureNativeFormatFromNative(value: NativeCaptureFormat): OpenedNativeFormat {
   return Object.freeze({
     sampleRateHz: value.sampleRateHz,
     channelCount: value.channelCount,
@@ -985,27 +1042,26 @@ function sourceSignal(value: NativeSourceSignalObservations): SourceSignalObserv
   });
 }
 
-function sourceReplacement(
-  value: NativeSourceReplacementObservations,
-): SourceReplacementObservation {
+function sourceReplacement(value: NativeSourceReplacementObservations): SourceReplacementObservation {
   return Object.freeze({
-    stemId: StemId(BigInt(value.stemId)),
-    attemptsTotal: BigInt(value.attemptsTotal),
-    completedTotal: BigInt(value.completedTotal),
-    failedBeforeAttachTotal: BigInt(value.failedBeforeAttachTotal),
+    stemId: StemId(BigInt(value.stemId)), attemptsTotal: BigInt(value.attemptsTotal),
+    completedTotal: BigInt(value.completedTotal), failedBeforeAttachTotal: BigInt(value.failedBeforeAttachTotal),
     responseTimeoutsTotal: BigInt(value.responseTimeoutsTotal),
-    attachedSourceId:
-      value.attachedSourceId == null ? undefined : SourceId(BigInt(value.attachedSourceId)),
-    sourceGeneration: value.sourceGeneration,
-    discontinuityEpoch: BigInt(value.discontinuityEpoch),
-    latestCompletedAtNs:
-      value.latestCompletedAtNs == null ? undefined : BigInt(value.latestCompletedAtNs),
+    attachedSourceId: value.attachedSourceId == null ? undefined : SourceId(BigInt(value.attachedSourceId)),
+    sourceGeneration: value.sourceGeneration, discontinuityEpoch: BigInt(value.discontinuityEpoch),
+    latestCompletedAtNs: value.latestCompletedAtNs == null ? undefined : BigInt(value.latestCompletedAtNs),
   });
 }
 
 function externalSourceMetrics(value: NativeExternalSourceMetrics): ExternalSourceMetrics {
   const { ready, joined, ...counts } = value;
-  return Object.freeze({ ...bigints(counts), ready, joined }) as ExternalSourceMetrics;
+  return Object.freeze({
+    ...bigints(counts),
+    sourceInstanceId: SourceInstanceId(BigInt(value.sourceInstanceId)),
+    sourceId: SourceId(BigInt(value.sourceId)),
+    ready,
+    joined,
+  }) as ExternalSourceMetrics;
 }
 
 function signalQueueMetrics(value: NativeSignalQueueMetrics): SignalQueueMetrics {
@@ -1019,7 +1075,7 @@ function operatorWorkerMetrics(value: NativeOperatorWorkerMetrics): OperatorWork
 
 function operatorMetrics(value: NativeOperatorMetrics): OperatorMetrics {
   return Object.freeze({
-    operatorInstanceId: BigInt(value.operatorInstanceId),
+    operatorInstanceId: OperatorInstanceId(BigInt(value.operatorInstanceId)),
     inputDelivery: delivery(value.inputDelivery),
     inputPorts: Object.freeze(
       value.inputPorts.map((port) =>
@@ -1033,8 +1089,8 @@ function operatorMetrics(value: NativeOperatorMetrics): OperatorMetrics {
 
 function derivedRouteMetrics(value: NativeDerivedRouteMetrics): DerivedRouteMetrics {
   return Object.freeze({
-    routeId: BigInt(value.routeId),
-    endpointId: BigInt(value.endpointId),
+    routeId: RouteId(BigInt(value.routeId)),
+    endpointId: EndpointId(BigInt(value.endpointId)),
     output: signalQueueMetrics(value.output),
     endpoint: endpointMetrics(value.endpoint),
   });
@@ -1042,7 +1098,12 @@ function derivedRouteMetrics(value: NativeDerivedRouteMetrics): DerivedRouteMetr
 
 function audioReentryMetrics(value: NativeAudioReentryMetrics): AudioReentryMetrics {
   const { joined, ...counts } = value;
-  return Object.freeze({ ...bigints(counts), joined }) as AudioReentryMetrics;
+  return Object.freeze({
+    ...bigints(counts),
+    operatorInstanceId: OperatorInstanceId(BigInt(value.operatorInstanceId)),
+    stemId: StemId(BigInt(value.stemId)),
+    joined,
+  }) as AudioReentryMetrics;
 }
 
 function bigints<T extends object>(

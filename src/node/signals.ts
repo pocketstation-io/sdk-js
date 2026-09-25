@@ -1,11 +1,19 @@
 import {
-  PocketStationError,
+  StreamError,
   StreamInUseError,
   StreamModeError,
   nativeCall,
   nativeCallSync,
 } from './errors.js';
 import { RouteSettings, SignalSpec, type SignalKind } from './graph.js';
+import {
+  ClockDomainId,
+  ConnectorId,
+  RouteId,
+  RuntimeSessionId,
+  SourceId,
+  StreamId,
+} from './identity.js';
 import type {
   NativeBusSubscriptionHandle,
   NativeRunningSessionHandle,
@@ -18,6 +26,7 @@ import {
   END_OF_STREAM,
   EndOfStream,
   StreamAbortError,
+  type ClockDomainDescriptor,
   type StreamReadOptions,
 } from './streams.js';
 
@@ -39,13 +48,15 @@ export interface SignalTiming {
 /** Source and stream identity retained while a value moves through Operators. */
 export interface SignalLineage {
   /** Session that owns the value. */
-  readonly sessionId: bigint;
+  readonly sessionId: RuntimeSessionId;
   /** Source stream retained through each Operator. */
-  readonly streamId: bigint;
+  readonly streamId: StreamId;
   /** Original Source that produced the value. */
-  readonly sourceId: bigint;
+  readonly sourceId: SourceId;
   /** Native clock used by source timestamps. */
-  readonly clockId: number;
+  readonly clockId: ClockDomainId;
+  /** Stable semantics associated with the native clock identity. */
+  readonly clock: ClockDomainDescriptor;
   /** Position of this value within the source stream. */
   readonly sequenceNumber: bigint;
   /** Source lifetime that produced this value. */
@@ -69,13 +80,19 @@ export interface SignalDerivation {
   /** Lifetime of the running Operator instance. */
   readonly operatorGeneration: number;
   /** Connector that produced the value, when applicable. */
-  readonly connectorId?: bigint;
+  readonly connectorId?: ConnectorId;
 }
 
-/** PCM carried by a typed signal. */
-export interface AudioSignalPayload {
+/** Owned interleaved float32 PCM carried by a typed signal. */
+export interface SignalAudioPayload {
   /** Discriminant used for exhaustive payload handling. */
   readonly kind: 'audio';
+  /** Owned little-endian float32 PCM bytes. */
+  readonly samplesF32le: Uint8Array;
+  /** Number of interleaved float32 samples. */
+  readonly sampleCount: number;
+  /** Stable PCM sample representation. */
+  readonly sampleFormat: 'f32le';
   /** Interleaved floating-point PCM samples. */
   readonly samples: Float32Array;
   /** Sample rate in hertz. */
@@ -83,14 +100,17 @@ export interface AudioSignalPayload {
   /** Number of interleaved channels. */
   readonly channelCount: number;
   /** Source stream carried by this audio value. */
-  readonly streamId: bigint;
+  readonly streamId: StreamId;
   /** Original Source carried by this audio value. */
-  readonly sourceId: bigint;
+  readonly sourceId: SourceId;
   /** Position of this value within its stream. */
   readonly sequenceNumber: bigint;
   /** First-sample timestamp in nanoseconds. */
   readonly timestampNs: bigint;
 }
+
+/** @deprecated Use `SignalAudioPayload`. */
+export interface AudioSignalPayload extends SignalAudioPayload {}
 
 /** Text carried by a typed signal. */
 export interface TextSignalPayload {
@@ -110,7 +130,7 @@ export interface BytesSignalPayload {
 
 /** Value carried by one typed signal envelope. */
 export type SignalPayload =
-  | AudioSignalPayload
+  | SignalAudioPayload
   | TextSignalPayload
   | BytesSignalPayload;
 
@@ -185,13 +205,13 @@ export class BusSubscription {
   }
 
   /** Session that owns this subscription. */
-  public get sessionId(): bigint {
-    return BigInt(this.#native.sessionId);
+  public get sessionId(): RuntimeSessionId {
+    return RuntimeSessionId(BigInt(this.#native.sessionId));
   }
 
   /** Core route that supplies this subscription. */
-  public get routeId(): bigint {
-    return BigInt(this.#native.routeId);
+  public get routeId(): RouteId {
+    return RouteId(BigInt(this.#native.routeId));
   }
 
   /** Canonical delivery and media settings used by this route. */
@@ -213,6 +233,9 @@ export class BusSubscription {
 /** Result of one signal read. `undefined` means that the wait expired. */
 export type SignalReadResult = SignalEnvelope | EndOfStream | undefined;
 
+/** Python-compatible name for the shared end-of-stream result. */
+export const STREAM_EOF = END_OF_STREAM;
+
 /** Reads one declared signal output from a running Session. */
 export class SignalStream
   implements AsyncIterable<SignalEnvelope>, Disposable
@@ -222,6 +245,7 @@ export class SignalStream
   #activeReader = false;
   #readerMode: 'signal_read' | 'signals' | undefined;
   #closed = false;
+  #pending: SignalEnvelope | undefined;
 
   private constructor(
     running: NativeRunningSessionHandle,
@@ -373,6 +397,11 @@ export class SignalStream
     throwIfAborted(options.signal);
     const timeoutMs = options.timeoutMs ?? DEFAULT_WAIT_MS;
     validateTimeout(timeoutMs);
+    const pending = this.#pending;
+    if (pending !== undefined) {
+      this.#pending = undefined;
+      return pending;
+    }
     if (this.#closed) {
       return END_OF_STREAM;
     }
@@ -392,30 +421,39 @@ export class SignalStream
           nativeWaitMs,
         ),
       );
-      throwIfAborted(options.signal);
       switch (result.status) {
         case 'item':
           if (result.envelope == null) {
-            throw new PocketStationError(
-              'stream.invalid_signal',
+            throw new StreamError(
+              'stream.invalid_read',
               'Native signal read returned no envelope',
             );
           }
-          return _envelopeFromNative(result.envelope);
+          this.#pending = _envelopeFromNative(result.envelope);
+          throwIfAborted(options.signal);
+          {
+            const ready = this.#pending;
+            this.#pending = undefined;
+            return ready;
+          }
         case 'closed':
+          throwIfAborted(options.signal);
           this.#closed = true;
           return END_OF_STREAM;
         case 'fault':
+          throwIfAborted(options.signal);
           this.#closed = true;
-          throw new PocketStationError(
-            'stream.read_failed',
+          throw new StreamError(
+            'stream.fault',
             result.error ?? 'Native signal subscription failed',
           );
         case 'empty':
+          throwIfAborted(options.signal);
           break;
         default:
-          throw new PocketStationError(
-            'stream.invalid_signal',
+          throwIfAborted(options.signal);
+          throw new StreamError(
+            'stream.invalid_read',
             `Native signal read returned unknown status ${JSON.stringify(result.status)}`,
           );
       }
@@ -453,11 +491,19 @@ function timingFromNative(value: NativeSignalTiming): SignalTiming {
 }
 
 function lineageFromNative(value: NativeSignalLineage): SignalLineage {
+  const clockId = ClockDomainId(value.clockId);
   return {
-    sessionId: BigInt(value.sessionId),
-    streamId: BigInt(value.streamId),
-    sourceId: BigInt(value.sourceId),
-    clockId: value.clockId,
+    sessionId: RuntimeSessionId(BigInt(value.sessionId)),
+    streamId: StreamId(BigInt(value.streamId)),
+    sourceId: SourceId(BigInt(value.sourceId)),
+    clockId,
+    clock: Object.freeze({
+      id: clockId,
+      kind: value.clockKind as ClockDomainDescriptor['kind'],
+      origin: value.clockOrigin as ClockDomainDescriptor['origin'],
+      tickRateHz:
+        value.clockTickRateHz == null ? undefined : BigInt(value.clockTickRateHz),
+    }),
     sequenceNumber: BigInt(value.sequenceNumber),
     sourceGeneration: value.sourceGeneration,
     discontinuityEpoch: BigInt(value.discontinuityEpoch),
@@ -475,8 +521,8 @@ export function _envelopeFromNative(value: NativeSignalEnvelope): SignalEnvelope
     schema: value.signalSchema ?? undefined,
   });
   if (signal.wireId !== value.signalWireId) {
-    throw new PocketStationError(
-      'stream.invalid_signal',
+    throw new StreamError(
+      'stream.invalid_read',
       'Native signal description does not match its wire identity',
     );
   }
@@ -494,7 +540,7 @@ export function _envelopeFromNative(value: NativeSignalEnvelope): SignalEnvelope
         connectorId:
           value.derivation.connectorId == null
             ? undefined
-            : BigInt(value.derivation.connectorId),
+            : ConnectorId(BigInt(value.derivation.connectorId)),
       };
   return {
     signal,
@@ -521,23 +567,27 @@ function payloadFromNative(value: NativeSignalEnvelope): SignalPayload {
       if (value.audio == null) {
         break;
       }
+      const samplesF32le = Uint8Array.from(value.audio.samplesF32Le);
       return {
         kind: 'audio',
+        samplesF32le,
+        sampleCount: value.audio.sampleCount,
+        sampleFormat: 'f32le',
         samples: new Float32Array(
-          value.audio.samplesF32Le.buffer,
-          value.audio.samplesF32Le.byteOffset,
+          samplesF32le.buffer,
+          samplesF32le.byteOffset,
           value.audio.sampleCount,
         ),
         sampleRateHz: value.audio.sampleRateHz,
         channelCount: value.audio.channelCount,
-        streamId: BigInt(value.audio.streamId),
-        sourceId: BigInt(value.audio.sourceId),
+        streamId: StreamId(BigInt(value.audio.streamId)),
+        sourceId: SourceId(BigInt(value.audio.sourceId)),
         sequenceNumber: BigInt(value.audio.sequenceNumber),
         timestampNs: BigInt(value.audio.timestampNs),
       };
   }
-  throw new PocketStationError(
-    'stream.invalid_signal',
+  throw new StreamError(
+    'stream.invalid_read',
     `Native ${JSON.stringify(value.payloadKind)} signal has no matching payload`,
   );
 }
