@@ -134,7 +134,11 @@ describe('RelayReceiver before connection', () => {
 describe('RelayReceiver connected protocol', () => {
   class FakeTrack extends EventTarget {
     public readonly kind = 'audio';
-    public readonly readyState = 'live';
+    public readyState: MediaStreamTrackState = 'live';
+
+    public stop(): void {
+      this.readyState = 'ended';
+    }
   }
 
   class FakeMediaStream {
@@ -154,11 +158,18 @@ describe('RelayReceiver connected protocol', () => {
   }
 
   class FakePeerConnection {
+    public static instances: FakePeerConnection[] = [];
+    public readonly configuration: RTCConfiguration;
     public connectionState: RTCPeerConnectionState = 'new';
     public remoteDescription: RTCSessionDescription | null = null;
     public onicecandidate: ((event: RTCPeerConnectionIceEvent) => void) | null = null;
     public onconnectionstatechange: (() => void) | null = null;
     public ontrack: ((event: RTCTrackEvent) => void) | null = null;
+
+    public constructor(configuration: RTCConfiguration) {
+      this.configuration = configuration;
+      FakePeerConnection.instances.push(this);
+    }
 
     public addTransceiver(): void {}
 
@@ -204,7 +215,7 @@ describe('RelayReceiver connected protocol', () => {
     public readonly sent: unknown[] = [];
     readonly #listeners = new Map<string, Set<SocketListener>>();
 
-    public constructor() {
+    public constructor(public readonly url: string) {
       FakeWebSocket.instances.push(this);
       queueMicrotask(() => {
         this.readyState = FakeWebSocket.OPEN;
@@ -253,6 +264,7 @@ describe('RelayReceiver connected protocol', () => {
 
   beforeEach(() => {
     FakeWebSocket.instances = [];
+    FakePeerConnection.instances = [];
     Object.defineProperty(globalThis, 'RTCPeerConnection', {
       configurable: true,
       value: FakePeerConnection,
@@ -325,5 +337,112 @@ describe('RelayReceiver connected protocol', () => {
     await Promise.resolve();
     expect(receiver.lastError?.code).toBe('relay.sframe_unsupported');
     expect(receiver.state).toBe('failed');
+  });
+
+  it('snapshots direct authority, ICE, deadlines, and callbacks at construction', async () => {
+    const originalStates: string[] = [];
+    const replacementStates: string[] = [];
+    const urls = ['stun:original.example:3478'];
+    const mutableAccess = {
+      signalUrl: resolution.signal_url,
+      sessionId: resolution.session_id,
+      busId: resolution.bus_id,
+      subscriberToken: resolution.subscriber_token,
+      iceServers: [{ urls }],
+    };
+    const mutableOptions = {
+      connectTimeoutMs: 2_000,
+      disconnectTimeoutMs: 1_000,
+      onStateChange: (state: string) => originalStates.push(state),
+    };
+    const receiver = new RelayReceiver(mutableAccess, mutableOptions);
+
+    mutableAccess.signalUrl = 'ws://attacker.invalid/v1/signal';
+    mutableAccess.sessionId = 'attacker-session';
+    mutableAccess.busId = 'attacker-bus';
+    mutableAccess.subscriberToken = 'attacker-token';
+    urls[0] = 'stun:attacker.invalid:3478';
+    mutableOptions.connectTimeoutMs = 0;
+    mutableOptions.onStateChange = (state: string) => replacementStates.push(state);
+
+    const stream = await receiver.connect();
+
+    expect(FakeWebSocket.instances[0]?.url).toBe(resolution.signal_url);
+    expect(FakeWebSocket.instances[0]?.sent).toContainEqual(
+      expect.objectContaining({
+        session_id: resolution.session_id,
+        bus_id: resolution.bus_id,
+        token: resolution.subscriber_token,
+      }),
+    );
+    expect(FakePeerConnection.instances[0]?.configuration).toEqual({
+      iceServers: [{ urls: ['stun:original.example:3478'] }],
+    });
+    expect(receiver.access).toMatchObject({
+      signalUrl: resolution.signal_url,
+      sessionId: resolution.session_id,
+      busId: resolution.bus_id,
+      subscriberToken: resolution.subscriber_token,
+    });
+    expect(Object.isFrozen(receiver.access)).toBe(true);
+    expect(Object.isFrozen(receiver.access?.iceServers)).toBe(true);
+    expect(Object.isFrozen(receiver.access?.iceServers?.[0]?.urls)).toBe(true);
+    expect(originalStates).toEqual(['signaling', 'connecting', 'connected']);
+    expect(replacementStates).toEqual([]);
+
+    const track = stream.getAudioTracks()[0] as unknown as FakeTrack;
+    expect(track.readyState).toBe('live');
+    await receiver.disconnect();
+    await receiver.disconnect();
+    expect(track.readyState).toBe('ended');
+    expect(receiver.access).toBeNull();
+    expect(receiver.stream).toBeNull();
+  });
+
+  it('snapshots an invitation before its asynchronous redemption', async () => {
+    const invitation = {
+      controlUrl: 'https://control.example.com',
+      joinCode: 'original-code',
+    };
+    const fetch = mockFetch(resolution);
+    const receiver = new RelayReceiver(invitation);
+    invitation.controlUrl = 'https://attacker.invalid';
+    invitation.joinCode = 'attacker-code';
+
+    await receiver.connect();
+
+    expect(fetch).toHaveBeenCalledWith(
+      new URL('https://control.example.com/v1/invitations/original-code'),
+      expect.any(Object),
+    );
+    await receiver.disconnect();
+  });
+
+  it('does not let an observer callback tear down healthy receiving', async () => {
+    const callbackErrors: Error[] = [];
+    const receiver = new RelayReceiver(
+      {
+        signalUrl: resolution.signal_url,
+        sessionId: resolution.session_id,
+        busId: resolution.bus_id,
+        subscriberToken: resolution.subscriber_token,
+      },
+      {
+        onStateChange: () => {
+          throw new Error('UI observer failed');
+        },
+        onError: (error) => callbackErrors.push(error),
+      },
+    );
+
+    await receiver.connect();
+
+    expect(receiver.state).toBe('connected');
+    expect(callbackErrors).toEqual([
+      expect.objectContaining({ code: 'relay.receiver_callback_failed' }),
+      expect.objectContaining({ code: 'relay.receiver_callback_failed' }),
+      expect.objectContaining({ code: 'relay.receiver_callback_failed' }),
+    ]);
+    await receiver.disconnect();
   });
 });

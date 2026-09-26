@@ -26,7 +26,7 @@ export interface RelayPublishOperationOptions {
 
 /** Publish one caller-owned browser audio stream to one authorized Relay AudioBus. */
 export class RelayPublisher {
-  readonly #access: RelayPublisherAccess;
+  #access: RelayPublisherAccess | null;
   readonly #options: RelayPublisherOptions;
   #state: RelayPublisherState = 'idle';
   #transport: SignalingTransport | null = null;
@@ -51,16 +51,23 @@ export class RelayPublisher {
     options: RelayPublisherOptions = {},
   ) {
     validateAccess(access);
-    finiteTimeout(
+    const connectTimeoutMs = finiteTimeout(
       options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS,
       'connectTimeoutMs',
     );
-    finiteTimeout(
+    const disconnectTimeoutMs = finiteTimeout(
       options.disconnectTimeoutMs ?? DEFAULT_DISCONNECT_TIMEOUT_MS,
       'disconnectTimeoutMs',
     );
-    this.#access = access;
-    this.#options = options;
+    this.#access = snapshotAccess(access);
+    this.#options = Object.freeze({
+      connectTimeoutMs,
+      disconnectTimeoutMs,
+      onStateChange: options.onStateChange,
+      onSessionState: options.onSessionState,
+      onError: options.onError,
+      onCodecHint: options.onCodecHint,
+    });
   }
 
   /**
@@ -96,7 +103,7 @@ export class RelayPublisher {
     this.#publishOperation = this.#publish(stream, track, signal).catch(
       async (cause: unknown) => {
         const failure = publisherFailure(cause, signal);
-        if (!this.#closing) this.#reportFailure(failure);
+        if (!this.#closing && this.#state !== 'closed') this.#reportFailure(failure);
         try {
           await this.#closeResources();
         } catch (cleanupCause) {
@@ -120,6 +127,7 @@ export class RelayPublisher {
     );
     try {
       await this.#closeResources();
+      this.#access = null;
       this.#setState('closed');
     } finally {
       this.#closing = false;
@@ -129,7 +137,7 @@ export class RelayPublisher {
 
   /** Reattach the same or a replacement live stream as a new Relay source generation. */
   public reconnect(
-    stream: MediaStream = requiredStream(this.#stream),
+    stream?: MediaStream,
     options: RelayPublishOperationOptions = {},
   ): Promise<void> {
     if (this.#state === 'closed') {
@@ -138,7 +146,13 @@ export class RelayPublisher {
       );
     }
     if (this.#reconnectOperation !== null) return this.#reconnectOperation;
-    this.#reconnectOperation = this.#performReconnect(stream, options).finally(() => {
+    let selectedStream: MediaStream;
+    try {
+      selectedStream = stream ?? requiredStream(this.#stream);
+    } catch (cause) {
+      return Promise.reject(cause);
+    }
+    this.#reconnectOperation = this.#performReconnect(selectedStream, options).finally(() => {
       this.#reconnectOperation = null;
     });
     return this.#reconnectOperation;
@@ -174,10 +188,11 @@ export class RelayPublisher {
         'Publish the RelayPublisher before reporting latency',
       );
     }
-    const payload = latencyReportPayload(report, this.#access.sessionId);
+    const access = requiredAccess(this.#access);
+    const payload = latencyReportPayload(report, access.sessionId);
     this.#transport.send({
       type: 'LATENCY_REPORT',
-      session_id: this.#access.sessionId,
+      session_id: access.sessionId,
       latency_report: payload,
     });
   }
@@ -186,7 +201,8 @@ export class RelayPublisher {
   public async observe(): Promise<RelayPublishObservation> {
     const connection = this.#connection;
     const track = this.#track;
-    if (connection === null || track === null) {
+    const access = this.#access;
+    if (connection === null || track === null || access === null) {
       throw new PocketStationError(
         'relay.publisher_not_connected',
         'Publish a stream before reading publisher observations',
@@ -196,8 +212,8 @@ export class RelayPublisher {
     this.#observationRevision += 1;
     return Object.freeze({
       revision: this.#observationRevision,
-      sessionId: this.#access.sessionId,
-      busId: this.#access.busId,
+      sessionId: access.sessionId,
+      busId: access.busId,
       observedAtMs: Date.now(),
       statsTimestampMs: numberField(report, 'timestamp'),
       packetsSent: numberField(report, 'packetsSent'),
@@ -217,7 +233,7 @@ export class RelayPublisher {
     return this.#state;
   }
 
-  public get access(): RelayPublisherAccess {
+  public get access(): RelayPublisherAccess | null {
     return this.#access;
   }
 
@@ -242,6 +258,7 @@ export class RelayPublisher {
     track: MediaStreamTrack,
     signal: AbortSignal,
   ): Promise<void> {
+    const access = requiredAccess(this.#access);
     this.#answer = deferred<string>();
     this.#connected = deferred<void>();
     this.#pendingIce = [];
@@ -249,7 +266,7 @@ export class RelayPublisher {
 
     const connection = new RTCPeerConnection({
       iceServers:
-        this.#access.iceServers === undefined ? [] : [...this.#access.iceServers],
+        access.iceServers === undefined ? [] : [...access.iceServers],
     });
     this.#connection = connection;
     connection.addTrack(track, stream);
@@ -293,7 +310,7 @@ export class RelayPublisher {
       }
     };
 
-    const transport = new SignalingTransport(this.#access.signalUrl);
+    const transport = new SignalingTransport(access.signalUrl);
     this.#transport = transport;
     await transport.open({
       signal,
@@ -321,9 +338,9 @@ export class RelayPublisher {
     }
     transport.send({
       type: 'PUBLISH',
-      session_id: this.#access.sessionId,
-      bus_id: this.#access.busId,
-      token: this.#access.publisherToken,
+      session_id: access.sessionId,
+      bus_id: access.busId,
+      token: access.publisherToken,
       sdp_offer: offer.sdp,
     });
     const answer = await waitWithSignal(this.#answer.promise, signal);
@@ -363,10 +380,12 @@ export class RelayPublisher {
         }
         break;
       case 'SESSION_STATE': {
+        const access = this.#access;
+        if (access === null) break;
         if (
           (message.session_id !== undefined &&
-            message.session_id !== this.#access.sessionId) ||
-          (message.bus_id !== undefined && message.bus_id !== this.#access.busId)
+            message.session_id !== access.sessionId) ||
+          (message.bus_id !== undefined && message.bus_id !== access.busId)
         ) {
           this.#handleAsyncFailure(
             new PocketStationError(
@@ -377,14 +396,14 @@ export class RelayPublisher {
           break;
         }
         const state = Object.freeze({
-          sessionId: message.session_id ?? this.#access.sessionId,
-          busId: message.bus_id ?? this.#access.busId,
+          sessionId: message.session_id ?? access.sessionId,
+          busId: message.bus_id ?? access.busId,
           sourceActive: message.source_active,
           subscriptionCount: message.subscription_count,
           codec: message.codec ?? null,
         });
         this.#sessionState = state;
-        this.#options.onSessionState?.(state);
+        this.#notify(this.#options.onSessionState, state, 'onSessionState');
         break;
       }
       case 'ERROR': {
@@ -399,7 +418,7 @@ export class RelayPublisher {
       }
       case 'CODEC_HINT':
         this.#lastCodecHint = message.codec_hint;
-        this.#options.onCodecHint?.(message.codec_hint);
+        this.#notify(this.#options.onCodecHint, message.codec_hint, 'onCodecHint');
         void this.#applyCodecHint(message.codec_hint);
         break;
       case 'ICE_RESTART':
@@ -429,7 +448,7 @@ export class RelayPublisher {
     try {
       await sender.setParameters(parameters);
     } catch (cause) {
-      this.#options.onError?.(
+      this.#notifyError(
         new PocketStationError(
           'relay.publisher_codec_hint_failed',
           'Browser could not apply Relay codec bitrate guidance',
@@ -456,7 +475,7 @@ export class RelayPublisher {
     this.#reportFailure(failure);
     this.#controller?.abort(failure);
     void this.#closeResources().catch((cleanupCause: unknown) => {
-      this.#options.onError?.(
+      this.#notifyError(
         new AggregateError(
           [failure, cleanupCause],
           'Relay publisher failure cleanup did not complete',
@@ -466,15 +485,43 @@ export class RelayPublisher {
   }
 
   #reportFailure(failure: PocketStationError): void {
+    if (this.#state === 'closed') return;
     this.#lastError = failure;
     this.#setState('failed');
-    this.#options.onError?.(failure);
+    this.#notifyError(failure);
   }
 
   #setState(state: RelayPublisherState): void {
     if (this.#state === state) return;
     this.#state = state;
-    this.#options.onStateChange?.(state);
+    this.#notify(this.#options.onStateChange, state, 'onStateChange');
+  }
+
+  #notify<T>(
+    callback: ((value: T) => void) | undefined,
+    value: T,
+    callbackName: string,
+  ): void {
+    if (callback === undefined) return;
+    try {
+      callback(value);
+    } catch (cause) {
+      this.#notifyError(
+        new PocketStationError(
+          'relay.publisher_callback_failed',
+          `RelayPublisher ${callbackName} callback failed`,
+          { cause },
+        ),
+      );
+    }
+  }
+
+  #notifyError(error: Error): void {
+    try {
+      this.#options.onError?.(error);
+    } catch {
+      // An observer cannot take ownership of the media lifecycle by throwing.
+    }
   }
 
   async #closeResources(): Promise<void> {
@@ -486,6 +533,8 @@ export class RelayPublisher {
     const track = this.#track;
     this.#connection = null;
     this.#transport = null;
+    this.#stream = null;
+    this.#track = null;
     this.#answer = null;
     this.#connected = null;
     this.#pendingIce = [];
@@ -516,6 +565,38 @@ function validateAccess(access: RelayPublisherAccess): void {
   requiredText(access.sessionId, 'sessionId');
   portableIdentifier(access.busId, 'busId');
   requiredText(access.publisherToken, 'publisherToken');
+  for (const server of access.iceServers ?? []) validateIceServer(server);
+}
+
+function snapshotAccess(access: RelayPublisherAccess): RelayPublisherAccess {
+  return Object.freeze({
+    signalUrl: access.signalUrl,
+    sessionId: access.sessionId,
+    busId: access.busId,
+    publisherToken: access.publisherToken,
+    iceServers:
+      access.iceServers === undefined
+        ? undefined
+        : Object.freeze(access.iceServers.map(snapshotIceServer)),
+  });
+}
+
+function snapshotIceServer(server: RTCIceServer): RTCIceServer {
+  const urls: string | string[] =
+    typeof server.urls === 'string' ? server.urls : [...server.urls];
+  if (Array.isArray(urls)) Object.freeze(urls);
+  return Object.freeze({
+    urls,
+    ...(server.username === undefined ? {} : { username: server.username }),
+    ...(server.credential === undefined ? {} : { credential: server.credential }),
+  });
+}
+
+function validateIceServer(server: RTCIceServer): void {
+  const urls = typeof server.urls === 'string' ? [server.urls] : server.urls;
+  if (urls.length === 0 || urls.length > 8 || urls.some((url) => url.length === 0)) {
+    throw new RangeError('ICE server URLs must contain between one and eight values');
+  }
 }
 
 function parseSignalUrl(value: string): URL {
@@ -566,6 +647,16 @@ function requiredStream(stream: MediaStream | null): MediaStream {
   return stream;
 }
 
+function requiredAccess(access: RelayPublisherAccess | null): RelayPublisherAccess {
+  if (access === null) {
+    throw new PocketStationError(
+      'relay.publisher_closed',
+      'RelayPublisher authority was released during close',
+    );
+  }
+  return access;
+}
+
 function requiredText(value: string, name: string): string {
   if (value.length === 0) throw new TypeError(`${name} cannot be empty`);
   return value;
@@ -606,23 +697,24 @@ async function waitForFirstPacket(
 
 async function outboundAudioReport(
   connection: RTCPeerConnection,
-): Promise<Record<string, unknown> | null> {
+): Promise<RTCOutboundRtpStreamStats | null> {
   const reports = await connection.getStats();
-  let outbound: Record<string, unknown> | null = null;
-  reports.forEach((report) => {
-    const candidate = report as unknown as Record<string, unknown>;
-    if (candidate.type === 'outbound-rtp' && candidate.kind !== 'video') {
-      outbound = candidate;
-    }
+  let outbound: RTCOutboundRtpStreamStats | null = null;
+  reports.forEach((report: RTCStats) => {
+    if (isOutboundAudioStats(report)) outbound = report;
   });
   return outbound;
 }
 
+function isOutboundAudioStats(report: RTCStats): report is RTCOutboundRtpStreamStats {
+  return report.type === 'outbound-rtp' && 'kind' in report && report.kind === 'audio';
+}
+
 function numberField(
-  value: Record<string, unknown> | null,
+  value: RTCStats | null,
   name: string,
 ): number | null {
-  const field = value?.[name];
+  const field = value === null ? undefined : Reflect.get(value, name);
   return typeof field === 'number' && Number.isFinite(field) ? field : null;
 }
 
