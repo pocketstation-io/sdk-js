@@ -103,4 +103,129 @@ describe('Operator authoring', () => {
       }),
     ).toThrow('at least one input and one output');
   });
+
+  it('aborts a stalled Operator operation at the native deadline and cleans up once', async () => {
+    const lifecycle: string[] = [];
+    let processSignal: AbortSignal | undefined;
+    const text = SignalSpec.text();
+    const feed = defineSource({
+      id: 'org.example.source.operator-deadline-input.v1',
+      outputs: [PortSpec.output('text', text)],
+      create: () => {
+        let emitted = false;
+        return { next: () => {
+          if (emitted) return undefined;
+          emitted = true;
+          return { output: 'text', data: 'hello' };
+        } };
+      },
+    });
+    const stalled = defineOperator({
+      id: 'org.example.operator.native-deadline.v1',
+      inputs: [PortSpec.input('text', text)],
+      outputs: [PortSpec.output('text', text)],
+      deadlineMs: 20,
+      create: () => ({
+        process: async (_input, _inputPort, context) => {
+          processSignal = context.signal;
+          await waitForAbort(context.signal);
+          return [];
+        },
+        cancel: () => { lifecycle.push('cancel'); },
+        close: () => { lifecycle.push('close'); },
+      }),
+    });
+    const session = new Session();
+    const instance = session.operator(stalled);
+    session.source(feed).output('text').connect(instance.input('text'));
+    session.subscribe(instance.output('text'), { signal: text });
+
+    const running = await session.start();
+    await waitFor(() => processSignal?.aborted === true && lifecycle.includes('close'));
+    const outcome = await running.stop();
+
+    expect(outcome.success).toBe(false);
+    expect(processSignal?.aborted).toBe(true);
+    expect(lifecycle).toEqual(['cancel', 'close']);
+  });
+
+  it('closes an Operator node that resolves after the native creation deadline', async () => {
+    let closes = 0;
+    const text = SignalSpec.text();
+    const delayed = defineOperator({
+      id: 'org.example.operator.native-create-deadline.v1',
+      inputs: [PortSpec.input('text', text)],
+      outputs: [PortSpec.output('text', text)],
+      deadlineMs: 10,
+      create: async () => {
+        await delay(40);
+        return {
+          process: () => [],
+          close: () => { closes += 1; },
+        };
+      },
+    });
+    const feed = defineSource({
+      id: 'org.example.source.operator-create-deadline-input.v1',
+      outputs: [PortSpec.output('text', text)],
+      create: () => ({ next: () => undefined }),
+    });
+    const session = new Session();
+    const instance = session.operator(delayed);
+    session.source(feed).output('text').connect(instance.input('text'));
+    session.subscribe(instance.output('text'), { signal: text });
+
+    await expect(session.start()).rejects.toBeInstanceOf(Error);
+    await waitFor(() => closes === 1);
+
+    expect(closes).toBe(1);
+  });
+
+  it('bounds an Operator close handler that ignores cancellation', async () => {
+    const text = SignalSpec.text();
+    let closes = 0;
+    const operator = defineOperator({
+      id: 'org.example.operator.stalled-close.v1',
+      inputs: [PortSpec.input('text', text)],
+      outputs: [PortSpec.output('text', text)],
+      deadlineMs: 10,
+      create: () => ({
+        process: () => [],
+        close: () => {
+          closes += 1;
+          return new Promise<void>(() => undefined);
+        },
+      }),
+    });
+    const instanceId = 'stalled-operator-close';
+    await operator._dispatch({ operation: 'operator.create', instanceId });
+
+    const startedAt = Date.now();
+    await expect(operator._dispatch({ operation: 'operator.close', instanceId }))
+      .rejects.toThrow('Operator close exceeded 10 milliseconds');
+
+    expect(Date.now() - startedAt).toBeLessThan(500);
+    await expect(operator._dispatch({ operation: 'operator.close', instanceId }))
+      .resolves.toEqual({});
+    expect(closes).toBe(1);
+  });
 });
+
+async function waitForAbort(signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return;
+  await new Promise<void>((resolve) => {
+    signal.addEventListener('abort', () => resolve(), { once: true });
+  });
+}
+
+async function waitFor(predicate: () => boolean): Promise<void> {
+  const deadline = Date.now() + 1_000;
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error('timed out waiting for Operator cleanup');
+    await delay(5);
+  }
+}
+
+async function delay(milliseconds: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, milliseconds));
+}

@@ -185,7 +185,110 @@ describe('Endpoint authoring', () => {
 
     expect(lifecycle).toEqual(['prepare', 'stop:abort', 'close']);
   });
+
+  it('aborts a stalled Endpoint operation at the native deadline and finalizes once', async () => {
+    let signal: AbortSignal | undefined;
+    const lifecycle: string[] = [];
+    const endpoint = defineEndpoint({
+      id: 'org.example.endpoint.native-deadline.v1',
+      inputs: [PortSpec.input('audio', SignalSpec.audio())],
+      deadlineMs: 20,
+      create: () => ({
+        prepare: async (context) => {
+          signal = context.signal;
+          await waitForAbort(context.signal);
+        },
+        receive: () => {},
+        stop: (mode) => { lifecycle.push(`stop:${mode}`); },
+        close: () => { lifecycle.push('close'); },
+      }),
+    });
+    const session = new Session({ frameDurationMs: 10 });
+    const audio = session.audioInput('deadline audio');
+    audio.output.send(session.endpoint(endpoint), { input: 'audio' });
+
+    await expect(session.start()).rejects.toBeInstanceOf(Error);
+    await waitFor(() => lifecycle.includes('close'));
+
+    expect(signal?.aborted).toBe(true);
+    expect(lifecycle).toEqual(['stop:abort', 'close']);
+  });
+
+  it('preserves drain until its deadline, then performs one abort cleanup', async () => {
+    const lifecycle: string[] = [];
+    const endpoint = defineEndpoint({
+      id: 'org.example.endpoint.native-drain-deadline.v1',
+      inputs: [PortSpec.input('audio', SignalSpec.audio())],
+      deadlineMs: 20,
+      create: () => ({
+        receive: () => {},
+        stop: async (mode, context) => {
+          lifecycle.push(`stop:${mode}`);
+          if (mode === 'drain') await waitForAbort(context.signal);
+        },
+        close: () => { lifecycle.push('close'); },
+      }),
+    });
+    const session = new Session({ frameDurationMs: 10 });
+    const audio = session.audioInput('drain deadline audio');
+    audio.output.send(session.endpoint(endpoint), { input: 'audio' });
+    audio.close();
+
+    const running = await session.start();
+    const outcome = await running.stop();
+    await waitFor(() => lifecycle.includes('close'));
+
+    expect(outcome.success).toBe(false);
+    expect(lifecycle).toEqual(['stop:drain', 'stop:abort', 'close']);
+  });
+
+  it('bounds non-cooperative Endpoint work and close during deadline cleanup', async () => {
+    let preparationSignal: AbortSignal | undefined;
+    let closes = 0;
+    const endpoint = defineEndpoint({
+      id: 'org.example.endpoint.noncooperative-deadline.v1',
+      inputs: [PortSpec.input('audio', SignalSpec.audio())],
+      deadlineMs: 10,
+      create: () => ({
+        prepare: (context) => {
+          preparationSignal = context.signal;
+          return new Promise<void>(() => undefined);
+        },
+        receive: () => {},
+        close: () => {
+          closes += 1;
+          return new Promise<void>(() => undefined);
+        },
+      }),
+    });
+    const instanceId = 'noncooperative-endpoint';
+    await endpoint._dispatch({ operation: 'endpoint.create', instanceId });
+    const preparation = endpoint._dispatch({ operation: 'endpoint.prepare', instanceId });
+    void preparation.catch(() => undefined);
+
+    await endpoint._dispatch({
+      operation: 'provider.deadline_exceeded',
+      instanceId,
+      timedOutOperation: 'endpoint.prepare',
+    });
+    const startedAt = Date.now();
+    await expect(endpoint._dispatch({ operation: 'endpoint.close', instanceId }))
+      .rejects.toThrow('Endpoint in-flight shutdown exceeded 10 milliseconds');
+
+    expect(Date.now() - startedAt).toBeLessThan(500);
+    expect(preparationSignal?.aborted).toBe(true);
+    expect(closes).toBe(1);
+    await expect(endpoint._dispatch({ operation: 'endpoint.close', instanceId }))
+      .resolves.toEqual({});
+  });
 });
+
+async function waitForAbort(signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return;
+  await new Promise<void>((resolve) => {
+    signal.addEventListener('abort', () => resolve(), { once: true });
+  });
+}
 
 async function waitFor(predicate: () => boolean): Promise<void> {
   const deadline = Date.now() + 1_000;

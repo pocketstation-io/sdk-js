@@ -161,6 +161,7 @@ export interface NativeProviderAudio {
 export interface NativeProviderCall {
   operation: string;
   instanceId?: string | null;
+  timedOutOperation?: string | null;
   shutdownMode?: string | null;
   audio?: NativeProviderAudio | null;
   configuration?: NativeConfigurationEntry[] | null;
@@ -1162,12 +1163,28 @@ export interface NativeStopResult {
   sourceSendRejectionsTotal: string;
   runtimeEventsTotal: string;
   sidecarOutcomes: NativeSidecarSnapshot[];
+  relayOutcomes: NativeRelayPublishOutcome[];
   recording?: NativeRecordingOutcome | null;
   trace?: NativeTraceRecorderOutcome | null;
   traceError?: string | null;
   metrics?: NativeSessionMetrics | null;
   metricsUnavailableReason?: string | null;
   remainingEvents: NativeSessionEvent[];
+}
+
+export interface NativeRelayPublishOutcome {
+  busId: string;
+  endpointId: string;
+  routeId: string;
+  framesReceivedTotal: string;
+  rtpPacketsSentTotal: string;
+  rtpPayloadBytesSentTotal: string;
+  ingressQueueDropsTotal: string;
+  publisherStaleDropsTotal: string;
+  cancelledOutputFramesTotal: string;
+  cancelledOutputSamplesTotal: string;
+  failuresTotal: string;
+  error?: string | null;
 }
 
 export interface NativeRunningSessionHandle {
@@ -1241,6 +1258,11 @@ export interface NativeSessionHandle {
   browser(receiverUri: string): NativeEndpointHandle;
   audioWithRoute(route: NativeRouteSettingsHandle): NativeEndpointHandle;
   relayAudio(options: NativeRelayDestinationOptions): NativeEndpointHandle;
+  registerRelayRoute(
+    busId: string,
+    endpoint: NativeEndpointHandle,
+    routeId: string,
+  ): void;
   audioConnector(
     dispatch: (request: NativeProviderCall) => Promise<NativeProviderResult>,
     deadlineMs?: number,

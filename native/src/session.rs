@@ -8,8 +8,10 @@ use futures::channel::oneshot;
 use napi::bindgen_prelude::{spawn_blocking, AsyncTask, ClassInstance, Function, Promise};
 use napi::{Env, Result, Task};
 use napi_derive::napi;
-use pocketstation::connector::ConnectorSecret;
-use pocketstation_relay::{RelayConnector, RelayIceServer, RelayRouteConfiguration};
+use pocketstation::connector::{ConnectorSecret, RegisteredConnector};
+use pocketstation_relay::{
+    RelayConnector, RelayIceServer, RelayPublishReceiptKey, RelayRouteConfiguration,
+};
 
 use crate::application_audio::NativeAudioInput;
 use crate::errors::{error, state_unavailable};
@@ -227,6 +229,32 @@ pub struct NativeRelayDestinationOptions {
 }
 
 #[napi(object)]
+pub struct NativeRelayPublishOutcome {
+    pub bus_id: String,
+    pub endpoint_id: String,
+    pub route_id: String,
+    pub frames_received_total: String,
+    pub rtp_packets_sent_total: String,
+    pub rtp_payload_bytes_sent_total: String,
+    pub ingress_queue_drops_total: String,
+    pub publisher_stale_drops_total: String,
+    pub cancelled_output_frames_total: String,
+    pub cancelled_output_samples_total: String,
+    pub failures_total: String,
+    pub error: Option<String>,
+}
+
+struct RelayRouteRegistration {
+    bus_id: String,
+    key: RelayPublishReceiptKey,
+}
+
+struct RelayRuntime {
+    connector: Arc<RelayConnector>,
+    routes: Vec<RelayRouteRegistration>,
+}
+
+#[napi(object)]
 pub struct NativeStopResult {
     pub success: bool,
     pub already_stopped: bool,
@@ -241,6 +269,7 @@ pub struct NativeStopResult {
     pub source_send_rejections_total: String,
     pub runtime_events_total: String,
     pub sidecar_outcomes: Vec<NativeSidecarSnapshot>,
+    pub relay_outcomes: Vec<NativeRelayPublishOutcome>,
     pub recording: Option<NativeRecordingOutcome>,
     pub trace: Option<NativeTraceRecorderOutcome>,
     pub trace_error: Option<String>,
@@ -397,7 +426,9 @@ pub struct NativeSession {
     session_id: u64,
     signal_receipts: SignalReceipts,
     next_signal_subscription_id: AtomicU64,
-    relay_connector: Mutex<Option<pocketstation::connector::RegisteredConnector>>,
+    relay_connector: Mutex<Option<Arc<RelayConnector>>>,
+    relay_registered: Mutex<Option<RegisteredConnector>>,
+    relay_routes: Mutex<Vec<RelayRouteRegistration>>,
 }
 
 #[napi]
@@ -479,6 +510,8 @@ impl NativeSession {
             signal_receipts: new_signal_receipts(),
             next_signal_subscription_id: AtomicU64::new(0),
             relay_connector: Mutex::new(None),
+            relay_registered: Mutex::new(None),
+            relay_routes: Mutex::new(Vec::new()),
         })
     }
 
@@ -639,18 +672,24 @@ impl NativeSession {
         let session = session
             .as_ref()
             .ok_or_else(|| error("session.draft_frozen", "Session has already started"))?;
-        let mut registered = self
+        let mut connector = self
             .relay_connector
             .lock()
             .map_err(|_| state_unavailable("Relay connector"))?;
+        let mut registered = self
+            .relay_registered
+            .lock()
+            .map_err(|_| state_unavailable("registered Relay connector"))?;
         if registered.is_none() {
-            let relay = RelayConnector::new()
-                .map_err(|failure| error("relay.registration_failed", failure.to_string()))?;
-            *registered = Some(
-                relay
-                    .register(session)
+            let relay = Arc::new(
+                RelayConnector::new()
                     .map_err(|failure| error("relay.registration_failed", failure.to_string()))?,
             );
+            let registration = relay
+                .register(session)
+                .map_err(|failure| error("relay.registration_failed", failure.to_string()))?;
+            *connector = Some(relay);
+            *registered = Some(registration);
         }
         let registered = registered.as_ref().ok_or_else(|| {
             error(
@@ -668,6 +707,70 @@ impl NativeSession {
         Ok(NativeEndpoint {
             session_id: self.session_id,
             handle,
+        })
+    }
+
+    #[napi]
+    pub fn register_relay_route(
+        &self,
+        bus_id: String,
+        endpoint: &NativeEndpoint,
+        route_id: String,
+    ) -> Result<()> {
+        if endpoint.session_id != self.session_id {
+            return Err(error(
+                "session.foreign_endpoint",
+                "Relay Endpoint belongs to a different Session",
+            ));
+        }
+        if bus_id.trim().is_empty() {
+            return Err(error(
+                "relay.invalid_configuration",
+                "AudioBus name cannot be empty",
+            ));
+        }
+        let route_id = route_id.parse::<u64>().map_err(|_| {
+            error(
+                "session.invalid_route",
+                "Relay route ID must be an unsigned 64-bit integer",
+            )
+        })?;
+        if route_id == 0 {
+            return Err(error(
+                "session.invalid_route",
+                "Relay route ID must be non-zero",
+            ));
+        }
+        self.with_session(|_| {
+            let connector = self
+                .relay_connector
+                .lock()
+                .map_err(|_| state_unavailable("Relay connector"))?;
+            if connector.is_none() {
+                return Err(error(
+                    "relay.registration_failed",
+                    "Relay connector is not registered",
+                ));
+            }
+            drop(connector);
+            let mut routes = self
+                .relay_routes
+                .lock()
+                .map_err(|_| state_unavailable("Relay route registrations"))?;
+            if routes.iter().any(|route| route.bus_id == bus_id) {
+                return Err(error(
+                    "session.invalid_endpoint",
+                    "AudioBus IDs must be unique within one Relay publisher",
+                ));
+            }
+            routes.push(RelayRouteRegistration {
+                bus_id,
+                key: RelayPublishReceiptKey {
+                    endpoint_id: endpoint.handle.id(),
+                    route_id: pocketstation::RouteId::new(route_id),
+                },
+            });
+            Ok(())
         })
     }
 
@@ -930,6 +1033,7 @@ impl NativeSession {
 
     #[napi]
     pub async fn start(&self) -> Result<NativeStartResult> {
+        let relay = self.prepare_relay()?;
         let session = self
             .session
             .lock()
@@ -939,14 +1043,11 @@ impl NativeSession {
         let session_id = self.session_id;
         let signal_receipts = Arc::clone(&self.signal_receipts);
         spawn_blocking(move || match session.start() {
-            Ok(running) => {
-                NativeRunningSession::spawn(running, session_id, signal_receipts).map(|running| {
-                    NativeStartResult {
-                        running: Some(running),
-                        failure: None,
-                    }
-                })
-            }
+            Ok(running) => NativeRunningSession::spawn(running, session_id, signal_receipts, relay)
+                .map(|running| NativeStartResult {
+                    running: Some(running),
+                    failure: None,
+                }),
             Err(failure) => Ok(NativeStartResult {
                 running: None,
                 failure: Some(project_start_failure(&failure)),
@@ -1010,11 +1111,40 @@ impl NativeSession {
             signal_receipts: new_signal_receipts(),
             next_signal_subscription_id: AtomicU64::new(0),
             relay_connector: Mutex::new(None),
+            relay_registered: Mutex::new(None),
+            relay_routes: Mutex::new(Vec::new()),
         })
     }
 }
 
 impl NativeSession {
+    fn prepare_relay(&self) -> Result<Option<RelayRuntime>> {
+        let connector = self
+            .relay_connector
+            .lock()
+            .map_err(|_| state_unavailable("Relay connector"))?
+            .clone();
+        let routes = std::mem::take(
+            &mut *self
+                .relay_routes
+                .lock()
+                .map_err(|_| state_unavailable("Relay route registrations"))?,
+        );
+        let Some(connector) = connector else {
+            if routes.is_empty() {
+                return Ok(None);
+            }
+            return Err(state_unavailable("Relay connector"));
+        };
+        if routes.is_empty() {
+            return Err(error(
+                "session.invalid_endpoint",
+                "Relay publisher requires at least one published AudioBus",
+            ));
+        }
+        Ok(Some(RelayRuntime { connector, routes }))
+    }
+
     fn allocate_signal_subscription_id(&self) -> Result<u64> {
         self.next_signal_subscription_id
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
@@ -1443,11 +1573,12 @@ impl NativeRunningSession {
         running: pocketstation::RunningSession,
         session_id: u64,
         signal_receipts: SignalReceipts,
+        relay: Option<RelayRuntime>,
     ) -> Result<Self> {
         let (commands, receiver) = sync_channel(COMMAND_CAPACITY_COUNT);
         let join = thread::Builder::new()
             .name("pocketstation-js-session".to_owned())
-            .spawn(move || session_worker(running, receiver))
+            .spawn(move || session_worker(running, receiver, relay))
             .map_err(|failure| {
                 error(
                     "session.worker_start_failed",
@@ -1561,7 +1692,11 @@ enum FinishDisposition {
     Cancel,
 }
 
-fn session_worker(mut running: pocketstation::RunningSession, receiver: Receiver<SessionCommand>) {
+fn session_worker(
+    mut running: pocketstation::RunningSession,
+    receiver: Receiver<SessionCommand>,
+    relay: Option<RelayRuntime>,
+) {
     while let Ok(command) = receiver.recv() {
         match command {
             SessionCommand::ReplaceMicrophone {
@@ -1635,6 +1770,7 @@ fn session_worker(mut running: pocketstation::RunningSession, receiver: Receiver
                 let remaining_events = drain_events(&running);
                 let _ = response.send(stop_result(
                     &running,
+                    relay.as_ref(),
                     stop.is_success(),
                     matches!(
                         stop.disposition(),
@@ -1651,6 +1787,7 @@ fn session_worker(mut running: pocketstation::RunningSession, receiver: Receiver
                 let remaining_events = drain_events(&running);
                 let _ = response.send(stop_result(
                     &running,
+                    relay.as_ref(),
                     cancel.is_success(),
                     matches!(
                         cancel.disposition(),
@@ -2005,6 +2142,7 @@ fn debug_name(value: impl std::fmt::Debug) -> String {
 
 fn stop_result(
     running: &pocketstation::RunningSession,
+    relay: Option<&RelayRuntime>,
     success: bool,
     already_stopped: bool,
     disposition: &str,
@@ -2046,6 +2184,7 @@ fn stop_result(
             .into_iter()
             .map(NativeSidecarSnapshot::from)
             .collect(),
+        relay_outcomes: relay_outcomes(relay),
         recording,
         trace,
         trace_error,
@@ -2053,6 +2192,66 @@ fn stop_result(
         metrics_unavailable_reason,
         remaining_events,
     }
+}
+
+fn relay_outcomes(relay: Option<&RelayRuntime>) -> Vec<NativeRelayPublishOutcome> {
+    let Some(relay) = relay else {
+        return Vec::new();
+    };
+    relay
+        .routes
+        .iter()
+        .map(|route| {
+            relay.connector.take_result(route.key).map_or_else(
+                || NativeRelayPublishOutcome {
+                    bus_id: route.bus_id.clone(),
+                    endpoint_id: route.key.endpoint_id.get().to_string(),
+                    route_id: route.key.route_id.get().to_string(),
+                    frames_received_total: "0".to_owned(),
+                    rtp_packets_sent_total: "0".to_owned(),
+                    rtp_payload_bytes_sent_total: "0".to_owned(),
+                    ingress_queue_drops_total: "0".to_owned(),
+                    publisher_stale_drops_total: "0".to_owned(),
+                    cancelled_output_frames_total: "0".to_owned(),
+                    cancelled_output_samples_total: "0".to_owned(),
+                    failures_total: "1".to_owned(),
+                    error: Some("Relay publication result is unavailable".to_owned()),
+                },
+                |result| NativeRelayPublishOutcome {
+                    bus_id: route.bus_id.clone(),
+                    endpoint_id: route.key.endpoint_id.get().to_string(),
+                    route_id: route.key.route_id.get().to_string(),
+                    frames_received_total: result
+                        .edge_observations
+                        .frames_delivered_total
+                        .to_string(),
+                    rtp_packets_sent_total: result.statistics.rtp_packets_sent_total.to_string(),
+                    rtp_payload_bytes_sent_total: result
+                        .statistics
+                        .rtp_payload_bytes_sent_total
+                        .to_string(),
+                    ingress_queue_drops_total: result
+                        .statistics
+                        .ingress_queue_drops_total
+                        .to_string(),
+                    publisher_stale_drops_total: result
+                        .statistics
+                        .publisher_stale_drops_total
+                        .to_string(),
+                    cancelled_output_frames_total: result
+                        .statistics
+                        .cancelled_output_frames_total
+                        .to_string(),
+                    cancelled_output_samples_total: result
+                        .statistics
+                        .cancelled_output_samples_total
+                        .to_string(),
+                    failures_total: u64::from(result.error.is_some()).to_string(),
+                    error: result.error.map(|failure| failure.to_string()),
+                },
+            )
+        })
+        .collect()
 }
 
 fn parse_sidecar_id(value: &str) -> Result<u64> {

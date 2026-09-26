@@ -24,6 +24,7 @@ const STOP_RESULT: NativeStopResult = {
   sourceSendRejectionsTotal: '0',
   runtimeEventsTotal: '0',
   sidecarOutcomes: [],
+  relayOutcomes: [],
   metricsUnavailableReason: 'fixture does not provide final metrics',
   remainingEvents: [],
 };

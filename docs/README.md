@@ -8,7 +8,6 @@ so browser-safe packages do not load native code.
 
 - [Capture an application](getting-started/capture.md)
 - [Run the examples](../examples/README.md)
-- [Run PocketStation from a notebook](guides/notebooks.md)
 - [Feed PCM from a provider, decoder, or network connection](guides/application-audio.md)
 - [Feed application or provider events into a Session](guides/event-input.md)
 

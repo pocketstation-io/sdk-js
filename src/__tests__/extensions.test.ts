@@ -18,6 +18,8 @@ import {
   ExtensionDescriptor,
   ExtensionError,
   ExtensionPort,
+  ExtensionPortDirection,
+  ExtensionKind,
   Operator,
   Session,
   SignalSpec,
@@ -59,11 +61,41 @@ afterAll(() => {
 describe('native extensions', () => {
   it('reports and validates the linked Extension ABI', () => {
     const abi = ExtensionAbiVersion.current();
-    expect(abi.major).toBe(1);
-    expect(abi.minor).toBeGreaterThanOrEqual(2);
+    expect(abi.abiMajor).toBe(1);
+    expect(abi.abiMinor).toBeGreaterThanOrEqual(2);
     expect(abi.structSizeBytes).toBeGreaterThan(0);
     expect(() => abi.requireCompatible()).not.toThrow();
+    expect(ExtensionKind).toEqual({
+      SOURCE: 'source',
+      OPERATOR: 'operator',
+      ENDPOINT: 'endpoint',
+    });
+    expect(ExtensionPortDirection).toEqual({ INPUT: 'input', OUTPUT: 'output' });
 
+    const descriptor = new ExtensionDescriptor({
+      extensionId: SOURCE_ID,
+      kind: ExtensionKind.SOURCE,
+      ports: [
+        new ExtensionPort({
+          name: 'out',
+          direction: ExtensionPortDirection.OUTPUT,
+          signalId: SIGNAL_ID,
+          semanticRole: 'fixture-output',
+          schema: SCHEMA,
+        }),
+      ],
+    });
+    expect(descriptor.extensionId).toBe(SOURCE_ID);
+    expect(descriptor.abiMajor).toBe(1);
+    expect(descriptor.abiMinor).toBe(abi.abiMinor);
+    expect(descriptor.abi.abiMajor).toBe(1);
+    expect(descriptor.ports).toHaveLength(1);
+    expect(descriptor.ports[0]?.semanticRole).toBe('fixture-output');
+    expect(Object.isFrozen(descriptor)).toBe(true);
+    expect(Object.isFrozen(descriptor.ports)).toBe(true);
+  });
+
+  it('keeps the previous descriptor spellings as checked compatibility aliases', () => {
     const descriptor = new ExtensionDescriptor({
       id: SOURCE_ID,
       kind: 'source',
@@ -72,12 +104,24 @@ describe('native extensions', () => {
           name: 'out',
           direction: 'output',
           signalId: SIGNAL_ID,
-          schema: SCHEMA,
+          role: 'legacy-role',
         }),
       ],
     });
-    expect(descriptor.abi.major).toBe(1);
-    expect(descriptor.ports).toHaveLength(1);
+
+    expect(descriptor.id).toBe(descriptor.extensionId);
+    expect(descriptor.abi.major).toBe(descriptor.abiMajor);
+    expect(descriptor.abi.minor).toBe(descriptor.abiMinor);
+    expect(descriptor.ports[0]?.role).toBe('legacy-role');
+    expect(
+      () =>
+        new ExtensionDescriptor({
+          extensionId: SOURCE_ID,
+          id: 'dev.pocketstation.source.other.v1',
+          kind: 'source',
+          ports: [],
+        }),
+    ).toThrow(TypeError);
   });
 
   it('rejects a relative library path before loading native code', async () => {

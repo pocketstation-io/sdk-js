@@ -20,6 +20,7 @@ import {
 } from './identity.js';
 import {
   EndpointFactory,
+  type EndpointContext,
   type EndpointDeliveryOutcome,
   type EndpointItem,
   type EndpointNode,
@@ -161,11 +162,13 @@ export class EndpointPrepareContext {
   public readonly stemId?: StemId;
   public readonly sessionTimelineOriginNs: bigint;
   public readonly configuration: Readonly<Configuration>;
+  public readonly signal: AbortSignal;
 
   /** @internal */
   public constructor(
     native: NativeEndpointInputDescriptor,
     configuration: Configuration,
+    signal: AbortSignal,
   ) {
     this.sessionId = RuntimeSessionId(BigInt(required(native.sessionId, 'sessionId')));
     this.endpointId = EndpointId(BigInt(native.endpointId));
@@ -187,6 +190,7 @@ export class EndpointPrepareContext {
       required(native.sessionTimelineOriginNs, 'sessionTimelineOriginNs'),
     );
     this.configuration = Object.freeze({ ...configuration });
+    this.signal = signal;
     Object.freeze(this);
   }
 }
@@ -405,6 +409,7 @@ export class EndpointProvider {
     encodedConfiguration: SourceConfiguration,
     nativeInputs: readonly NativeEndpointInputDescriptor[],
   ): EndpointNode {
+    const controller = new AbortController();
     const descriptors = nativeInputs.map((native): EndpointPortInput => {
       const port = this.manifest.inputs.find((candidate) => candidate.name === native.portName);
       if (port === undefined) {
@@ -418,13 +423,13 @@ export class EndpointProvider {
       return new EndpointPortInput({
         port,
         routeSettings: declaration?.route ?? defaultRoute(this.manifest),
-        context: new EndpointPrepareContext(native, configuration),
+        context: new EndpointPrepareContext(native, configuration, controller.signal),
       });
     });
     const byRoute = new Map(descriptors.map((input) => [input.context.routeId, input]));
     const runtime: EndpointRuntime = {
       endpointIds: Object.freeze([...new Set(descriptors.map((input) => input.context.endpointId))]),
-      controller: new AbortController(),
+      controller,
       observations: new EndpointDriverObservations(),
       finalized: false,
     };
@@ -434,6 +439,54 @@ export class EndpointProvider {
     let gate: EndpointStartGate | undefined;
     let preparationCancelled = false;
     let shutdownRequested = false;
+    let sessionSignalDisposer: (() => void) | undefined;
+    let latePreparationCleanupStarted = false;
+    let lateRunningCleanupStarted = false;
+
+    const abortOnTimeout = (failure: EndpointDriverError): void => {
+      if (!runtime.controller.signal.aborted) runtime.controller.abort(failure);
+    };
+    const cancelPrepared = async (value: PreparedEndpointDriver): Promise<void> => {
+      if (preparationCancelled) return;
+      preparationCancelled = true;
+      await within(
+        Promise.resolve(value.cancelPreparation()),
+        this.deadlines.shutdownMs,
+        'cancel-preparation',
+        abortOnTimeout,
+      );
+    };
+    const cancelLatePreparation = (value: PreparedEndpointDriver): void => {
+      if (latePreparationCleanupStarted) return;
+      latePreparationCleanupStarted = true;
+      void cancelPrepared(value).catch(() => undefined);
+    };
+    const finalizeLateRunning = (value: RunningEndpointDriver): void => {
+      if (lateRunningCleanupStarted) return;
+      lateRunningCleanupStarted = true;
+      void (async () => {
+        try {
+          await within(
+            Promise.resolve(value.requestShutdown('abort')),
+            this.deadlines.shutdownMs,
+            'request-stop',
+            abortOnTimeout,
+          );
+        } catch {
+          // The Session already retains the start timeout as its primary failure.
+        }
+        try {
+          runtime.observations = validateObservations(await within(
+            Promise.resolve(value.joinAndFinalize()),
+            this.deadlines.shutdownMs,
+            'join-finalize',
+            abortOnTimeout,
+          ));
+        } catch {
+          // Late cleanup cannot replace the failure already returned to Core.
+        }
+      })();
+    };
 
     const delivery = (item: EndpointItem): EndpointDriverItem => {
       const input = byRoute.get(RouteId(item.routeId));
@@ -460,6 +513,7 @@ export class EndpointProvider {
           Promise.resolve(running.receiveBatch(delivered)),
           this.deadlines.deliveryMs,
           'join-finalize',
+          abortOnTimeout,
         );
         if (result.length !== delivered.length) {
           throw new EndpointDriverError('Endpoint returned the wrong number of delivery outcomes', {
@@ -474,12 +528,18 @@ export class EndpointProvider {
     };
 
     return {
-      prepare: async () => {
+      prepare: async (context: EndpointContext) => {
+        sessionSignalDisposer ??= forwardAbort(context.signal, runtime.controller);
         try {
+          const preparation = Promise.resolve(
+            resolvePrepare(this.factory, Object.freeze(descriptors)),
+          );
           prepared = await within(
-            Promise.resolve(resolvePrepare(this.factory, Object.freeze(descriptors))),
+            preparation,
             this.deadlines.prepareMs,
             'prepare',
+            abortOnTimeout,
+            cancelLatePreparation,
           );
           return { idleEnabled: this.idleEnabled };
         } catch (failure) {
@@ -495,10 +555,13 @@ export class EndpointProvider {
         }
         gate = new EndpointStartGate();
         try {
+          const startup = Promise.resolve(prepared.start(gate));
           running = await within(
-            Promise.resolve(prepared.start(gate)),
+            startup,
             this.deadlines.startMs,
             'start',
+            abortOnTimeout,
+            finalizeLateRunning,
           );
         } catch (failure) {
           throw nativeEndpointError(asEndpointError(failure, 'start'));
@@ -510,7 +573,12 @@ export class EndpointProvider {
       idle: async () => {
         if (running === undefined) return;
         try {
-          await within(Promise.resolve(running.idle()), this.deadlines.deliveryMs, 'join-finalize');
+          await within(
+            Promise.resolve(running.idle()),
+            this.deadlines.deliveryMs,
+            'join-finalize',
+            abortOnTimeout,
+          );
         } catch (failure) {
           throw nativeEndpointError(asEndpointError(failure, 'join-finalize'));
         }
@@ -525,18 +593,14 @@ export class EndpointProvider {
               Promise.resolve(running.requestShutdown(mode)),
               this.deadlines.shutdownMs,
               'request-stop',
+              abortOnTimeout,
             );
           } catch (failure) {
             throw nativeEndpointError(asEndpointError(failure, 'request-stop'));
           }
         } else if (prepared !== undefined && !preparationCancelled) {
-          preparationCancelled = true;
           try {
-            await within(
-              Promise.resolve(prepared.cancelPreparation()),
-              this.deadlines.shutdownMs,
-              'cancel-preparation',
-            );
+            await cancelPrepared(prepared);
           } catch (failure) {
             throw nativeEndpointError(asEndpointError(failure, 'cancel-preparation'));
           }
@@ -549,20 +613,17 @@ export class EndpointProvider {
               Promise.resolve(running.joinAndFinalize()),
               this.deadlines.shutdownMs,
               'join-finalize',
+              abortOnTimeout,
             ));
           } else if (prepared !== undefined && !preparationCancelled) {
-            preparationCancelled = true;
-            await within(
-              Promise.resolve(prepared.cancelPreparation()),
-              this.deadlines.shutdownMs,
-              'cancel-preparation',
-            );
+            await cancelPrepared(prepared);
           }
         } catch (failure) {
           throw nativeEndpointError(asEndpointError(failure, 'join-finalize'));
         } finally {
           runtime.finalized = true;
           if (!runtime.controller.signal.aborted) runtime.controller.abort();
+          sessionSignalDisposer?.();
         }
       },
       _finalObservations: () => nativeObservations(runtime.observations),
@@ -664,21 +725,45 @@ async function within<T>(
   promise: Promise<T>,
   milliseconds: number,
   stage: EndpointFailureStage,
+  onTimeout?: (failure: EndpointDriverError) => void,
+  onLateResult?: (value: T) => void | Promise<void>,
 ): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
       promise,
       new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => reject(new EndpointDriverError(
-          `Endpoint ${stage} exceeded ${milliseconds} milliseconds`,
-          { code: 'javascript.endpoint.timeout', stage, retryability: 'retryable' },
-        )), milliseconds);
+        timer = setTimeout(() => {
+          const failure = new EndpointDriverError(
+            `Endpoint ${stage} exceeded ${milliseconds} milliseconds`,
+            { code: 'javascript.endpoint.timeout', stage, retryability: 'retryable' },
+          );
+          onTimeout?.(failure);
+          if (onLateResult !== undefined) {
+            void promise.then(
+              async (value) => { await onLateResult(value); },
+              () => undefined,
+            ).catch(() => undefined);
+          }
+          reject(failure);
+        }, milliseconds);
       }),
     ]);
   } finally {
     if (timer !== undefined) clearTimeout(timer);
   }
+}
+
+function forwardAbort(source: AbortSignal, target: AbortController): () => void {
+  const abort = (): void => {
+    if (!target.signal.aborted) target.abort(source.reason);
+  };
+  if (source.aborted) {
+    abort();
+    return () => undefined;
+  }
+  source.addEventListener('abort', abort, { once: true });
+  return () => source.removeEventListener('abort', abort);
 }
 
 function asEndpointError(error: unknown, stage: EndpointFailureStage): EndpointDriverError {

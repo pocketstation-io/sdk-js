@@ -23,7 +23,7 @@ voice entries never load the native addon.
 | Observe delivery and failures | `running.metrics()` / `running.events` | `SessionMetrics`, `SessionTrace` |
 | Load trusted native code | `session.loadNativeExtensionLibrary()` | Extension descriptor and port types |
 | Run an isolated process | `session.registerSidecar()` | `SidecarProcess`, `SidecarConnection` |
-| Publish named audio buses | `session.relay()` / `relay.audio()` | `RelayPublisherOptions` |
+| Publish named audio buses | `session.relay()` / `stem.publish()` | `RelayPublisherOptions`, `RelayRoute` |
 | Receive one Relay AudioBus in a browser | `RelayReceiver` | direct subscriber access and [receiver observations](browser-relay.md) |
 | Create and inspect remote Sessions | `ControlClient` | [bounded control operations](control-plane.md) |
 | Issue receiver access | `issueSubscriberCredentials()` / `createInvitation()` | `SecretToken`, `SubscriberCredentials`, `Invitation` |

@@ -317,10 +317,16 @@ export class OperatorProvider {
         );
       },
       create: async (configuration): Promise<ConciseOperatorNode> => {
+        const creation = Promise.resolve(createNode(this.factory, configuration));
         const node = await within(
-          Promise.resolve(createNode(this.factory, configuration)),
+          creation,
           this.deadlines.createMs,
           'creation',
+          async (lateNode) => {
+            if (lateNode != null && typeof lateNode === 'object') {
+              await lateNode.close?.();
+            }
+          },
         );
         if (node == null || typeof node.process !== 'function') {
           throw new TypeError('Operator factory must return a node with process()');
@@ -541,20 +547,40 @@ function assertCommonMedia(values: readonly PortSpec[], kind: string): void {
   }
 }
 
-async function within<T>(promise: Promise<T>, milliseconds: number, stage: string): Promise<T> {
+async function within<T>(
+  promise: Promise<T>,
+  milliseconds: number,
+  stage: string,
+  onLateResult?: (value: T) => void | Promise<void>,
+): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
       promise,
       new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(
-          () => reject(new Error(`JavaScript Operator ${stage} exceeded ${milliseconds} milliseconds`)),
-          milliseconds,
-        );
+        timer = setTimeout(() => {
+          const failure = new JavaScriptOperatorTimeoutError(stage, milliseconds);
+          if (onLateResult !== undefined) {
+            void promise.then(
+              async (value) => { await onLateResult(value); },
+              () => undefined,
+            ).catch(() => undefined);
+          }
+          reject(failure);
+        }, milliseconds);
       }),
     ]);
   } finally {
     if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+class JavaScriptOperatorTimeoutError extends Error {
+  public readonly code = 'javascript.operator.timeout';
+
+  public constructor(stage: string, milliseconds: number) {
+    super(`JavaScript Operator ${stage} exceeded ${milliseconds} milliseconds`);
+    this.name = 'JavaScriptOperatorTimeoutError';
   }
 }
 

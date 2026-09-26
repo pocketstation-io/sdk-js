@@ -91,16 +91,5 @@ node examples/publish-to-relay.mjs Spotify
 ```
 
 The example publishes only the selected application. Add a microphone Stem
-and send it to `relay.audio('microphone')` when the workflow requires both.
-
-## Explore the complete workflow in a notebook
-
-Open [capture-and-share.ipynb](notebooks/capture-and-share.ipynb) with Deno's
-Jupyter kernel. It starts with one selected application and keeps the
-microphone, recording, and Relay off until you enable them.
-
-The notebook uses one Session to send each selected Stem to a small Connector,
-optional Relay AudioBuses, and optional independent recordings. It then shows
-source identities, delivery measurements, and the terminal Session result.
-Read the [notebook guide](../docs/guides/notebooks.md) for installation,
-permissions, Relay configuration, and security.
+and call `microphone.publish(relay, 'microphone')` when the workflow requires
+both.

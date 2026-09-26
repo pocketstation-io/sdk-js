@@ -10,13 +10,18 @@ describe('native Relay destinations', () => {
   it('shares one publisher while keeping AudioBus destinations distinct', () => {
     const session = Session._conformance();
     const relay = session.relay(connection);
+    const application = session.capture(Source.systemAudio()).publish(
+      relay,
+      'application',
+    );
+    const microphone = session.capture(Source.defaultMicrophone()).publish(
+      relay,
+      'microphone',
+    );
 
-    const application = relay.audio('application');
-    const microphone = relay.audio('microphone');
-
-    expect(relay.audio('application')).toBe(application);
-    expect(microphone.id).not.toBe(application.id);
-    expect(() => session.capture(Source.systemAudio()).send(application)).not.toThrow();
+    expect(application.busId).toBe('application');
+    expect(microphone.busId).toBe('microphone');
+    expect(microphone.routeId).not.toBe(application.routeId);
   });
 
   it.each([
@@ -32,17 +37,43 @@ describe('native Relay destinations', () => {
     expect(() => session.relay({ ...connection, startupTimeoutMs: 0 })).toThrow(
       RangeError,
     );
-    expect(() => session.relay(connection).audio(' ')).toThrow(RangeError);
+    const relay = session.relay(connection);
+    expect(() => session.capture(Source.systemAudio()).publish(relay, ' ')).toThrow(
+      RangeError,
+    );
   });
 
   it('rejects TURN configuration before a Session starts', () => {
-    const relay = Session._conformance().relay({
+    const session = Session._conformance();
+    const relay = session.relay({
       ...connection,
       iceServers: [{ urls: 'turn:relay.example.com:3478' }],
     });
 
-    expect(() => relay.audio('application')).toThrow(
+    expect(() => session.capture(Source.systemAudio()).publish(
+      relay,
+      'application',
+    )).toThrow(
       expect.objectContaining({ code: 'relay.invalid_configuration' }),
     );
+  });
+
+  it('refuses to start a declared Relay publisher with no published AudioBus', async () => {
+    const session = Session._conformance();
+    session.relay(connection);
+
+    await expect(session.start()).rejects.toMatchObject({
+      code: 'session.declaration_invalid',
+    });
+  });
+
+  it('permits one Relay publisher with multiple named AudioBuses', () => {
+    const session = Session._conformance();
+    session.relay(connection);
+
+    expect(() => session.relay({
+      ...connection,
+      sessionId: 'another-session',
+    })).toThrow(expect.objectContaining({ code: 'session.invalid_endpoint' }));
   });
 });

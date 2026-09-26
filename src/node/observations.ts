@@ -526,6 +526,22 @@ export interface RecordingOutcome {
   readonly stems: readonly RecordingStemOutcome[];
 }
 
+/** Final native Relay publication totals for one named AudioBus. */
+export interface RelayPublishOutcome {
+  readonly busId: string;
+  readonly endpointId: EndpointId;
+  readonly routeId: RouteId;
+  readonly framesReceivedTotal: bigint;
+  readonly rtpPacketsSentTotal: bigint;
+  readonly rtpPayloadBytesSentTotal: bigint;
+  readonly ingressQueueDropsTotal: bigint;
+  readonly publisherStaleDropsTotal: bigint;
+  readonly cancelledOutputFramesTotal: bigint;
+  readonly cancelledOutputSamplesTotal: bigint;
+  readonly failuresTotal: bigint;
+  readonly error?: string;
+}
+
 /** Finite native trace configuration attached when a Session starts. */
 export class SessionTraceConfiguration {
   public readonly path: string;

@@ -1,4 +1,14 @@
-import { PocketStationError, nativeCall } from './errors.js';
+import {
+  StreamInUseError,
+  StreamModeError,
+  SidecarProtocolError,
+  nativeCall,
+} from './errors.js';
+import {
+  RuntimeSessionId,
+  SidecarId,
+  StreamId,
+} from './identity.js';
 import type {
   NativeRunningSessionHandle,
   NativeSidecarMessage,
@@ -14,31 +24,39 @@ import {
 } from './streams.js';
 
 /** Messages defined by PocketStation Sidecar Protocol 1.0. */
+export const SidecarMessageKind = Object.freeze({
+  SIGNAL: 'signal',
+  READY: 'ready',
+  ERROR: 'error',
+  CANCEL: 'cancel',
+  CLOSE: 'close',
+  HELLO: 'hello',
+  MANIFEST: 'manifest',
+  CONFIGURE: 'configure',
+  OBSERVATION: 'observation',
+  CLOSED: 'closed',
+} as const);
+
 export type SidecarMessageKind =
-  | 'signal'
-  | 'ready'
-  | 'error'
-  | 'cancel'
-  | 'close'
-  | 'hello'
-  | 'manifest'
-  | 'configure'
-  | 'observation'
-  | 'closed';
+  (typeof SidecarMessageKind)[keyof typeof SidecarMessageKind];
 
 /** Session-owned child process state. */
+export const SidecarState = Object.freeze({
+  SPAWNED: 'spawned',
+  HELLO: 'hello',
+  MANIFEST: 'manifest',
+  CONFIGURE: 'configure',
+  READY: 'ready',
+  RUNNING: 'running',
+  CANCELLING: 'cancelling',
+  CLOSING: 'closing',
+  CLOSED: 'closed',
+  REAPED: 'reaped',
+  FAILED: 'failed',
+} as const);
+
 export type SidecarState =
-  | 'spawned'
-  | 'hello'
-  | 'manifest'
-  | 'configure'
-  | 'ready'
-  | 'running'
-  | 'cancelling'
-  | 'closing'
-  | 'closed'
-  | 'reaped'
-  | 'failed';
+  (typeof SidecarState)[keyof typeof SidecarState];
 
 const STATES: readonly SidecarState[] = [
   'spawned',
@@ -54,19 +72,88 @@ const STATES: readonly SidecarState[] = [
   'failed',
 ];
 
-/** Maximum encoded field and payload sizes, measured in bytes. */
-export interface SidecarProtocolLimits {
+/** Construction options for finite PKSS field and payload bounds. */
+export interface SidecarProtocolLimitsOptions {
   readonly maxSignalIdBytes?: number;
   readonly maxRoleBytes?: number;
   readonly maxSchemaBytes?: number;
   readonly maxPayloadBytes?: number;
 }
 
-/** Startup, message-processing, and shutdown deadlines in milliseconds. */
-export interface SidecarDeadlines {
+/** Maximum encoded field and payload sizes, measured in bytes. */
+export class SidecarProtocolLimits {
+  public readonly maxSignalIdBytes: number;
+  public readonly maxRoleBytes: number;
+  public readonly maxSchemaBytes: number;
+  public readonly maxPayloadBytes: number;
+
+  public constructor(options: SidecarProtocolLimitsOptions = {}) {
+    this.maxSignalIdBytes = options.maxSignalIdBytes ?? 256;
+    this.maxRoleBytes = options.maxRoleBytes ?? 256;
+    this.maxSchemaBytes = options.maxSchemaBytes ?? 1_024;
+    this.maxPayloadBytes = options.maxPayloadBytes ?? 1_048_576;
+    for (const [name, value] of [
+      ['maxSignalIdBytes', this.maxSignalIdBytes],
+      ['maxRoleBytes', this.maxRoleBytes],
+      ['maxSchemaBytes', this.maxSchemaBytes],
+      ['maxPayloadBytes', this.maxPayloadBytes],
+    ] as const) {
+      requirePositiveInteger(name, value);
+    }
+    Object.freeze(this);
+  }
+}
+
+/** Construction options for finite sidecar lifecycle deadlines. */
+export interface SidecarDeadlinesOptions {
+  readonly readyS?: number;
+  readonly processingS?: number;
+  readonly shutdownS?: number;
+  /** @deprecated Use `readyS`. */
   readonly readyMs?: number;
+  /** @deprecated Use `processingS`. */
   readonly processingMs?: number;
+  /** @deprecated Use `shutdownS`. */
   readonly shutdownMs?: number;
+}
+
+/** Startup, message-processing, and shutdown deadlines in seconds. */
+export class SidecarDeadlines {
+  public readonly readyS: number;
+  public readonly processingS: number;
+  public readonly shutdownS: number;
+
+  public constructor(options: SidecarDeadlinesOptions = {}) {
+    this.readyS = resolveDeadlineSeconds('ready', options.readyS, options.readyMs, 5);
+    this.processingS = resolveDeadlineSeconds(
+      'processing',
+      options.processingS,
+      options.processingMs,
+      5,
+    );
+    this.shutdownS = resolveDeadlineSeconds(
+      'shutdown',
+      options.shutdownS,
+      options.shutdownMs,
+      2,
+    );
+    Object.freeze(this);
+  }
+
+  /** Ready deadline converted to the native millisecond unit. */
+  public get readyMs(): number {
+    return secondsToMilliseconds('readyS', this.readyS);
+  }
+
+  /** Processing deadline converted to the native millisecond unit. */
+  public get processingMs(): number {
+    return secondsToMilliseconds('processingS', this.processingS);
+  }
+
+  /** Shutdown deadline converted to the native millisecond unit. */
+  public get shutdownMs(): number {
+    return secondsToMilliseconds('shutdownS', this.shutdownS);
+  }
 }
 
 /** Configuration for one Session-owned child process. */
@@ -82,76 +169,81 @@ export interface SidecarProcessOptions {
   /** Number of application messages accepted by each data queue. Defaults to 64. */
   readonly dataCapacityMessages?: number;
   /** Maximum accepted PKSS field and payload sizes. */
-  readonly protocolLimits?: SidecarProtocolLimits;
+  readonly protocolLimits?: SidecarProtocolLimits | SidecarProtocolLimitsOptions;
   /** Finite lifecycle deadlines. */
-  readonly deadlines?: SidecarDeadlines;
+  readonly deadlines?: SidecarDeadlines | SidecarDeadlinesOptions;
 }
 
 /** One process started, supervised, stopped, and reaped by a Session. */
-export class SidecarProcess {
+export class SidecarProcessSpec {
   readonly #native: NativeSidecarProcessSpec;
+  readonly #configuration: Uint8Array;
+  public readonly id: SidecarId;
+  public readonly program: string;
+  public readonly arguments: readonly string[];
+  public readonly dataCapacityMessages: number;
+  public readonly protocolLimits: SidecarProtocolLimits;
+  public readonly deadlines: SidecarDeadlines;
 
   public constructor(options: SidecarProcessOptions) {
     requirePositiveBigInt('id', options.id);
     requireText('program', options.program);
-    const limits = options.protocolLimits ?? {};
-    const deadlines = options.deadlines ?? {};
-    const dataCapacityMessages = options.dataCapacityMessages ?? 64;
-    const maxSignalIdBytes = limits.maxSignalIdBytes ?? 256;
-    const maxRoleBytes = limits.maxRoleBytes ?? 256;
-    const maxSchemaBytes = limits.maxSchemaBytes ?? 1_024;
-    const maxPayloadBytes = limits.maxPayloadBytes ?? 1_048_576;
-    const readyTimeoutMs = deadlines.readyMs ?? 5_000;
-    const processingTimeoutMs = deadlines.processingMs ?? 5_000;
-    const shutdownTimeoutMs = deadlines.shutdownMs ?? 2_000;
-    for (const [name, value] of [
-      ['dataCapacityMessages', dataCapacityMessages],
-      ['maxSignalIdBytes', maxSignalIdBytes],
-      ['maxRoleBytes', maxRoleBytes],
-      ['maxSchemaBytes', maxSchemaBytes],
-      ['maxPayloadBytes', maxPayloadBytes],
-      ['readyMs', readyTimeoutMs],
-      ['processingMs', processingTimeoutMs],
-      ['shutdownMs', shutdownTimeoutMs],
-    ] as const) {
-      requirePositiveInteger(name, value);
-    }
+    this.id = SidecarId(options.id);
+    this.program = options.program;
+    this.arguments = Object.freeze([...(options.arguments ?? [])]);
+    this.#configuration = Uint8Array.from(options.configuration ?? []);
+    this.dataCapacityMessages = options.dataCapacityMessages ?? 64;
+    requirePositiveInteger('dataCapacityMessages', this.dataCapacityMessages);
+    this.protocolLimits = options.protocolLimits instanceof SidecarProtocolLimits
+      ? options.protocolLimits
+      : new SidecarProtocolLimits(options.protocolLimits);
+    this.deadlines = options.deadlines instanceof SidecarDeadlines
+      ? options.deadlines
+      : new SidecarDeadlines(options.deadlines);
     this.#native = {
-      id: options.id.toString(),
-      program: options.program,
-      arguments: [...(options.arguments ?? [])],
-      configuration: Buffer.from(options.configuration ?? []),
-      dataCapacityMessages,
-      maxSignalIdBytes,
-      maxRoleBytes,
-      maxSchemaBytes,
-      maxPayloadBytes,
-      readyTimeoutMs,
-      processingTimeoutMs,
-      shutdownTimeoutMs,
+      id: this.id.toString(),
+      program: this.program,
+      arguments: [...this.arguments],
+      configuration: Buffer.from(this.#configuration),
+      dataCapacityMessages: this.dataCapacityMessages,
+      maxSignalIdBytes: this.protocolLimits.maxSignalIdBytes,
+      maxRoleBytes: this.protocolLimits.maxRoleBytes,
+      maxSchemaBytes: this.protocolLimits.maxSchemaBytes,
+      maxPayloadBytes: this.protocolLimits.maxPayloadBytes,
+      readyTimeoutMs: this.deadlines.readyMs,
+      processingTimeoutMs: this.deadlines.processingMs,
+      shutdownTimeoutMs: this.deadlines.shutdownMs,
     };
+    Object.freeze(this);
   }
 
-  /** Process identity declared by the application. */
-  public get id(): bigint {
-    return BigInt(this.#native.id);
+  /** Copied bytes sent in the PKSS configure message. */
+  public get configuration(): Uint8Array {
+    return Uint8Array.from(this.#configuration);
   }
 
   /** @internal */
   public _nativeSpec(): NativeSidecarProcessSpec {
-    return this.#native;
+    return {
+      ...this.#native,
+      arguments: [...this.#native.arguments],
+      configuration: Buffer.from(this.#native.configuration),
+    };
   }
 }
+
+/** @deprecated Use `SidecarProcessSpec`. */
+export class SidecarProcess extends SidecarProcessSpec {}
 
 /** Session-scoped reference returned when a child process is registered. */
 export class SidecarHandle {
   /** Process identity declared by the application. */
-  public readonly id: bigint;
+  public readonly id: SidecarId;
   /** Native Session that owns this process. */
-  public readonly sessionId: bigint;
+  public readonly sessionId: RuntimeSessionId;
 
   /** @internal */
-  public constructor(id: bigint, sessionId: bigint) {
+  public constructor(id: SidecarId, sessionId: RuntimeSessionId) {
     this.id = id;
     this.sessionId = sessionId;
     Object.freeze(this);
@@ -172,7 +264,7 @@ export interface SidecarSignalOptions {
 /** One owned PKSS message. Payload bytes are copied before native enqueue. */
 export class SidecarMessage {
   public readonly kind: SidecarMessageKind;
-  public readonly streamId: bigint;
+  public readonly streamId: StreamId;
   public readonly sequenceNumber: bigint;
   public readonly timestampNs: bigint;
   public readonly signalId: string;
@@ -183,7 +275,7 @@ export class SidecarMessage {
 
   private constructor(native: NativeSidecarMessage) {
     this.kind = native.kind as SidecarMessageKind;
-    this.streamId = BigInt(native.streamId);
+    this.streamId = StreamId(BigInt(native.streamId));
     this.sequenceNumber = BigInt(native.sequenceNumber);
     this.timestampNs = BigInt(native.timestampNs);
     this.signalId = native.signalId;
@@ -205,7 +297,7 @@ export class SidecarMessage {
     requireUnsignedBigInt('timestampNs', options.timestampNs);
     return new SidecarMessage({
       kind: 'signal',
-      streamId: options.streamId.toString(),
+      streamId: StreamId(options.streamId).toString(),
       sequenceNumber: options.sequenceNumber.toString(),
       timestampNs: options.timestampNs.toString(),
       signalId: options.signalId,
@@ -239,7 +331,7 @@ export class SidecarMessage {
 
 /** Process state and queue counters at one instant. */
 export class SidecarSnapshot {
-  public readonly sidecarId: bigint;
+  public readonly sidecarId: SidecarId;
   public readonly state: SidecarState;
   public readonly stateTransitions: bigint;
   public readonly dataEnqueuedTotal: bigint;
@@ -252,7 +344,7 @@ export class SidecarSnapshot {
 
   /** @internal */
   public constructor(native: NativeSidecarSnapshot) {
-    this.sidecarId = BigInt(native.sidecarId);
+    this.sidecarId = SidecarId(BigInt(native.sidecarId));
     this.state = native.state as SidecarState;
     this.stateTransitions = BigInt(native.stateTransitions);
     this.dataEnqueuedTotal = BigInt(native.dataEnqueuedTotal);
@@ -278,30 +370,46 @@ export type SidecarReadResult = SidecarMessage | EndOfStream | undefined;
 /** Async message reader for one running sidecar. */
 export class SidecarStream implements AsyncIterable<SidecarMessage> {
   readonly #native: NativeRunningSessionHandle;
-  readonly #sidecarId: bigint;
+  readonly #sidecarId: SidecarId;
   #activeReader = false;
-  #readInProgress = false;
+  #readerMode: 'sidecar_read' | 'sidecar' | undefined;
   #closed = false;
 
   /** @internal */
-  public constructor(native: NativeRunningSessionHandle, sidecarId: bigint) {
+  public constructor(native: NativeRunningSessionHandle, sidecarId: SidecarId) {
     this.#native = native;
     this.#sidecarId = sidecarId;
   }
 
+  /** Whether this sidecar stream has reached a terminal state. */
+  public get isClosed(): boolean {
+    return this.#closed;
+  }
+
+  /** Permanently selected consumption mode, once reading begins. */
+  public get readerMode(): 'sidecar_read' | 'sidecar' | undefined {
+    return this.#readerMode;
+  }
+
+  /** Read immediately with distinct empty and end-of-stream outcomes. */
+  public async poll(
+    options: Omit<StreamReadOptions, 'timeoutMs'> = {},
+  ): Promise<SidecarReadResult> {
+    const release = this.#claim('sidecar_read');
+    try {
+      return await this.#readOnce({ ...options, timeoutMs: 0 });
+    } finally {
+      release();
+    }
+  }
+
   /** Read one message, return `undefined` at timeout, or return `END_OF_STREAM`. */
   public async read(options: StreamReadOptions = {}): Promise<SidecarReadResult> {
-    if (this.#activeReader || this.#readInProgress) {
-      throw new PocketStationError(
-        'stream.in_use',
-        'Sidecar stream already has an active reader',
-      );
-    }
-    this.#readInProgress = true;
+    const release = this.#claim('sidecar_read');
     try {
       return await this.#readOnce(options);
     } finally {
-      this.#readInProgress = false;
+      release();
     }
   }
 
@@ -311,13 +419,7 @@ export class SidecarStream implements AsyncIterable<SidecarMessage> {
   ): AsyncGenerator<SidecarMessage> {
     const timeoutMs = options.timeoutMs ?? 100;
     validateTimeout(timeoutMs, true);
-    if (this.#activeReader || this.#readInProgress) {
-      throw new PocketStationError(
-        'stream.in_use',
-        'Sidecar stream already has an active reader',
-      );
-    }
-    this.#activeReader = true;
+    const release = this.#claim('sidecar');
     try {
       while (true) {
         const result = await this.#readOnce(options);
@@ -325,7 +427,7 @@ export class SidecarStream implements AsyncIterable<SidecarMessage> {
         if (result !== undefined) yield result;
       }
     } finally {
-      this.#activeReader = false;
+      release();
     }
   }
 
@@ -336,6 +438,20 @@ export class SidecarStream implements AsyncIterable<SidecarMessage> {
   /** @internal */
   public _close(): void {
     this.#closed = true;
+  }
+
+  #claim(mode: 'sidecar_read' | 'sidecar'): () => void {
+    if (this.#readerMode !== undefined && this.#readerMode !== mode) {
+      throw new StreamModeError(this.#readerMode, mode);
+    }
+    if (this.#activeReader) {
+      throw new StreamInUseError(mode);
+    }
+    this.#readerMode = mode;
+    this.#activeReader = true;
+    return () => {
+      this.#activeReader = false;
+    };
   }
 
   async #readOnce(options: StreamReadOptions): Promise<SidecarReadResult> {
@@ -363,7 +479,7 @@ export class SidecarStream implements AsyncIterable<SidecarMessage> {
   #decode(read: NativeSidecarRead): SidecarReadResult {
     if (read.status === 'item') {
       if (read.message == null) {
-        throw new PocketStationError(
+        throw new SidecarProtocolError(
           'sidecar.invalid_read',
           'Native sidecar read omitted its message',
         );
@@ -375,7 +491,7 @@ export class SidecarStream implements AsyncIterable<SidecarMessage> {
       this.#closed = true;
       return END_OF_STREAM;
     }
-    throw new PocketStationError(
+    throw new SidecarProtocolError(
       'sidecar.invalid_read',
       `Native sidecar read returned unknown status ${JSON.stringify(read.status)}`,
     );
@@ -419,6 +535,31 @@ export class SidecarConnection {
 
 function requireText(name: string, value: string): void {
   if (value.length === 0) throw new TypeError(`${name} must not be empty`);
+}
+
+function resolveDeadlineSeconds(
+  name: string,
+  seconds: number | undefined,
+  milliseconds: number | undefined,
+  defaultSeconds: number,
+): number {
+  if (seconds !== undefined && milliseconds !== undefined) {
+    throw new TypeError(`${name} deadline cannot specify both seconds and milliseconds`);
+  }
+  const value = seconds ?? (milliseconds === undefined ? defaultSeconds : milliseconds / 1_000);
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new RangeError(`${name} deadline must be a finite number greater than zero`);
+  }
+  secondsToMilliseconds(`${name}S`, value);
+  return value;
+}
+
+function secondsToMilliseconds(name: string, seconds: number): number {
+  const milliseconds = Math.max(1, Math.round(seconds * 1_000));
+  if (!Number.isSafeInteger(milliseconds)) {
+    throw new RangeError(`${name} is too large to represent in milliseconds`);
+  }
+  return milliseconds;
 }
 
 function requirePositiveInteger(name: string, value: number): void {

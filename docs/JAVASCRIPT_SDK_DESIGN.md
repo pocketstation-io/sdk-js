@@ -16,8 +16,8 @@ Node publishes named audio buses through one native Relay connection:
 ```ts
 const relay = session.relay({ url, sessionId, sourceToken });
 
-application.send(relay.audio("application"));
-microphone.send(relay.audio("microphone"));
+application.publish(relay, "application");
+microphone.publish(relay, "microphone");
 ```
 
 Each Source keeps its identity and independent delivery state. Reusing one
