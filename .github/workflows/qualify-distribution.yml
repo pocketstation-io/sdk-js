@@ -33,7 +33,9 @@ jobs:
         run: |
           echo "build=$(python3 tools/qualify-native-matrix.py matrix --kind build)" >> "$GITHUB_OUTPUT"
           echo "consume=$(python3 tools/qualify-native-matrix.py matrix --kind consume)" >> "$GITHUB_OUTPUT"
-      - run: python3 -m unittest discover -s tests -p test_native_matrix.py
+      - run: python3 -m unittest discover -s tests -p "test_*matrix.py"
+      - run: python3 -m unittest discover -s tests -p test_npm_release.py
+      - run: node --test tests/publish-qualified.test.mjs
       - run: npm ci --ignore-scripts
       - run: npm run build:typescript
       - run: python3 tools/qualify-native-matrix.py freeze --kind root --output artifacts
@@ -118,6 +120,11 @@ jobs:
         with:
           name: ${{ matrix.id }}
           path: artifacts/${{ matrix.id }}
+      - name: Install exact consumer type-check tooling
+        shell: bash
+        run: |
+          npm install --prefix "$RUNNER_TEMP/pks-types" --ignore-scripts --no-audit --no-fund typescript@5.9.3 @types/node@22.19.19 undici-types@6.21.0
+          echo "PKS_MATRIX_TYPES_DIR=$RUNNER_TEMP/pks-types/node_modules" >> "$GITHUB_ENV"
       - name: Clean install and execute the exact frozen archives
         run: >-
           python3 tools/qualify-native-matrix.py consume --target ${{ matrix.id }}
