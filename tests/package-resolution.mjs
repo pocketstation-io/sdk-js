@@ -126,6 +126,16 @@ assert.deepEqual(
   [],
 );
 
+const demo = await import('pocketstation/demo');
+assert.equal(typeof demo.AudioWindowBuffer, 'function');
+assert.equal(typeof demo.WhisperTranscriber, 'function');
+assert.equal(typeof demo.WhisperTranscriberConfiguration, 'function');
+assert.equal(typeof demo.WhisperCliModel, 'function');
+assert.equal(typeof demo.OpenAIRealtime, 'function');
+assert.equal(typeof demo.RealtimeVoiceConfig, 'function');
+assert.equal(typeof demo.Transcript, 'function');
+assert.equal(typeof demo.encodeRealtimeMicrophoneFrame, 'function');
+
 const root = await import('pocketstation');
 assert.deepEqual(Object.keys(root), [
   'PocketStationError',

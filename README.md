@@ -195,7 +195,7 @@ deadline, and closes with the Session.
 
 The microphone remains opt-in. A selected application can be the only
 published source when that is all the receiver needs. See the
-[runnable Relay example](examples/publish-to-relay.mjs) for configuration.
+[runnable Relay example](examples/publish-to-relay.ts) for configuration.
 
 ## Publish caller-owned browser audio
 

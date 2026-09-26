@@ -5,13 +5,15 @@ import {
   PreparedEndpointDriver,
   RunningEndpointDriver,
   Session,
+  type EndpointDriverItem,
+  type EndpointStartGate,
 } from 'pocketstation/node';
 
-const received = [];
-let startGate;
+const received: bigint[] = [];
+let startGate: EndpointStartGate | undefined;
 
 class Collector extends RunningEndpointDriver {
-  receive(delivery) {
+  receive(delivery: EndpointDriverItem) {
     if (!startGate?.isOpen) throw new Error('Core start gate is still closed');
     if (delivery.item.kind === 'audio') received.push(delivery.item.frame.sequenceNumber);
   }
@@ -25,7 +27,7 @@ class Collector extends RunningEndpointDriver {
 }
 
 class PreparedCollector extends PreparedEndpointDriver {
-  start(gate) {
+  start(gate: EndpointStartGate) {
     if (gate.isOpen) throw new Error('Core opened the start gate before startup completed');
     startGate = gate;
     return new Collector();

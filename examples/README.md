@@ -1,95 +1,35 @@
-# JavaScript examples
+# Capture an application and microphone
 
-Build the package once before running an example:
-
-```bash
-npm install
-npm run build
-```
-
-## Capture a running application
+Start Zoom (or edit `Zoom` in `capture-application.ts` to a running app),
+allow microphone access, then run from this SDK checkout:
 
 ```bash
-node examples/capture-application.mjs Spotify
+npm ci
+npm run example:capture
 ```
 
-The microphone stays closed. Add it only when both sides are needed:
+The TypeScript example reads 100 live frames and prints a count for each
+Source. It stops its Session when iteration ends. This requires a real capture
+device and does not run in CI.
 
-```bash
-node examples/capture-application.mjs Zoom --microphone
-```
+Other TypeScript integrations are available here:
 
-The example reads 100 source-aware frames and then completes the Session.
-Application and microphone frames retain different Source and Stem identities.
+| File | What it does | Additional requirement |
+|---|---|---|
+| `send-to-connector.ts` | Sends live app and mic frames to an application-owned Connector | Edit `Safari` to a playing app |
+| `send-audio-to-websocket.ts` | Sends one application's 48 kHz mono float32 little-endian PCM to a WebSocket | `wss://` endpoint accepting raw PCM and `AUDIO_WEBSOCKET_TOKEN` |
+| `publish-to-relay.ts` | Publishes one application to a Relay AudioBus | Running Relay, Session ID, source token |
+| `transcribe-voice-app.ts` | Transcribes app and mic as separate Sources | Local model and installed `whisper-cli` |
+| `debug-voice-ai.ts` | Records and publishes app, mic, and generated assistant audio | OpenAI key, Control Plane, Relay |
 
-## Feed existing PCM into a Session
+Run `npm run build:examples` to compile them. The resulting JavaScript is in
+`.examples-dist/`. `npm run examples:check` compiles all public examples and
+runs six generated-input checks under `tests/fixtures/sdk-example-smoke/`.
+Those checks verify SDK mechanics; they do **not** prove live capture, Relay,
+transcription, or voice-provider behavior.
 
-```bash
-node examples/feed-audio.mjs
-```
-
-This deterministic example needs no capture permission or audio device. It
-writes one 10 ms PCM frame into Core and reads the copied frame from the Node
-audio stream.
-
-## Feed structured events into a Session
-
-```bash
-node examples/feed-events.mjs
-```
-
-This deterministic example serializes one application-owned JSON event,
-delivers it through Core with source identity and timing, and prints the
-bounded input observations.
-
-## Create a Connector
-
-```bash
-node examples/send-to-connector.mjs
-```
-
-The function form is useful when a destination needs only one `send` callback.
-Use the class form in the [provider authoring guide](../docs/guides/provider-authoring.md)
-when a connection owns startup and shutdown resources.
-
-The manifest-driven form validates typed configuration, exposes explicit
-readiness and observations, and runs through a reusable registration:
-
-```bash
-node examples/advanced-connector.mjs
-```
-
-## Create a reusable Endpoint
-
-Use the advanced Endpoint contract when one destination needs named typed
-inputs, explicit prepare/start/shutdown ownership, finite native-owned batches,
-or final driver observations:
-
-```bash
-node examples/advanced-endpoint.mjs
-```
-
-The deterministic example needs no capture permission or audio device. It
-proves the Core-controlled start gate, source-aware delivery, joined cleanup,
-and retained observations through a manifest-driven registration.
-
-## Publish an application to Relay
-
-Create a RelaySession through your PocketStation control plane, then set the
-returned connection values:
-
-```bash
-export POCKETSTATION_RELAY_URL=http://127.0.0.1:4800
-export POCKETSTATION_RELAY_SESSION_ID=<session-id>
-export POCKETSTATION_RELAY_SOURCE_TOKEN=<source-token>
-```
-
-Run the example with the exact name or application ID of a running app:
-
-```bash
-node examples/publish-to-relay.mjs Spotify
-```
-
-The example publishes only the selected application. Add a microphone Stem
-and call `microphone.publish(relay, 'microphone')` when the workflow requires
-both.
+To run the WebSocket example, set `AUDIO_WEBSOCKET_URL` and
+`AUDIO_WEBSOCKET_TOKEN`, then run
+`node .examples-dist/send-audio-to-websocket.js`. Enter a running application
+when prompted. It opens one authenticated socket for that application and stops
+on Ctrl-C or socket closure.

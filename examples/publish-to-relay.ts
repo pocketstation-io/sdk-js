@@ -3,7 +3,7 @@ import { Session, Source } from 'pocketstation/node';
 
 const applicationName = process.argv[2];
 if (!applicationName) {
-  throw new Error('Run with: node publish-to-relay.mjs <application>');
+  throw new Error('Run with: node publish-to-relay.js <application>');
 }
 
 const url = process.env.POCKETSTATION_RELAY_URL;
