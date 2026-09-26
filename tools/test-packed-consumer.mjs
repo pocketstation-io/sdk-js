@@ -745,6 +745,16 @@ SidecarMessage.signal(new Uint8Array(), {
     if (!voiceOutcome.success || generated.length !== 1) {
       throw new Error('packed voice conversation did not complete bounded work');
     }
+    const root = await import('pocketstation');
+    if (
+      typeof root.RuntimeCompatibility !== 'function' ||
+      root.runtimeCompatibility.sdkVersion !== '0.1.4' ||
+      root.runtimeCompatibility.coreVersion !== '1.1.11' ||
+      root.runtimeCompatibility.relayConnectorVersion !== '0.1.5' ||
+      root.runtimeCompatibility.nativeAbi !== 'napi8'
+    ) {
+      throw new Error('packed runtime compatibility facts are unavailable');
+    }
     console.log('packed consumer: PASS');
   `;
   execFileSync(process.execPath, ['--input-type=module', '--eval', source], {

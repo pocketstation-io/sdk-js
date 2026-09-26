@@ -14,6 +14,36 @@ export class PocketStationError extends Error {
 }
 
 // @public
+export class RuntimeCompatibility {
+    constructor(options: RuntimeCompatibilityOptions);
+    // (undocumented)
+    readonly coreVersion: string;
+    // (undocumented)
+    readonly nativeAbi: string;
+    // (undocumented)
+    readonly nodeApiVersion: number;
+    // (undocumented)
+    readonly nodeRequires: string;
+    // (undocumented)
+    readonly relayConnectorVersion: string;
+    // (undocumented)
+    readonly sdkVersion: string;
+}
+
+// @public
+export const runtimeCompatibility: RuntimeCompatibility;
+
+// @public
+export interface RuntimeCompatibilityOptions {
+    readonly coreVersion: string;
+    readonly nativeAbi: string;
+    readonly nodeApiVersion: number;
+    readonly nodeRequires: string;
+    readonly relayConnectorVersion: string;
+    readonly sdkVersion: string;
+}
+
+// @public
 export const version = "0.1.4";
 
 ```

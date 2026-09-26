@@ -10,4 +10,9 @@
 
 /** Current JavaScript SDK version. */
 export const version = '0.1.4';
+export {
+  RuntimeCompatibility,
+  runtimeCompatibility,
+  type RuntimeCompatibilityOptions,
+} from './compatibility.js';
 export { PocketStationError } from './errors.js';
