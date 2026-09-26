@@ -38,6 +38,8 @@ export class RelayPublisher {
   #controller: AbortController | null = null;
   #closing = false;
   #pendingIce: string[] = [];
+  #pendingLocalIce: string[] = [];
+  #publishSent = false;
   #answer: Deferred<string> | null = null;
   #connected: Deferred<void> | null = null;
   #lastError: PocketStationError | null = null;
@@ -262,6 +264,8 @@ export class RelayPublisher {
     this.#answer = deferred<string>();
     this.#connected = deferred<void>();
     this.#pendingIce = [];
+    this.#pendingLocalIce = [];
+    this.#publishSent = false;
     this.#setState('signaling');
 
     const connection = new RTCPeerConnection({
@@ -269,12 +273,29 @@ export class RelayPublisher {
         access.iceServers === undefined ? [] : [...access.iceServers],
     });
     this.#connection = connection;
-    connection.addTrack(track, stream);
+    connection.addTransceiver(track, {
+      direction: 'sendonly',
+      streams: [stream],
+    });
     track.addEventListener('ended', this.#onTrackEnded, { once: true });
     connection.onicecandidate = (event) => {
       if (event.candidate !== null) {
+        const candidate = event.candidate.candidate;
+        if (!this.#publishSent) {
+          if (this.#pendingLocalIce.length >= MAX_PENDING_ICE_CANDIDATES) {
+            this.#handleAsyncFailure(
+              new PocketStationError(
+                'relay.publisher_local_ice_capacity_exceeded',
+                `Browser produced more than ${MAX_PENDING_ICE_CANDIDATES} ICE candidates before publication`,
+              ),
+            );
+            return;
+          }
+          this.#pendingLocalIce.push(candidate);
+          return;
+        }
         try {
-          this.#transport?.send({ type: 'ICE', candidate: event.candidate.candidate });
+          this.#transport?.send({ type: 'ICE', candidate });
         } catch (cause) {
           this.#handleAsyncFailure(publisherFailure(cause));
         }
@@ -343,6 +364,10 @@ export class RelayPublisher {
       token: access.publisherToken,
       sdp_offer: offer.sdp,
     });
+    this.#publishSent = true;
+    for (const candidate of this.#pendingLocalIce.splice(0)) {
+      transport.send({ type: 'ICE', candidate });
+    }
     const answer = await waitWithSignal(this.#answer.promise, signal);
     await connection.setRemoteDescription({ type: 'answer', sdp: answer });
     for (const candidate of this.#pendingIce.splice(0)) {
@@ -538,6 +563,8 @@ export class RelayPublisher {
     this.#answer = null;
     this.#connected = null;
     this.#pendingIce = [];
+    this.#pendingLocalIce = [];
+    this.#publishSent = false;
     if (track !== null) track.removeEventListener('ended', this.#onTrackEnded);
     if (connection !== null) {
       connection.onicecandidate = null;

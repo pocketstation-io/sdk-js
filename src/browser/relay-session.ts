@@ -95,6 +95,8 @@ export class RelayReceiver {
   #controller: AbortController | null = null;
   #closing = false;
   #pendingIce: string[] = [];
+  #pendingLocalIce: string[] = [];
+  #subscribeSent = false;
   #answer: Deferred<string> | null = null;
   #track: Deferred<MediaStream> | null = null;
   #connected: Deferred<void> | null = null;
@@ -318,6 +320,8 @@ export class RelayReceiver {
     this.#track = deferred<MediaStream>();
     this.#connected = deferred<void>();
     this.#pendingIce = [];
+    this.#pendingLocalIce = [];
+    this.#subscribeSent = false;
     this.#setState('signaling');
 
     const connection = new RTCPeerConnection({
@@ -327,8 +331,22 @@ export class RelayReceiver {
     this.#stream = new MediaStream();
     connection.onicecandidate = (event) => {
       if (event.candidate !== null) {
+        const candidate = event.candidate.candidate;
+        if (!this.#subscribeSent) {
+          if (this.#pendingLocalIce.length >= MAX_PENDING_ICE_CANDIDATES) {
+            this.#handleAsyncFailure(
+              new PocketStationError(
+                'relay.receiver_local_ice_capacity_exceeded',
+                `Browser produced more than ${MAX_PENDING_ICE_CANDIDATES} ICE candidates before subscription`,
+              ),
+            );
+            return;
+          }
+          this.#pendingLocalIce.push(candidate);
+          return;
+        }
         try {
-          this.#transport?.send({ type: 'ICE', candidate: event.candidate.candidate });
+          this.#transport?.send({ type: 'ICE', candidate });
         } catch (cause) {
           this.#handleAsyncFailure(receiverFailure(cause));
         }
@@ -409,6 +427,10 @@ export class RelayReceiver {
       token: access.subscriberToken,
       sdp_offer: offer.sdp,
     });
+    this.#subscribeSent = true;
+    for (const candidate of this.#pendingLocalIce.splice(0)) {
+      transport.send({ type: 'ICE', candidate });
+    }
     const answer = await waitWithSignal(this.#answer.promise, signal);
     await connection.setRemoteDescription({ type: 'answer', sdp: answer });
     for (const candidate of this.#pendingIce.splice(0)) {
@@ -524,6 +546,8 @@ export class RelayReceiver {
     this.#track = null;
     this.#connected = null;
     this.#pendingIce = [];
+    this.#pendingLocalIce = [];
+    this.#subscribeSent = false;
     const transport = this.#transport;
     this.#transport = null;
     const stream = this.#stream;
