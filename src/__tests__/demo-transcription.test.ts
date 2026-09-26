@@ -174,9 +174,15 @@ describe('demo batch transcription', () => {
     expect(transcript.timestampEndNs).toBe(timestampEndNs);
   });
 
-  it('rejects an unsafe JSON number before it can corrupt source identity', () => {
+  it.each([
+    true,
+    1.5,
+    '1.5',
+    null,
+    9_007_199_254_740_992,
+  ])('rejects a non-integer JSON source identity: %p', (sourceId) => {
     expect(() => Transcript.fromJson(JSON.stringify({
-      source_id: 9_007_199_254_740_992,
+      source_id: sourceId,
       text: 'unsafe identity',
       language: 'en',
       timestamp_start_ns: '1',
