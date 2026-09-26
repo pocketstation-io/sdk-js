@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 const node = await import('pocketstation/node');
 assert.equal(typeof node.RuntimeCompatibility, 'function');
 assert.equal(node.runtimeCompatibility.sdkVersion, '0.1.4');
-assert.equal(node.runtimeCompatibility.coreVersion, '1.1.11');
+assert.equal(node.runtimeCompatibility.coreVersion, '1.1.12');
 for (const identity of [
   node.ClockDomainId,
   node.ConnectorId,

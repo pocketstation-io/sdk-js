@@ -1553,9 +1553,9 @@ checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
 
 [[package]]
 name = "pocketstation"
-version = "1.1.11"
+version = "1.1.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ad24329c0a87d7ca79f8cde0aeeed2b5a0660a88d1bde961ce5f0839778b8530"
+checksum = "2648aacb6f48337ac76578c776ae1244a1c72cfa308432da7b63a67318c950df"
 dependencies = [
  "alsa",
  "cc",

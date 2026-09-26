@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { readdir, readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { performance, monitorEventLoopDelay } from 'node:perf_hooks';
 import process, {
@@ -8,16 +8,16 @@ import process, {
   memoryUsage,
   resourceUsage,
 } from 'node:process';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
+import { loadPackage } from './package.mjs';
 import { setTimeout as wait } from 'node:timers/promises';
 import { nearestRankPercentile } from './statistics.mjs';
 
 const options = parseArguments(process.argv.slice(2));
 const packageJsonPath = resolve(options.packageRoot, 'package.json');
 const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'));
-const pocketstation = await import(
-  pathToFileURL(resolve(options.packageRoot, 'dist/node/index.js')).href
-);
+const selectedPackage = loadPackage(options.packageRoot);
+const pocketstation = selectedPackage.api;
 const thresholdsDocument = JSON.parse(await readFile(options.thresholds, 'utf8'));
 const thresholds = thresholdsDocument[options.scenario][String(options.frameDurationMs)];
 
@@ -131,7 +131,7 @@ async function measure(pks, packageMetadata, configuration, limits) {
       packageName: packageMetadata.name,
       packageVersion: packageMetadata.version,
       packageRoot: configuration.packageRoot,
-      nativeAddonPath: await resolveNativeAddon(configuration.packageRoot),
+      ...selectedPackage.provenance(),
       nativeCore: {
         version: configuration.coreVersion,
         source: configuration.coreSource,
@@ -771,14 +771,6 @@ async function waitFor(predicate, timeoutMs, description) {
 
 function forceGarbageCollection() {
   if (typeof globalThis.gc === 'function') globalThis.gc();
-}
-
-async function resolveNativeAddon(packageRoot) {
-  const nativeDirectory = resolve(packageRoot, 'native-dist');
-  const entries = await readdir(nativeDirectory);
-  const addon = entries.find((entry) => entry.endsWith('.node'));
-  if (addon === undefined) throw new Error('Installed package has no native addon');
-  return resolve(nativeDirectory, addon);
 }
 
 function parseArguments(values) {
