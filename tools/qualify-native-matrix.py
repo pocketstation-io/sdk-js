@@ -125,9 +125,20 @@ def consume(identity, node_cell, directory, output):
             for relative, content in files.items():
                 installed = work / 'node_modules' / name / relative
                 assert installed.read_bytes() == content, f'Installed bytes differ: {name}/{relative}'
+        tooling = Path(os.environ.get('PKS_MATRIX_TYPES_DIR', ROOT / 'node_modules'))
+        for package in ['@types/node', 'undici-types']:
+            shutil.copytree(tooling / package, work / 'node_modules' / package)
+        for suffix, source in [('mts', "import { Session } from 'pocketstation/node';\nexport const session = new Session();\n"),
+                               ('cts', "import api = require('pocketstation/node');\nexport const session = new api.Session();\n")]:
+            (work / f'consumer.{suffix}').write_text(source)
+        write(work / 'tsconfig.json', {'compilerOptions': {
+            'module': 'NodeNext', 'moduleResolution': 'NodeNext', 'target': 'ES2022',
+            'strict': True, 'noEmit': True, 'skipLibCheck': False},
+            'files': ['consumer.mts', 'consumer.cts']})
+        run(['node', str(tooling / 'typescript/bin/tsc'), '-p', 'tsconfig.json'], work)
         shutil.copy2(ROOT / 'tools/native-matrix-consumer.mjs', work / 'consumer.mjs')
         result = json.loads(run(['node', 'consumer.mjs', identity, native['nativeSha256'], root['version'], '1.1.12'], work))
-    result.update({'schema': 1, 'nodeCell': node_cell, 'sourceCommit': root['sourceCommit'],
+    result.update({'schema': 1, 'typesPassed': True, 'nodeCell': node_cell, 'sourceCommit': root['sourceCommit'],
                    'rootSha256': root['sha256'], 'nativeArchiveSha256': native['sha256']})
     validate_consumer(result, row, node_cell, root, native)
     write(output, result)
@@ -136,6 +147,7 @@ def consume(identity, node_cell, directory, output):
 def validate_consumer(result, row, node_cell, root, native):
     assert result['passed'] is True and result['target'] == row['id']
     assert result['platform'] == row['platform'] and result['arch'] == row['arch']
+    assert result['typesPassed'] is True
     assert result['nodeCell'] == node_cell
     assert result['node'] == node_cell or ('.' not in node_cell and result['node'].split('.')[0] == node_cell)
     assert int(result['napi']) >= 8

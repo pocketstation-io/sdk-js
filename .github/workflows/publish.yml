@@ -1,32 +1,82 @@
 name: publish-npm
 
-on:
-  push:
-    tags:
-      - 'v*'
+'on':
+  workflow_dispatch:
+    inputs:
+      qualification_run:
+        description: Successful qualify-javascript-distribution run for this exact commit
+        required: true
+        type: string
+      manifest_sha256:
+        description: Independently approved release-manifest.json SHA-256
+        required: true
+        type: string
+      publish:
+        description: Publish verified archives (requires dispatch on the matching release tag)
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-npm
+  cancel-in-progress: false
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     permissions:
       contents: read
+      actions: read
       id-token: write
-
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
-          node-version: '22'
-          registry-url: 'https://registry.npmjs.org/'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build
-        run: npm run build
-
-      - name: Publish to npm
-        run: npm publish --access public
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+      - name: Install the pinned publishing CLI with OIDC support
+        run: npm install --global npm@11.9.0 --ignore-scripts
+      - name: Obtain the qualification run receipt
         env:
+          GH_TOKEN: ${{ github.token }}
+          QUALIFICATION_RUN: ${{ inputs.qualification_run }}
+        shell: bash
+        run: |
+          [[ "$QUALIFICATION_RUN" =~ ^[0-9]+$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$QUALIFICATION_RUN" > qualification-run.json
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: qualified-distributions
+          path: qualified
+          run-id: ${{ inputs.qualification_run }}
+          github-token: ${{ github.token }}
+      - name: Recompute qualification and bind the approved manifest
+        env:
+          MANIFEST_SHA256: ${{ inputs.manifest_sha256 }}
+        run: >-
+          python3 tools/prepare-npm-release.py --directory qualified
+          --source-commit "$GITHUB_SHA" --manifest-sha256 "$MANIFEST_SHA256"
+          --run qualification-run.json --repository "$GITHUB_REPOSITORY"
+      - name: Verify publication plan without uploading
+        if: ${{ !inputs.publish }}
+        run: node tools/publish-qualified.mjs qualified/publish-plan.json publication-receipt.json --verify-only
+      - name: Publish native packages then root from the qualified release tag
+        if: ${{ inputs.publish }}
+        env:
+          # OIDC is preferred. This optional secret supports initial publication
+          # where npm package trust has not yet been configured.
           NODE_AUTH_TOKEN: ${{ secrets.NODE_AUTH_TOKEN }}
+          NPM_CONFIG_PROVENANCE: ${{ !github.event.repository.private }}
+        run: node tools/publish-qualified.mjs qualified/publish-plan.json publication-receipt.json --publish
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: npm-publication-receipt
+          path: |
+            qualification-run.json
+            qualified/publish-plan.json
+            publication-receipt.json
+          if-no-files-found: error

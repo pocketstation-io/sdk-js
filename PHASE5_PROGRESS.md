@@ -1274,3 +1274,32 @@ platform/performance/OSS gates are still pending.
   qualification; no Core or hot-path changes, new runtime dependency or API.
   Scaffold inventory: n/a. Checks: Python/Node syntax, verifier tests, local
   installed consumer and whitespace. Decision: SAFE-TO-TEST; hosted gates pending.
+
+
+### Candidate 119 follow-up: exact-artifact CI publication preparation
+
+- The user directed publication through CI. The former tag-triggered root-only
+  rebuild/publish workflow is replaced by explicit dispatch, defaulting to a
+  dry run. The release consumes the successful native qualification artifact
+  without rebuilding it and requires an independently approved manifest digest.
+- A successful run receipt must match the repository, workflow and exact source
+  commit. Every target/report/archive is independently recomputed; native package
+  archives precede the root. Actual upload additionally requires the matching
+  `v<version>` tag and GitHub Actions. Retry accepts an existing version only
+  when its registry integrity equals the retained archive. Partial receipts
+  survive failed publication.
+- OIDC is preferred; an optional CI secret supports initial package publication.
+  Public-repository provenance is enabled; private repositories cannot claim npm
+  provenance. Local npm login is not a release gate. There is no configured CI
+  publishing secret and package trust is not established by this implementation.
+- Every target consumer now also compiles strict NodeNext ESM and CJS consumers
+  with exact TypeScript/Node declaration tooling. Local macOS arm64 Node 20
+  installed runtime and type checks pass. Eight test cases pass across publisher
+  integrity/order, CI receipt rejection and matrix observation validation.
+- Hosted run 36271801171 attempts 1 and 2 were refused before any steps because
+  GitHub reported failed payments or a spending limit. No hosted target result,
+  dry-run publication or real upload is claimed. The task remains unaccepted.
+- Staff review: no product runtime, public API, version, hot-path or dependency
+  changes. No new scaffold; verifier fixtures are explicit synthetic unit inputs.
+  Checks: Python/Node syntax, YAML parsing, adversarial tests, real local consumer
+  and whitespace. SAFE-TO-TEST; hosted qualification and release gates pending.
