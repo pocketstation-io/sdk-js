@@ -15,6 +15,7 @@ describe('package structure', () => {
       './node',
       './browser',
       './control',
+      './demo',
       './voice',
     ]);
     expect(manifest.exports['./node']).toEqual({
@@ -28,6 +29,10 @@ describe('package structure', () => {
     expect(manifest.exports['./control']).toEqual({
       types: './dist/control/index.d.ts',
       import: './dist/control/index.js',
+    });
+    expect(manifest.exports['./demo']).toEqual({
+      types: './dist/demo/index.d.ts',
+      import: './dist/demo/index.js',
     });
     expect(manifest.exports['./voice']).toEqual({
       types: './dist/voice/index.d.ts',

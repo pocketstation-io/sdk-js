@@ -5,11 +5,15 @@ import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const examples = readdirSync(join(root, 'examples'))
-  .filter((name) => name.endsWith('.mjs'))
+  .filter((name) => name.endsWith('.ts'))
+  .sort();
+const smoke = readdirSync(join(root, 'tests', 'fixtures', 'sdk-example-smoke'))
+  .filter((name) => name.endsWith('.ts'))
   .sort();
 
 for (const example of examples) {
-  const checked = spawnSync(process.execPath, ['--check', join(root, 'examples', example)], {
+  const compiled = join(root, '.examples-dist', example.replace(/\.ts$/, '.js'));
+  const checked = spawnSync(process.execPath, ['--check', compiled], {
     encoding: 'utf8',
   });
   if (checked.status !== 0) {
@@ -18,18 +22,9 @@ for (const example of examples) {
   }
 }
 
-const coreExamples = [
-  'advanced-connector.mjs',
-  'advanced-endpoint.mjs',
-  'advanced-operator.mjs',
-  'advanced-source.mjs',
-  'feed-audio.mjs',
-  'feed-events.mjs',
-  'send-to-connector.mjs',
-];
-
-for (const example of coreExamples) {
-  const executed = spawnSync(process.execPath, [join(root, 'examples', example)], {
+for (const fixture of smoke) {
+  const compiled = join(root, '.smoke-dist', fixture.replace(/\.ts$/, '.js'));
+  const executed = spawnSync(process.execPath, [compiled], {
     cwd: root,
     encoding: 'utf8',
   });
@@ -40,4 +35,4 @@ for (const example of coreExamples) {
   }
 }
 
-console.log(`examples: PASS (${examples.length} syntax, ${coreExamples.length} Core Sessions)`);
+console.log(`examples: PASS (${examples.length} public examples compiled, ${smoke.length} internal Core fixtures executed; live examples require real devices and services)`);

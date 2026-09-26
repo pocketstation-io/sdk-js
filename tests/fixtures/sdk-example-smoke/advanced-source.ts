@@ -31,7 +31,9 @@ const stopped = await running.stop();
 
 if (
   !stopped.success
-  || value?.payload.kind !== 'text'
+  || value === undefined
+  || 'kind' in value
+  || value.payload.kind !== 'text'
   || value.payload.text !== 'hello'
 ) {
   throw new Error('advanced Source example failed');

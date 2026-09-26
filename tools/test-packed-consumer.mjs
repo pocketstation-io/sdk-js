@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {
+  existsSync,
   mkdtempSync,
   mkdirSync,
   readFileSync,
@@ -36,6 +37,11 @@ try {
     ['install', '--offline', '--omit=optional', '--ignore-scripts', '--no-audit', '--no-fund', tarball],
     { cwd: consumer, stdio: 'inherit' },
   );
+  assert.equal(
+    existsSync(join(consumer, 'node_modules/ws')),
+    false,
+    'optional Realtime transport must not be installed with the base package',
+  );
 
   writeFileSync(
     join(consumer, 'sidecar-consumer.ts'),
@@ -51,6 +57,71 @@ SidecarMessage.signal(new Uint8Array(), {
 `,
   );
   writeFileSync(
+    join(consumer, 'demo-consumer.ts'),
+    `import {
+  OpenAIRealtime,
+  RealtimeVoiceConfig,
+  WhisperTranscriber,
+  WhisperTranscriberConfiguration,
+  type AudioConverter,
+  type RealtimeInput,
+  type RealtimeSocketFactory,
+  type WhisperModelFactory,
+} from 'pocketstation/demo';
+import type {
+  AudioFrame,
+  AudioInput,
+  BusSubscription,
+  Capture,
+  DerivedStream,
+  Endpoint,
+  OperatorManifest,
+  OperatorProvider,
+  RunningSession,
+  Session,
+  SignalEnvelope,
+  SignalSpec,
+  SourceOutput,
+  Stem,
+} from 'pocketstation/node';
+import type {
+  DuplexVoiceCapabilities,
+  DuplexVoiceConnection,
+  DuplexVoiceContext,
+  DuplexVoiceModel,
+} from 'pocketstation/voice';
+
+new WhisperTranscriber(new WhisperTranscriberConfiguration());
+new RealtimeVoiceConfig();
+
+type DemoBoundary = {
+  audioConverter: AudioConverter;
+  input: RealtimeInput;
+  socketFactory: RealtimeSocketFactory;
+  modelFactory: WhisperModelFactory;
+  frame: AudioFrame;
+  audioInput: AudioInput;
+  subscription: BusSubscription;
+  capture: Capture;
+  stream: DerivedStream | SourceOutput | Stem;
+  endpoint: Endpoint;
+  manifest: OperatorManifest;
+  provider: OperatorProvider;
+  running: RunningSession;
+  session: Session;
+  envelope: SignalEnvelope;
+  signal: SignalSpec;
+  capabilities: DuplexVoiceCapabilities;
+  connection: DuplexVoiceConnection;
+  context: DuplexVoiceContext;
+  model: DuplexVoiceModel;
+  realtime: OpenAIRealtime;
+};
+
+export type { DemoBoundary };
+`,
+  );
+  writeFileSync(
     join(consumer, 'tsconfig.json'),
     JSON.stringify({
       compilerOptions: {
@@ -62,7 +133,7 @@ SidecarMessage.signal(new Uint8Array(), {
         skipLibCheck: true,
         types: [],
       },
-      files: ['sidecar-consumer.ts'],
+      files: ['sidecar-consumer.ts', 'demo-consumer.ts'],
     }),
   );
   execFileSync(
@@ -745,6 +816,47 @@ SidecarMessage.signal(new Uint8Array(), {
     if (!voiceOutcome.success || generated.length !== 1) {
       throw new Error('packed voice conversation did not complete bounded work');
     }
+    const demo = await import('pocketstation/demo');
+    for (const demoExport of [
+      demo.AudioWindowBuffer,
+      demo.WhisperTranscriber,
+      demo.WhisperTranscriberConfiguration,
+      demo.WhisperCliModel,
+      demo.OpenAIRealtime,
+      demo.RealtimeVoiceConfig,
+      demo.Transcript,
+      demo.encodeRealtimeMicrophoneFrame,
+    ]) {
+      if (typeof demoExport !== 'function') {
+        throw new Error('packed demo provider export is unavailable');
+      }
+    }
+    const realtime = new demo.OpenAIRealtime({
+      apiKey: 'packed-missing-ws',
+      config: new demo.RealtimeVoiceConfig({ connectTimeoutS: 0.1 }),
+    });
+    const realtimeConnection = realtime.connect(new voice.DuplexVoiceContext(
+      { polledAudio: () => ({}) },
+      { send: () => 1n },
+      {
+        config: { sampleRateHz: 48_000, channels: 1, frameSamplesPerChannel: 480 },
+        beginOutput: () => ({ active: true, cancel: () => true }),
+        write: async () => undefined,
+      },
+      new voice.ConversationConfig(),
+    ));
+    let missingWsWasClear = false;
+    try {
+      await realtimeConnection.start({});
+    } catch (failure) {
+      missingWsWasClear = failure instanceof Error
+        && failure.message.includes('npm install ws');
+    } finally {
+      await realtimeConnection.close();
+    }
+    if (!missingWsWasClear) {
+      throw new Error('packed optional Realtime transport did not report how to install ws');
+    }
     const root = await import('pocketstation');
     if (
       typeof root.RuntimeCompatibility !== 'function' ||
@@ -766,6 +878,18 @@ SidecarMessage.signal(new Uint8Array(), {
     readFileSync(join(consumer, 'node_modules/pocketstation/package.json'), 'utf8'),
   );
   assert.equal(installedManifest.version, '0.1.4');
+  assert.equal(installedManifest.peerDependencies.ws, '8.18.3');
+  assert.equal(installedManifest.peerDependenciesMeta.ws.optional, true);
+  assert.equal(
+    installedManifest.bin['pocketstation-demo'],
+    './bin/pocketstation-demo.mjs',
+  );
+  const demoHelp = execFileSync(
+    process.execPath,
+    [join(consumer, 'node_modules/pocketstation/bin/pocketstation-demo.mjs'), '--help'],
+    { cwd: consumer, encoding: 'utf8' },
+  );
+  assert.match(demoHelp, /Usage: pocketstation-demo/);
 } finally {
   rmSync(work, { recursive: true, force: true });
 }

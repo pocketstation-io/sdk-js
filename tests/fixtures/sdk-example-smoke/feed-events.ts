@@ -16,7 +16,7 @@ const running = await session.start();
 const envelope = await running.signals(subscription).read({ timeoutMs: 1_000 });
 const result = await running.stop();
 
-if (envelope === undefined || envelope.kind === 'end-of-stream') {
+if (envelope === undefined || 'kind' in envelope) {
   throw new Error('accepted event was not delivered');
 }
 if (envelope.payload.kind !== 'bytes') {

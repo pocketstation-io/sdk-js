@@ -1163,3 +1163,25 @@ registry build remains `BLOCKED` on PocketStation Core `1.1.11` publication.
 - This closes one public projection gap only. It does not establish whole-SDK
   parity, a clean release candidate, registry publication, hosted operation,
   browser execution, another platform or physical-device behavior.
+
+## 2026-09-26: installed demo integration parity
+
+- `pocketstation/demo` is an isolated optional entry point. It provides one
+  finite local `whisper-cli` Operator and one bounded OpenAI Realtime example
+  without adding provider code or credentials to Core or the root import.
+- Application and microphone windows retain independent Source identity.
+  Every 64-bit identity, sequence, epoch, and nanosecond timestamp uses a
+  lossless decimal-string JSON representation and decodes to `bigint`.
+- Audio batching validates finite formats, frame alignment, aggregate bounds,
+  duration, ownership, and resampling before retaining state. Returned windows
+  are copies, so caller mutation cannot alter queued PCM.
+- The installed CLI preflights its local model and executable, declares
+  transcription before Session start, and preserves optional multistem
+  recording and Relay publication with bounded cancellation and cleanup.
+- The base npm package does not install `ws`; the Realtime demo reports the
+  explicit opt-in install command when the optional peer is absent.
+- The full JavaScript suite passes with 453 tests and one opt-in real-model
+  test skipped. API extraction with an exact eighteen-symbol cross-entrypoint
+  allowlist, documentation, six public TypeScript examples,
+  six internal smoke fixtures, package exports, and an isolated packed
+  consumer pass. Registry publication and non-macOS execution are not claimed.

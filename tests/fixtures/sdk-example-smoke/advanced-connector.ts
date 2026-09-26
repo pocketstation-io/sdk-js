@@ -5,7 +5,10 @@ import {
   ConnectorDriver,
   ConnectorManifest,
   ConnectorConfigurationValue,
+  ConnectorDeliveryOutcome,
   Session,
+  type ConnectorContext,
+  type ConnectorItem,
 } from 'pocketstation/node';
 
 const configuration = new ConnectorConfigurationSchema([
@@ -21,18 +24,18 @@ const manifest = ConnectorManifest.audio(
   { packageVersion: '1.0.0', configuration },
 );
 
-const received = [];
+const received: bigint[] = [];
 const archive = Connector.withDriver(manifest, async (inputs) => {
   const token = inputs[0]?.configuration.token?.exposeSecret();
   if (token !== 'local-example') throw new Error('credential rejected');
   return new (class extends ConnectorDriver {
-    start(context) {
+    start(context: ConnectorContext) {
       context.setReady();
     }
 
-    deliver(item) {
+    deliver(item: ConnectorItem) {
       if (item.kind === 'audio') received.push(item.audio.sequenceNumber);
-      return 'delivered';
+      return ConnectorDeliveryOutcome.Delivered;
     }
   })();
 });

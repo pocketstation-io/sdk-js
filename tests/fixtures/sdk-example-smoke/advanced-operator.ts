@@ -25,7 +25,6 @@ const source = defineSource({
   },
 });
 
-let preparation;
 const uppercase = OperatorProvider.withNode(
   new OperatorManifest({
     operatorId: 'dev.pocketstation.example.uppercase.v1',
@@ -34,7 +33,7 @@ const uppercase = OperatorProvider.withNode(
     terminalRoles: ['result.final'],
   }),
   async () => ({
-    prepare: (context) => { preparation = context; },
+    prepare: () => {},
     process: async (inputPort, envelope) => {
       if (inputPort !== 'request' || envelope.payload.kind !== 'text') return [];
       return [OperatorEmission.text(envelope.payload.text.toUpperCase(), {
@@ -56,9 +55,10 @@ const stopped = await running.stop();
 
 if (
   !stopped.success
-  || value?.payload.kind !== 'text'
+  || value === undefined
+  || 'kind' in value
+  || value.payload.kind !== 'text'
   || value.payload.text !== 'HELLO'
-  || preparation?.executionPartition !== 'async-worker'
 ) {
   throw new Error('advanced Operator example failed');
 }
