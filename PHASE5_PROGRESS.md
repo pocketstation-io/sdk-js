@@ -1185,3 +1185,11 @@ registry build remains `BLOCKED` on PocketStation Core `1.1.11` publication.
   allowlist, documentation, six public TypeScript examples,
   six internal smoke fixtures, package exports, and an isolated packed
   consumer pass. Registry publication and non-macOS execution are not claimed.
+
+## 2026-09-26: deterministic qualification statistics
+
+- The existing performance runner now uses one tested nearest-rank percentile
+  helper for p50, p95 and p99 summaries instead of retaining an untested local
+  implementation.
+- Direct Node tests cover 0, 1, 50, 95, 99 and 100 percentiles and reject empty,
+  non-finite and out-of-range inputs. This is qualification-tool parity only;
