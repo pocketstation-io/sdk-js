@@ -1180,7 +1180,7 @@ registry build remains `BLOCKED` on PocketStation Core `1.1.11` publication.
   recording and Relay publication with bounded cancellation and cleanup.
 - The base npm package does not install `ws`; the Realtime demo reports the
   explicit opt-in install command when the optional peer is absent.
-- The full JavaScript suite passes with 453 tests and one opt-in real-model
+- The full JavaScript suite passes with 457 tests and one opt-in real-model
   test skipped. API extraction with an exact eighteen-symbol cross-entrypoint
   allowlist, documentation, six public TypeScript examples,
   six internal smoke fixtures, package exports, and an isolated packed
