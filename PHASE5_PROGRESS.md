@@ -1232,3 +1232,21 @@ platform/performance/OSS gates are still pending.
   binaries, installed performance, independent browser bundle/runtime,
   supply-chain notices and public npm publication require subsequent gates.
   Historical 10 ms physical failure and its thresholds remain unchanged.
+
+## 2026-09-26: installed package performance — Candidate115 resumed
+
+- Pin published Core1.1.12, which repairs the physical microphone timestamp
+  discontinuities found in the exact Core1.1.11 package preflight. The SDK version
+  remains0.1.4; compatibility facts and installed-consumer assertions match.
+- Measurement loads the public installed Node entry and records the selected
+  native addon hash, refusing checkout fallback or ambiguous binary identity.
+  Existing latency, cadence, CPU/RSS, queue and cleanup limits are unchanged.
+- The previous C114 archives and failed C115 physical result are retained.
+  Fresh archives need installed-consumer and performance acceptance; no npm,
+  cross-platform,10ms physical-latency or endurance claim is made here.
+- Core owns the capture fix; no SDK runtime behavior or dependency is added.
+  Scaffold inventory:n/a. Validation is recorded below after the gates run.
+
+- Validation: production build and TypeScript pass; all37SDK test suites/457
+  assertions pass(one existing opt-in skip), public exports and complete packed
+  consumer pass against Core1.1.12. Measurement scripts pass Node syntax checks.

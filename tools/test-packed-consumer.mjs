@@ -240,7 +240,7 @@ export type { DemoBoundary };
     if (runtimeCompatibility.sdkVersion !== '0.1.4') {
       throw new Error('packed compatibility report has the wrong SDK version');
     }
-    if (runtimeCompatibility.coreVersion !== '1.1.11') {
+    if (runtimeCompatibility.coreVersion !== '1.1.12') {
       throw new Error('packed compatibility report has the wrong Core version');
     }
     if (SampleRepresentation.SIGNED_INTEGER_16 !== 'signed-integer-16') {
@@ -870,7 +870,7 @@ export type { DemoBoundary };
     if (
       typeof root.RuntimeCompatibility !== 'function' ||
       root.runtimeCompatibility.sdkVersion !== '0.1.4' ||
-      root.runtimeCompatibility.coreVersion !== '1.1.11' ||
+      root.runtimeCompatibility.coreVersion !== '1.1.12' ||
       root.runtimeCompatibility.relayConnectorVersion !== '0.1.5' ||
       root.runtimeCompatibility.nativeAbi !== 'napi8'
     ) {

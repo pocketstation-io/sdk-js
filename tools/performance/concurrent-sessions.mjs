@@ -3,16 +3,16 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
+import { loadPackage } from './package.mjs';
 
 const toolDirectory = dirname(fileURLToPath(import.meta.url));
 const options = parseArguments(process.argv.slice(2));
 const packageRoot = options.packageRoot;
 const packageJsonPath = resolve(packageRoot, 'package.json');
-const [{ Session }, thresholdsDocument] = await Promise.all([
-  import(pathToFileURL(resolve(packageRoot, 'dist/node/index.js')).href),
-  readFile(options.thresholds, 'utf8').then(JSON.parse),
-]);
+const selectedPackage = loadPackage(packageRoot);
+const { Session } = selectedPackage.api;
+const thresholdsDocument = JSON.parse(await readFile(options.thresholds, 'utf8'));
 const limits = thresholdsDocument.concurrentSessions;
 const configuredSessions = [];
 
@@ -68,6 +68,7 @@ const result = {
   schemaVersion: 1,
   status: checks.every((entry) => entry.passed) ? 'passed' : 'failed',
   classification: 'COMPONENT-MEASUREMENT',
+  environment: selectedPackage.provenance(),
   libuvThreadPoolSize: Number.parseInt(process.env.UV_THREADPOOL_SIZE ?? '', 10) || null,
   limits,
   start: summary(start),
