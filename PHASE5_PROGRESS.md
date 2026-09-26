@@ -1130,3 +1130,24 @@ registry build remains `BLOCKED` on PocketStation Core `1.1.11` publication.
   installed three-browser Relay proof remains required before this candidate
   can be accepted. No WAN, TURN-only, acoustic-output, physical-device,
   deployment, publication, or release claim is made.
+
+## 2026-09-26: browser-local ICE ordering
+
+- Publisher and receiver ICE candidates produced during
+  `setLocalDescription()` are retained in a bounded queue until the authorized
+  `PUBLISH` or `SUBSCRIBE` message has created the corresponding Relay
+  attachment. This prevents early WebKit candidates from being sent before
+  Relay has an attachment that can consume them.
+- Browser publication declares one explicit `sendonly` transceiver for the
+  caller-owned audio track. This avoids relying on engine-specific `addTrack`
+  direction inference and mirrors the receiver's explicit `recvonly` intent.
+- The queue is capped at the same 64-candidate bound as pre-answer remote ICE,
+  is cleared on close, and fails explicitly on overflow. It does not introduce
+  another transport or unbounded signaling state.
+- Regression tests emit local ICE synchronously from
+  `setLocalDescription()` and require the signaling order to be authorization
+  first, candidate second. All 36 JavaScript suites pass with 425 tests and one
+  intentional skip; TypeScript and all public API extractors pass.
+- The installed Chromium, Firefox, and WebKit proof still decides whether this
+  is accepted. No hosted, WAN, acoustic-output, physical-device, publication,
+  or release claim is made here.

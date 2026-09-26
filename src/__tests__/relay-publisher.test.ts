@@ -35,6 +35,7 @@ class FakeStream {
 
 class FakePeerConnection {
   public static instances: FakePeerConnection[] = [];
+  public static emitCandidateDuringLocalDescription = false;
   public readonly configuration: RTCConfiguration;
   public connectionState: RTCPeerConnectionState = 'new';
   public remoteDescription: RTCSessionDescription | null = null;
@@ -45,9 +46,9 @@ class FakePeerConnection {
     getParameters: jest.fn(() => ({ encodings: [{}] })),
     setParameters: jest.fn(async () => undefined),
   };
-  public readonly addTrack = jest.fn((track: FakeTrack) => {
+  public readonly addTransceiver = jest.fn((track: FakeTrack) => {
     this.sender.track = track;
-    return this.sender;
+    return { sender: this.sender };
   });
   public readonly close = jest.fn(() => {
     this.connectionState = 'closed';
@@ -65,7 +66,13 @@ class FakePeerConnection {
     return { type: 'offer', sdp: 'v=0\r\n' };
   }
 
-  public async setLocalDescription(): Promise<void> {}
+  public async setLocalDescription(): Promise<void> {
+    if (FakePeerConnection.emitCandidateDuringLocalDescription) {
+      this.onicecandidate?.({
+        candidate: { candidate: 'candidate:early-publisher' },
+      } as unknown as RTCPeerConnectionIceEvent);
+    }
+  }
 
   public async setRemoteDescription(
     description: RTCSessionDescriptionInit,
@@ -183,6 +190,7 @@ function streamWith(track: FakeTrack): MediaStream {
 
 beforeEach(() => {
   FakePeerConnection.instances = [];
+  FakePeerConnection.emitCandidateDuringLocalDescription = false;
   FakeWebSocket.instances = [];
   FakeWebSocket.rejectPublish = false;
   Object.defineProperty(globalThis, 'RTCPeerConnection', {
@@ -214,6 +222,10 @@ describe('RelayPublisher', () => {
     expect(publisher.state).toBe('publishing');
     expect(publisher.stream).toBe(stream);
     expect(states).toEqual(['signaling', 'connecting', 'publishing']);
+    expect(FakePeerConnection.instances[0]?.addTransceiver).toHaveBeenCalledWith(
+      track,
+      { direction: 'sendonly', streams: [stream] },
+    );
     expect(FakeWebSocket.instances[0]?.sent).toContainEqual({
       type: 'PUBLISH',
       session_id: access.sessionId,
@@ -238,6 +250,25 @@ describe('RelayPublisher', () => {
     expect(publisher.stream).toBeNull();
     expect(track.stop).not.toHaveBeenCalled();
     expect(FakePeerConnection.instances[0]?.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends early browser ICE only after the authorized publication exists', async () => {
+    FakePeerConnection.emitCandidateDuringLocalDescription = true;
+    const publisher = new RelayPublisher(access);
+
+    await publisher.publish(streamWith(new FakeTrack()));
+
+    expect(FakeWebSocket.instances[0]?.sent.slice(0, 2)).toEqual([
+      {
+        type: 'PUBLISH',
+        session_id: access.sessionId,
+        bus_id: access.busId,
+        token: access.publisherToken,
+        sdp_offer: 'v=0\r\n',
+      },
+      { type: 'ICE', candidate: 'candidate:early-publisher' },
+    ]);
+    await publisher.disconnect();
   });
 
   it('does not report publishing while outbound packet delivery remains absent', async () => {

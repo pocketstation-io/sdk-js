@@ -159,6 +159,7 @@ describe('RelayReceiver connected protocol', () => {
 
   class FakePeerConnection {
     public static instances: FakePeerConnection[] = [];
+    public static emitCandidateDuringLocalDescription = false;
     public readonly configuration: RTCConfiguration;
     public connectionState: RTCPeerConnectionState = 'new';
     public remoteDescription: RTCSessionDescription | null = null;
@@ -177,7 +178,13 @@ describe('RelayReceiver connected protocol', () => {
       return { type: 'offer', sdp: 'v=0\r\n' };
     }
 
-    public async setLocalDescription(): Promise<void> {}
+    public async setLocalDescription(): Promise<void> {
+      if (FakePeerConnection.emitCandidateDuringLocalDescription) {
+        this.onicecandidate?.({
+          candidate: { candidate: 'candidate:early-receiver' },
+        } as unknown as RTCPeerConnectionIceEvent);
+      }
+    }
 
     public async setRemoteDescription(
       description: RTCSessionDescriptionInit,
@@ -265,6 +272,7 @@ describe('RelayReceiver connected protocol', () => {
   beforeEach(() => {
     FakeWebSocket.instances = [];
     FakePeerConnection.instances = [];
+    FakePeerConnection.emitCandidateDuringLocalDescription = false;
     Object.defineProperty(globalThis, 'RTCPeerConnection', {
       configurable: true,
       value: FakePeerConnection,
@@ -307,6 +315,30 @@ describe('RelayReceiver connected protocol', () => {
 
     expect(receiver.lastError?.code).toBe('relay.receiver_state_identity_mismatch');
     expect(receiver.state).toBe('failed');
+  });
+
+  it('sends early browser ICE only after the authorized subscription exists', async () => {
+    FakePeerConnection.emitCandidateDuringLocalDescription = true;
+    const receiver = new RelayReceiver({
+      signalUrl: resolution.signal_url,
+      sessionId: resolution.session_id,
+      busId: resolution.bus_id,
+      subscriberToken: resolution.subscriber_token,
+    });
+
+    await receiver.connect();
+
+    expect(FakeWebSocket.instances[0]?.sent.slice(0, 2)).toEqual([
+      {
+        type: 'SUBSCRIBE',
+        session_id: resolution.session_id,
+        bus_id: resolution.bus_id,
+        token: resolution.subscriber_token,
+        sdp_offer: 'v=0\r\n',
+      },
+      { type: 'ICE', candidate: 'candidate:early-receiver' },
+    ]);
+    await receiver.disconnect();
   });
 
   it('reports latency and fails explicitly when encrypted media is unsupported', async () => {
