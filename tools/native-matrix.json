@@ -1,0 +1,54 @@
+{
+  "schema": 1,
+  "nodes": [
+    "20.17.0",
+    "20",
+    "22",
+    "24",
+    "26"
+  ],
+  "targets": [
+    {
+      "id": "darwin-arm64",
+      "runner": "macos-15",
+      "platform": "darwin",
+      "arch": "arm64",
+      "container": ""
+    },
+    {
+      "id": "darwin-x64",
+      "runner": "macos-15-intel",
+      "platform": "darwin",
+      "arch": "x64",
+      "container": ""
+    },
+    {
+      "id": "win32-arm64-msvc",
+      "runner": "windows-11-arm",
+      "platform": "win32",
+      "arch": "arm64",
+      "container": ""
+    },
+    {
+      "id": "win32-x64-msvc",
+      "runner": "windows-2025",
+      "platform": "win32",
+      "arch": "x64",
+      "container": ""
+    },
+    {
+      "id": "linux-arm64-gnu",
+      "runner": "ubuntu-24.04-arm",
+      "platform": "linux",
+      "arch": "arm64",
+      "container": "quay.io/pypa/manylinux_2_34_aarch64@sha256:530bc9d11da99610bade21ac29975b65b8246884eef042a0a2c52d6be733e00d"
+    },
+    {
+      "id": "linux-x64-gnu",
+      "runner": "ubuntu-24.04",
+      "platform": "linux",
+      "arch": "x64",
+      "container": "quay.io/pypa/manylinux_2_34_x86_64@sha256:775612b592df48028dab9c8e4741605ed9cf050b06cc716423aceca6e6074158"
+    }
+  ]
+}

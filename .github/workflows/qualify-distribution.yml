@@ -1,0 +1,151 @@
+name: qualify-javascript-distribution
+
+'on':
+  push:
+    branches: [candidate/javascript-performance-115]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CMAKE_POLICY_VERSION_MINIMUM: '3.5'
+  CMAKE_GENERATOR: Ninja
+
+concurrency:
+  group: qualify-javascript-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  root:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      build: ${{ steps.matrix.outputs.build }}
+      consume: ${{ steps.matrix.outputs.consume }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - id: matrix
+        shell: bash
+        run: |
+          echo "build=$(python3 tools/qualify-native-matrix.py matrix --kind build)" >> "$GITHUB_OUTPUT"
+          echo "consume=$(python3 tools/qualify-native-matrix.py matrix --kind consume)" >> "$GITHUB_OUTPUT"
+      - run: python3 -m unittest discover -s tests -p test_native_matrix.py
+      - run: npm ci --ignore-scripts
+      - run: npm run build:typescript
+      - run: python3 tools/qualify-native-matrix.py freeze --kind root --output artifacts
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: root
+          path: artifacts/
+          if-no-files-found: error
+
+  native:
+    needs: root
+    name: Build ${{ matrix.id }}
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.container || null }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.root.outputs.build) }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Install Linux build prerequisites
+        if: runner.os == 'Linux'
+        run: dnf install -y alsa-lib-devel openssl-devel opus-devel pipewire-devel clang cmake ninja-build
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+          architecture: ${{ matrix.arch }}
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        if: runner.os != 'Linux'
+        with:
+          python-version: '3.13'
+      - name: Install compatible CMake
+        if: runner.os != 'Linux'
+        run: python -m pip install cmake==3.31.6 ninja==1.13.0
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
+        with:
+          toolchain: 1.95.0
+      - run: npm ci --ignore-scripts
+      - name: Build the production addon from locked dependencies
+        shell: bash
+        run: |
+          cargo metadata --manifest-path native/Cargo.toml --locked --format-version 1 > /dev/null
+          node tools/clean-native-output.mjs
+          npx --no-install napi build --platform --release --manifest-path native/Cargo.toml --output-dir native-dist -- --locked
+          node tools/stage-native-package.mjs --install
+          git diff --exit-code -- native/Cargo.lock
+      - name: Freeze the native archive and dependency report
+        run: python3 tools/qualify-native-matrix.py freeze --kind native --target ${{ matrix.id }} --output artifacts
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ matrix.id }}
+          path: artifacts/
+          if-no-files-found: error
+
+  consumers:
+    needs: [root, native]
+    name: Consume ${{ matrix.id }} Node ${{ matrix.node }}
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.container || null }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.root.outputs.consume) }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Install Linux runtime dependencies
+        if: runner.os == 'Linux'
+        run: dnf install -y alsa-lib openssl-libs opus pipewire-libs
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: ${{ matrix.node }}
+          architecture: ${{ matrix.arch }}
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        if: runner.os != 'Linux'
+        with:
+          python-version: '3.13'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: root
+          path: artifacts/root
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ matrix.id }}
+          path: artifacts/${{ matrix.id }}
+      - name: Clean install and execute the exact frozen archives
+        run: >-
+          python3 tools/qualify-native-matrix.py consume --target ${{ matrix.id }}
+          --node ${{ matrix.node }} --directory artifacts --output reports/consumer.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: consumer-${{ matrix.id }}-${{ matrix.node }}
+          path: reports/
+          if-no-files-found: error
+
+  verify:
+    needs: [root, native, consumers]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          path: retained
+      - name: Verify every declared target and runtime cell
+        env:
+          QUALIFIED_SOURCE_SHA: ${{ github.sha }}
+        run: >-
+          python3 tools/qualify-native-matrix.py verify --directory retained
+          --source-commit "$QUALIFIED_SOURCE_SHA" --output retained/release-manifest.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: qualified-distributions
+          path: retained/
+          if-no-files-found: error

@@ -1250,3 +1250,27 @@ platform/performance/OSS gates are still pending.
 - Validation: production build and TypeScript pass; all37SDK test suites/457
   assertions pass(one existing opt-in skip), public exports and complete packed
   consumer pass against Core1.1.12. Measurement scripts pass Node syntax checks.
+
+
+## 2026-09-26: native npm target qualification — Candidate 119
+
+- Phase 2 uses the existing JavaScript phase exception. SDK packaging owns the
+  six native package matrix; Core keeps all runtime semantics. No version change.
+- Build one binary-free root archive and six production native archives from
+  locked dependencies. Execute each frozen pair on its actual OS/CPU with
+  Node 20.17.0, 20, 22, 24 and 26. Linux builds and consumers use pinned
+  manylinux 2.34 containers; shared-library requirements are retained.
+- Consumers compare every installed file with the archive, exercise all six
+  ESM/CommonJS exports with shared identities, and run real native PCM through
+  Source/stream/output identity, cancelled generation rejection and Session stop.
+- The verifier rejects different artifact hashes, source commits, OS/CPU/libc,
+  Node versions, incomplete observations and missing matrix cells.
+- Local Darwin arm64 Node 20 consumer passes; 5 verifier tests cover 17 altered
+  report cases. Hosted target results remain pending until actual CI completion.
+- These are component claims. Physical capture, performance, permissions, WAN,
+  browser hearing and registry publication are separate evidence. No scaffold
+  or mock enters the package; synthetic verifier unit reports are test-only.
+- Staff review: invariant is build once/consume identical archives; failures stop
+  qualification; no Core or hot-path changes, new runtime dependency or API.
+  Scaffold inventory: n/a. Checks: Python/Node syntax, verifier tests, local
+  installed consumer and whitespace. Decision: SAFE-TO-TEST; hosted gates pending.
