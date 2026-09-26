@@ -127,7 +127,14 @@ assert.deepEqual(
 );
 
 const root = await import('pocketstation');
-assert.deepEqual(Object.keys(root), ['PocketStationError', 'version']);
+assert.deepEqual(Object.keys(root), [
+  'PocketStationError',
+  'RuntimeCompatibility',
+  'runtimeCompatibility',
+  'version',
+]);
 assert.equal(root.version, '0.1.4');
+assert.equal(root.runtimeCompatibility.sdkVersion, root.version);
+assert.equal(root.runtimeCompatibility.nativeAbi, 'napi8');
 
 console.log('package exports: PASS');

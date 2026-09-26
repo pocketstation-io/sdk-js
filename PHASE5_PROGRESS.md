@@ -1151,3 +1151,15 @@ registry build remains `BLOCKED` on PocketStation Core `1.1.11` publication.
 - The installed Chromium, Firefox, and WebKit proof still decides whether this
   is accepted. No hosted, WAN, acoustic-output, physical-device, publication,
   or release claim is made here.
+
+## 2026-09-26: flat-root runtime compatibility parity
+
+- The environment-neutral `pocketstation` entry point now exports the same
+  immutable runtime compatibility facts already available from
+  `pocketstation/node`, matching the Python package's flat-root access.
+- Direct tests bind those facts to the package manifest and exact native Core,
+  Relay connector, Node version and Node-API requirements. Package-resolution
+  and isolated packed-consumer checks cover the public root import.
+- This closes one public projection gap only. It does not establish whole-SDK
+  parity, a clean release candidate, registry publication, hosted operation,
+  browser execution, another platform or physical-device behavior.
