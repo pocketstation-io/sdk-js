@@ -5,39 +5,23 @@ function read(relativePath: string): string {
 }
 
 describe('package structure', () => {
-  it('Given the package manifest When inspected Then browser and Node exports stay separate', () => {
+  it('given dual module exports when resolved then browser and Node stay separate', () => {
     const manifest = JSON.parse(read('package.json')) as {
-      exports: Record<string, { import: string; types: string }>;
+      exports: Record<string, {
+        node: { import: string; require: string; types: string };
+        default: { types: string; default: string };
+      }>;
     };
-
     expect(Object.keys(manifest.exports)).toEqual([
-      '.',
-      './node',
-      './browser',
-      './control',
-      './demo',
-      './voice',
+      '.', './node', './browser', './control', './demo', './voice',
     ]);
-    expect(manifest.exports['./node']).toEqual({
-      types: './dist/node/index.d.ts',
-      import: './dist/node/index.js',
-    });
-    expect(manifest.exports['./browser']).toEqual({
-      types: './dist/browser/index.d.ts',
-      import: './dist/browser/index.js',
-    });
-    expect(manifest.exports['./control']).toEqual({
-      types: './dist/control/index.d.ts',
-      import: './dist/control/index.js',
-    });
-    expect(manifest.exports['./demo']).toEqual({
-      types: './dist/demo/index.d.ts',
-      import: './dist/demo/index.js',
-    });
-    expect(manifest.exports['./voice']).toEqual({
-      types: './dist/voice/index.d.ts',
-      import: './dist/voice/index.js',
-    });
+    for (const [name, entry] of Object.entries(manifest.exports)) {
+      const subpath = name === '.' ? 'index' : `${name.slice(2)}/index`;
+      expect(entry.node.require).toBe(`./dist/cjs/${subpath}.js`);
+      expect(entry.node.types).toBe(`./dist/cjs/${subpath}.d.ts`);
+      expect(entry.default.default).toBe(`./dist/${subpath}.js`);
+      expect(read(entry.node.import)).toContain("import api from '../cjs/");
+    }
   });
 
   it('Given the browser build When inspected Then it never imports Node or the native addon', () => {

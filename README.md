@@ -16,6 +16,26 @@ so model calls and application work do not run on an audio callback.
 > Chromium, Firefox, and WebKit. Windows and Linux packages, WAN/TURN behavior,
 > and the remaining Rust/Python features still require their own proof.
 
+## Package installation and module modes
+
+The root `pocketstation` archive contains JavaScript and declarations. Its exact
+versioned optional native dependency supplies the Node-API addon for macOS or
+Windows on arm64/x64, or glibc Linux on arm64/x64. These six package definitions
+are distribution targets; each release must separately qualify its advertised
+binaries. Musl Linux is unsupported and fails with `package.unsupported_target`.
+
+Install with optional dependencies enabled. `package.native_missing` names the
+missing platform package and an explicit install command; a mismatched native
+version fails with `package.version_mismatch`. There is no install script,
+checkout-relative binary fallback, or download at runtime.
+
+All six public entry points support Node ESM and CommonJS. In one Node process,
+`import` and `require` share classes, errors and singleton values. The root,
+browser, control and voice ESM builds remain available to browser tooling;
+`pocketstation/node` and `pocketstation/demo` require Node. Browser code does not
+load a native addon. Optional example transport `ws` remains separately installed.
+
+
 ## Capture an application
 
 Choose the running application by its exact display name or application ID:
@@ -507,6 +527,12 @@ npm run typecheck
 npm test
 npm run native:check
 ```
+
+For source development, `npm run build:native` builds and stages the local
+platform package under `npm/` and installs a copy in this checkout's
+`node_modules`. `npm run build:typescript` builds both module forms without
+loading native code. Packed-consumer gates install the root and real local
+native tarballs into a separate temporary project.
 
 After the build, run the application-capture example and enter the name of a
 running application when prompted:

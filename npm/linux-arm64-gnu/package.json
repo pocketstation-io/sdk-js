@@ -1,0 +1,31 @@
+{
+  "name": "@pocketstation/native-linux-arm64-gnu",
+  "version": "0.1.4",
+  "description": "PocketStation native Node-API addon for linux-arm64-gnu",
+  "main": "pocketstation-js.linux-arm64-gnu.node",
+  "files": [
+    "pocketstation-js.linux-arm64-gnu.node",
+    "LICENSE",
+    "README.md"
+  ],
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "engines": {
+    "node": ">=20.17"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pocketstation-io/sdk-js.git"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "libc": [
+    "glibc"
+  ]
+}

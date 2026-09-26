@@ -1,0 +1,28 @@
+{
+  "name": "@pocketstation/native-darwin-x64",
+  "version": "0.1.4",
+  "description": "PocketStation native Node-API addon for darwin-x64",
+  "main": "pocketstation-js.darwin-x64.node",
+  "files": [
+    "pocketstation-js.darwin-x64.node",
+    "LICENSE",
+    "README.md"
+  ],
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "engines": {
+    "node": ">=20.17"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pocketstation-io/sdk-js.git"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

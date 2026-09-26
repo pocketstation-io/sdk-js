@@ -4,12 +4,15 @@ import {
   mkdtempSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
+
+import { runNpm } from './run-npm.mjs';
 
 const work = mkdtempSync(join(tmpdir(), 'pocketstation-js-consumer-'));
 const artifacts = join(work, 'artifacts');
@@ -19,22 +22,28 @@ mkdirSync(consumer);
 
 try {
   const pack = JSON.parse(
-    execFileSync(
-      'npm',
+    runNpm(
       ['pack', '--json', '--pack-destination', artifacts],
       { encoding: 'utf8' },
     ),
   );
   assert.equal(pack.length, 1);
   const tarball = join(artifacts, pack[0].filename);
+  assert.ok(pack[0].files.every((file) => !file.path.endsWith('.node')));
+  const binary = readdirSync('native-dist').find((name) => name.endsWith('.node'));
+  assert.ok(binary, 'build must produce the local native package');
+  const target = binary.slice('pocketstation-js.'.length, -'.node'.length);
+  const nativePack = JSON.parse(runNpm(
+    ['pack', `./npm/${target}`, '--json', '--pack-destination', artifacts],
+    { encoding: 'utf8' }));
+  const nativeTarball = join(artifacts, nativePack[0].filename);
 
   writeFileSync(
     join(consumer, 'package.json'),
     JSON.stringify({ private: true, type: 'module' }),
   );
-  execFileSync(
-    'npm',
-    ['install', '--offline', '--omit=optional', '--ignore-scripts', '--no-audit', '--no-fund', tarball],
+  runNpm(
+    ['install', '--offline', '--omit=optional', '--ignore-scripts', '--no-audit', '--no-fund', tarball, nativeTarball],
     { cwd: consumer, stdio: 'inherit' },
   );
   assert.equal(

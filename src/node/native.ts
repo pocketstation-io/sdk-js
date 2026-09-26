@@ -1,4 +1,4 @@
-import { createRequire } from 'node:module';
+import { loadNativePackage } from './native-package.js';
 
 export interface NativeSourceHandle {}
 
@@ -1389,38 +1389,12 @@ export interface NativeAddon {
   conformanceSourceReplacementError?: (caseName: string) => void;
 }
 
-const require = createRequire(import.meta.url);
-
-function localAddonName(): string {
-  const platform = process.platform;
-  const architecture = process.arch;
-  if (platform === 'darwin' && architecture === 'arm64') {
-    return 'pocketstation-js.darwin-arm64.node';
-  }
-  if (platform === 'darwin' && architecture === 'x64') {
-    return 'pocketstation-js.darwin-x64.node';
-  }
-  if (platform === 'win32' && architecture === 'x64') {
-    return 'pocketstation-js.win32-x64-msvc.node';
-  }
-  if (platform === 'win32' && architecture === 'arm64') {
-    return 'pocketstation-js.win32-arm64-msvc.node';
-  }
-  if (platform === 'linux' && architecture === 'x64') {
-    return 'pocketstation-js.linux-x64-gnu.node';
-  }
-  if (platform === 'linux' && architecture === 'arm64') {
-    return 'pocketstation-js.linux-arm64-gnu.node';
-  }
-  throw new Error(`PocketStation has no native package for ${platform}/${architecture}`);
-}
-
 let loadedAddon: NativeAddon | undefined;
 
 export function nativeAddon(): NativeAddon {
   if (loadedAddon !== undefined) {
     return loadedAddon;
   }
-  loadedAddon = require(`../../native-dist/${localAddonName()}`) as NativeAddon;
+  loadedAddon = loadNativePackage() as NativeAddon;
   return loadedAddon;
 }

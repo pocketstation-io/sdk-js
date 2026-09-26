@@ -3,12 +3,11 @@
   "version": "0.1.4",
   "description": "Native desktop audio Sessions for Node.js",
   "type": "module",
-  "main": "./dist/index.js",
+  "main": "./dist/cjs/index.js",
   "types": "./dist/index.d.ts",
   "files": [
     "bin",
     "dist",
-    "native-dist/*.node",
     "src/*.ts",
     "src/node/*.ts",
     "src/browser/*.ts",
@@ -16,42 +15,86 @@
     "src/demo/*.ts",
     "src/voice/*.ts",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "src/*.cjs",
+    "src/*.cts"
   ],
   "bin": {
     "pocketstation-demo": "./bin/pocketstation-demo.mjs"
   },
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "node": {
+        "types": "./dist/cjs/index.d.ts",
+        "import": "./dist/wrappers/root.mjs",
+        "require": "./dist/cjs/index.js"
+      },
+      "default": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
     },
     "./node": {
-      "types": "./dist/node/index.d.ts",
-      "import": "./dist/node/index.js"
+      "node": {
+        "types": "./dist/cjs/node/index.d.ts",
+        "import": "./dist/wrappers/node.mjs",
+        "require": "./dist/cjs/node/index.js"
+      },
+      "default": {
+        "types": "./dist/node/index.d.ts",
+        "default": "./dist/node/index.js"
+      }
     },
     "./browser": {
-      "types": "./dist/browser/index.d.ts",
-      "import": "./dist/browser/index.js"
+      "node": {
+        "types": "./dist/cjs/browser/index.d.ts",
+        "import": "./dist/wrappers/browser.mjs",
+        "require": "./dist/cjs/browser/index.js"
+      },
+      "default": {
+        "types": "./dist/browser/index.d.ts",
+        "default": "./dist/browser/index.js"
+      }
     },
     "./control": {
-      "types": "./dist/control/index.d.ts",
-      "import": "./dist/control/index.js"
+      "node": {
+        "types": "./dist/cjs/control/index.d.ts",
+        "import": "./dist/wrappers/control.mjs",
+        "require": "./dist/cjs/control/index.js"
+      },
+      "default": {
+        "types": "./dist/control/index.d.ts",
+        "default": "./dist/control/index.js"
+      }
     },
     "./demo": {
-      "types": "./dist/demo/index.d.ts",
-      "import": "./dist/demo/index.js"
+      "node": {
+        "types": "./dist/cjs/demo/index.d.ts",
+        "import": "./dist/wrappers/demo.mjs",
+        "require": "./dist/cjs/demo/index.js"
+      },
+      "default": {
+        "types": "./dist/demo/index.d.ts",
+        "default": "./dist/demo/index.js"
+      }
     },
     "./voice": {
-      "types": "./dist/voice/index.d.ts",
-      "import": "./dist/voice/index.js"
+      "node": {
+        "types": "./dist/cjs/voice/index.d.ts",
+        "import": "./dist/wrappers/voice.mjs",
+        "require": "./dist/cjs/voice/index.js"
+      },
+      "default": {
+        "types": "./dist/voice/index.d.ts",
+        "default": "./dist/voice/index.js"
+      }
     }
   },
   "scripts": {
     "build": "npm run build:native && npm run build:typescript",
-    "build:native": "node tools/clean-native-output.mjs && napi build --platform --release --manifest-path native/Cargo.toml --output-dir native-dist",
-    "build:test-native": "node tools/clean-native-output.mjs && napi build --platform --release --features conformance-fixtures --manifest-path native/Cargo.toml --output-dir native-dist",
-    "build:typescript": "node tools/clean-typescript-output.mjs && tsc",
+    "build:native": "node tools/clean-native-output.mjs && napi build --platform --release --manifest-path native/Cargo.toml --output-dir native-dist && node tools/stage-native-package.mjs --install",
+    "build:test-native": "node tools/clean-native-output.mjs && napi build --platform --release --features conformance-fixtures --manifest-path native/Cargo.toml --output-dir native-dist && node tools/stage-native-package.mjs --install",
+    "build:typescript": "node tools/build-typescript.mjs",
     "build:examples": "npm run build:typescript && tsc -p examples/tsconfig.json && tsc -p tests/fixtures/sdk-example-smoke/tsconfig.json",
     "example:capture": "npm run build && npm run build:examples && node .examples-dist/capture-application.js",
     "demo": "node bin/pocketstation-demo.mjs",
@@ -61,12 +104,14 @@
     "api:update": "npm run build:typescript && api-extractor run --local && api-extractor run --local --config api-extractor.browser.json && api-extractor run --local --config api-extractor.control.json && api-extractor run --local --config api-extractor.demo.json && api-extractor run --local --config api-extractor.voice.json && api-extractor run --local --config api-extractor.root.json && node tools/check-demo-api-boundary.mjs",
     "native:check": "cargo fmt --manifest-path native/Cargo.toml --all -- --check && cargo clippy --manifest-path native/Cargo.toml --all-targets --all-features -- -D warnings && cargo test --manifest-path native/Cargo.toml --all-features",
     "test:exports": "npm run build && node tests/package-resolution.mjs",
-    "test:packed": "npm run build && node tools/test-packed-consumer.mjs",
+    "test:packed": "npm run build && node tools/test-packed-consumer.mjs && node tests/package-assembly.mjs",
     "test:relay": "npm run build:test-native && npm run build:typescript && node --experimental-vm-modules node_modules/.bin/jest src/__tests__/node-relay.test.ts src/__tests__/relay-session.test.ts --runInBand",
     "test:e2e:browsers": "node tests/relay-browsers.mjs",
     "test:performance": "npm run build && node tools/performance/run-component.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "npm run build && npm run build:test-native && node --experimental-vm-modules node_modules/.bin/jest && node tests/demo-cli.mjs && node tests/performance-statistics.mjs"
+    "test": "npm run build && npm run build:test-native && node --experimental-vm-modules node_modules/.bin/jest && node tests/demo-cli.mjs && node tests/performance-statistics.mjs",
+    "pack:dry-run": "npm pack --dry-run --json",
+    "test:package-assembly": "node tests/package-assembly.mjs"
   },
   "engines": {
     "node": ">=20.17"
@@ -115,5 +160,13 @@
         }
       ]
     }
+  },
+  "optionalDependencies": {
+    "@pocketstation/native-darwin-arm64": "0.1.4",
+    "@pocketstation/native-darwin-x64": "0.1.4",
+    "@pocketstation/native-win32-arm64-msvc": "0.1.4",
+    "@pocketstation/native-win32-x64-msvc": "0.1.4",
+    "@pocketstation/native-linux-arm64-gnu": "0.1.4",
+    "@pocketstation/native-linux-x64-gnu": "0.1.4"
   }
 }
