@@ -226,4 +226,122 @@ describe('advanced Source authoring', () => {
     expect(cancellation?.cancelled).toBe(true);
     expect(closed).toBe(1);
   });
+
+  it('closes a driver that resolves after the creation deadline exactly once', async () => {
+    const signal = SignalSpec.text();
+    let closed = 0;
+    const provider = SourceProvider.withDriver(
+      new SourceManifest({
+        sourceTypeId: 'org.example.source.late-creation.v1',
+        outputs: [PortSpec.output('events', signal)],
+      }),
+      async () => {
+        await delay(30);
+        return {
+          next: () => undefined,
+          close: () => { closed += 1; },
+        };
+      },
+      {
+        deadlines: new SourceDeadlines({
+          createMs: 10,
+          prepareMs: 100,
+          nextMs: 100,
+          closeMs: 100,
+        }),
+      },
+    );
+    const dispatch = provider._factory()._dispatch;
+
+    await expect(dispatch({
+      operation: 'source.create',
+      instanceId: 'late-creation',
+    })).rejects.toThrow('creation exceeded 10 milliseconds');
+    await waitFor(() => closed === 1);
+    await dispatch({ operation: 'source.close', instanceId: 'late-creation' });
+
+    expect(closed).toBe(1);
+  });
+
+  it('closes an invalid factory result before rejecting it', async () => {
+    const signal = SignalSpec.text();
+    let closed = 0;
+    const provider = SourceProvider.withDriver(
+      new SourceManifest({
+        sourceTypeId: 'org.example.source.invalid-driver.v1',
+        outputs: [PortSpec.output('events', signal)],
+      }),
+      () => ({ close: () => { closed += 1; } }) as unknown as AuthoredSourceDriver,
+    );
+
+    await expect(provider._factory()._dispatch({
+      operation: 'source.create',
+      instanceId: 'invalid-driver',
+    })).rejects.toThrow('Source factory must return a driver with next()');
+
+    expect(closed).toBe(1);
+  });
+
+  it('aborts the prepared Source signal when its preparation deadline expires', async () => {
+    const signal = SignalSpec.text();
+    let preparedSignal: AbortSignal | undefined;
+    let closed = 0;
+    const provider = SourceProvider.withDriver(
+      new SourceManifest({
+        sourceTypeId: 'org.example.source.prepare-timeout.v1',
+        outputs: [PortSpec.output('events', signal)],
+      }),
+      () => ({
+        prepare: async (context) => {
+          preparedSignal = context.signal;
+          await waitForAbort(context.signal);
+        },
+        next: () => undefined,
+        close: () => { closed += 1; },
+      }),
+      {
+        deadlines: new SourceDeadlines({
+          createMs: 100,
+          prepareMs: 10,
+          nextMs: 100,
+          closeMs: 100,
+        }),
+      },
+    );
+    const dispatch = provider._factory()._dispatch;
+    const instanceId = 'prepare-timeout';
+    await dispatch({ operation: 'source.create', instanceId });
+
+    await expect(dispatch({
+      operation: 'source.prepare',
+      instanceId,
+      sourceContext: {
+        sourceTypeId: provider.manifest.sourceTypeId,
+        sessionId: '1',
+        sourceId: '2',
+        outputs: [{ name: 'events', streamId: '3' }],
+      },
+    })).rejects.toThrow('prepare exceeded 10 milliseconds');
+    await dispatch({ operation: 'source.close', instanceId });
+
+    expect(preparedSignal?.aborted).toBe(true);
+    expect(closed).toBe(1);
+  });
 });
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function waitForAbort(signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.resolve();
+  return new Promise((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }));
+}
+
+async function waitFor(predicate: () => boolean | Promise<boolean>): Promise<void> {
+  const deadline = Date.now() + 2_000;
+  while (!(await predicate())) {
+    if (Date.now() >= deadline) throw new Error('timed out waiting for Source state');
+    await delay(5);
+  }
+}

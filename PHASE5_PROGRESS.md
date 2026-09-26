@@ -1084,3 +1084,28 @@ registry build remains `BLOCKED` on PocketStation Core `1.1.11` publication.
 - TypeScript, Node API extraction, and all 31 candidate JavaScript suites pass:
   372 tests pass. Installed npm-tarball comparison is
   owned by the Lab referee and is not a publication or platform claim.
+
+## 2026-09-25: Relay, sidecar, extension, and provider lifecycle parity
+
+- A Node Relay Session derives and validates its Relay origin from the exact
+  WHIP/WHEP endpoints returned by the control plane. Explicit overrides must
+  match, and post-create validation failure attempts remote cleanup.
+- One Session owns at most one Relay publisher. Source stems publish through
+  their public `publish()` operation, and Relay outcomes remain observable in
+  the final Session result.
+- Sidecar identifiers, deadlines, polling, process specifications, protocol
+  failures, and cleanup use the same finite bounds in direct and async Node
+  workflows.
+- Source, Operator, and Endpoint authoring now receive exact native deadline
+  notifications. The corresponding AbortSignal is cancelled immediately;
+  late-created resources and timed-out resources are finalized exactly once,
+  with cleanup itself bounded.
+- Voice and extension inputs are validated and copied before use; mutable
+  caller data cannot silently change a running declaration.
+- TypeScript, public API extraction, examples, documentation, package exports,
+  and isolated packed-consumer checks pass. All 33 exact-candidate JavaScript
+  suites pass with 406 tests; native format, strict Clippy, and all 23 native
+  tests pass.
+- This remains a local candidate. No npm publication, tag, push, hosted
+  deployment, WAN, cross-platform, browser-audibility, or physical-device
+  claim is made by this step.

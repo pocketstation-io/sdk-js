@@ -19,7 +19,7 @@ const session = new Session();
 const relay = session.relay({ url, sessionId, sourceToken });
 const application = session.capture(Source.application(applicationName));
 
-application.send(relay.audio('application'));
+application.publish(relay, 'application');
 
 const running = await session.start();
 console.log(`Publishing ${applicationName}. Press Ctrl+C to stop.`);

@@ -226,6 +226,87 @@ describe('advanced Operator authoring', () => {
     })).toThrow('positive safe integer');
   });
 
+  it('aborts a rich Operator preparation deadline and performs exact cleanup', async () => {
+    const signal = SignalSpec.text();
+    const lifecycle: string[] = [];
+    let preparationSignal: AbortSignal | undefined;
+    const manifest = new OperatorManifest({
+      operatorId: 'org.example.operator.rich-prepare-deadline.v1',
+      inputs: [PortSpec.input('input', signal)],
+      outputs: [PortSpec.output('output', signal)],
+      processTimeoutMs: 100,
+    });
+    const provider = OperatorProvider.withNode(manifest, () => ({
+      prepare: async (context) => {
+        preparationSignal = context.signal;
+        await waitForAbort(context.signal);
+      },
+      process: () => [],
+      cancel: () => { lifecycle.push('cancel'); },
+      close: () => { lifecycle.push('close'); },
+    }), {
+      deadlines: new OperatorDeadlines({
+        createMs: 50,
+        prepareMs: 10,
+        processMs: 50,
+        closeMs: 20,
+      }),
+    });
+    const feed = defineSource({
+      id: 'org.example.source.rich-prepare-deadline-input.v1',
+      outputs: [PortSpec.output('text', signal)],
+      create: () => ({ next: () => undefined }),
+    });
+    const session = new Session();
+    const instance = session.registerOperator(provider).declare();
+    session.source(feed).output('text').connect(instance.input('input'));
+    session.subscribe(instance.output('output'), { signal });
+
+    await expect(session.start()).rejects.toBeInstanceOf(Error);
+    await waitFor(() => lifecycle.includes('close'));
+
+    expect(preparationSignal?.aborted).toBe(true);
+    expect(lifecycle).toEqual(['cancel', 'close']);
+  });
+
+  it('closes a rich Operator node that resolves after its creation deadline', async () => {
+    const signal = SignalSpec.text();
+    let closes = 0;
+    const provider = OperatorProvider.withNode(new OperatorManifest({
+      operatorId: 'org.example.operator.rich-create-deadline.v1',
+      inputs: [PortSpec.input('input', signal)],
+      outputs: [PortSpec.output('output', signal)],
+      processTimeoutMs: 100,
+    }), async () => {
+      await delay(40);
+      return {
+        process: () => [],
+        close: () => { closes += 1; },
+      };
+    }, {
+      deadlines: new OperatorDeadlines({
+        createMs: 10,
+        prepareMs: 50,
+        processMs: 50,
+        closeMs: 50,
+      }),
+    });
+    const feed = defineSource({
+      id: 'org.example.source.rich-create-deadline-input.v1',
+      outputs: [PortSpec.output('text', signal)],
+      create: () => ({ next: () => undefined }),
+    });
+    const session = new Session();
+    const instance = session.registerOperator(provider).declare();
+    session.source(feed).output('text').connect(instance.input('input'));
+    session.subscribe(instance.output('output'), { signal });
+
+    await expect(session.start()).rejects.toBeInstanceOf(Error);
+    await waitFor(() => closes === 1);
+
+    expect(closes).toBe(1);
+  });
+
   it('emits owned PCM through Core reentry and multistem recording', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'pocketstation-js-operator-'));
     try {
@@ -350,3 +431,22 @@ describe('advanced Operator authoring', () => {
     expect(saturated.terminalEvent?.finalizationFailures[0]?.errorClass).toContain('buffer pool is full');
   });
 });
+
+async function waitForAbort(signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return;
+  await new Promise<void>((resolve) => {
+    signal.addEventListener('abort', () => resolve(), { once: true });
+  });
+}
+
+async function waitFor(predicate: () => boolean): Promise<void> {
+  const deadline = Date.now() + 1_000;
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error('timed out waiting for rich Operator cleanup');
+    await delay(5);
+  }
+}
+
+async function delay(milliseconds: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, milliseconds));
+}

@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc::sync_channel;
+use std::sync::mpsc::{sync_channel, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
@@ -40,6 +40,7 @@ use pocketstation::{
 };
 
 const PROVIDER_QUEUE_CAPACITY: usize = 16;
+const PROVIDER_DEADLINE_QUEUE_CAPACITY: usize = 16;
 const DEFAULT_PROVIDER_DEADLINE_MS: u32 = 5_000;
 const MAXIMUM_PROVIDER_DEADLINE_MS: u32 = 300_000;
 const MAXIMUM_PROVIDER_ERROR_BYTES: usize = 4_096;
@@ -70,6 +71,7 @@ pub struct NativeProviderAudio {
 pub struct NativeProviderCall {
     pub operation: String,
     pub instance_id: Option<String>,
+    pub timed_out_operation: Option<String>,
     pub shutdown_mode: Option<String>,
     pub audio: Option<NativeProviderAudio>,
     pub configuration: Option<Vec<crate::graph::NativeConfigurationEntry>>,
@@ -296,9 +298,21 @@ type ProviderDispatch = ThreadsafeFunction<
     PROVIDER_QUEUE_CAPACITY,
 >;
 
+// Deadline cancellation uses a separate queue; its overflow is returned in the provider failure.
+type ProviderDeadlineDispatch = ThreadsafeFunction<
+    NativeProviderCall,
+    Promise<NativeProviderResult>,
+    NativeProviderCall,
+    Status,
+    false,
+    true,
+    PROVIDER_DEADLINE_QUEUE_CAPACITY,
+>;
+
 #[derive(Clone)]
 pub(crate) struct ProviderBridge {
     dispatch: Arc<ProviderDispatch>,
+    deadline_dispatch: Option<Arc<ProviderDeadlineDispatch>>,
     deadline: Duration,
 }
 
@@ -323,14 +337,67 @@ impl ProviderBridge {
             .build()?;
         Ok(Self {
             dispatch: Arc::new(dispatch),
+            deadline_dispatch: None,
             deadline: Duration::from_millis(u64::from(deadline_ms)),
         })
+    }
+
+    fn new_with_instance_deadline_notifications(
+        dispatch: Function<'_, NativeProviderCall, Promise<NativeProviderResult>>,
+        deadline_ms: Option<u32>,
+    ) -> Result<Self> {
+        let deadline_dispatch = dispatch
+            .build_threadsafe_function::<NativeProviderCall>()
+            .weak::<true>()
+            .max_queue_size::<PROVIDER_DEADLINE_QUEUE_CAPACITY>()
+            .build()?;
+        let mut bridge = Self::new(dispatch, deadline_ms)?;
+        bridge.deadline_dispatch = Some(Arc::new(deadline_dispatch));
+        Ok(bridge)
+    }
+
+    fn deadline_notification(&self, request: &NativeProviderCall) -> Option<NativeProviderCall> {
+        self.deadline_dispatch.as_ref()?;
+        let instance_id = request.instance_id.clone()?;
+        let mut notification = provider_call("provider.deadline_exceeded", None, None);
+        notification.instance_id = Some(instance_id);
+        notification.timed_out_operation = Some(request.operation.clone());
+        Some(notification)
+    }
+
+    fn notify_deadline_exceeded(
+        &self,
+        notification: Option<NativeProviderCall>,
+    ) -> std::result::Result<(), String> {
+        let Some(notification) = notification else {
+            return Ok(());
+        };
+        let Some(dispatch) = self.deadline_dispatch.as_ref() else {
+            return Err(
+                "JavaScript provider deadline notification dispatch is unavailable".to_owned(),
+            );
+        };
+        deadline_notification_status(
+            dispatch.call(notification, ThreadsafeFunctionCallMode::NonBlocking),
+        )
+    }
+
+    fn deadline_failure(
+        &self,
+        message: &'static str,
+        notification: Option<NativeProviderCall>,
+    ) -> String {
+        match self.notify_deadline_exceeded(notification) {
+            Ok(()) => message.to_owned(),
+            Err(notification_failure) => format!("{message}; {notification_failure}"),
+        }
     }
 
     fn call(
         &self,
         request: NativeProviderCall,
     ) -> std::result::Result<NativeProviderResult, String> {
+        let deadline_notification = self.deadline_notification(&request);
         let (sender, receiver) = sync_channel(1);
         let status = self.dispatch.call_with_return_value(
             request,
@@ -347,12 +414,20 @@ impl ProviderBridge {
                 other => format!("JavaScript provider dispatch failed: {other}"),
             });
         }
-        let promise = receiver
-            .recv_timeout(self.deadline)
-            .map_err(|_| {
-                "JavaScript provider did not accept the call before its deadline".to_owned()
-            })?
-            .map_err(|failure| bounded_message(failure.to_string()))?;
+        let promise = match receiver.recv_timeout(self.deadline) {
+            Ok(promise) => promise.map_err(|failure| bounded_message(failure.to_string()))?,
+            Err(RecvTimeoutError::Timeout) => {
+                return Err(self.deadline_failure(
+                    "JavaScript provider did not accept the call before its deadline",
+                    deadline_notification,
+                ));
+            }
+            Err(RecvTimeoutError::Disconnected) => {
+                return Err(
+                    "JavaScript provider dispatch closed before accepting the call".to_owned(),
+                )
+            }
+        };
         futures::executor::block_on(async {
             let promise = Box::pin(promise);
             let deadline = Box::pin(futures_timer::Delay::new(self.deadline));
@@ -360,9 +435,10 @@ impl ProviderBridge {
                 Either::Left((result, _)) => {
                     result.map_err(|failure| bounded_message(failure.to_string()))
                 }
-                Either::Right(((), _)) => {
-                    Err("JavaScript provider promise exceeded its deadline".to_owned())
-                }
+                Either::Right(((), _)) => Err(self.deadline_failure(
+                    "JavaScript provider promise exceeded its deadline",
+                    deadline_notification,
+                )),
             }
         })
     }
@@ -371,6 +447,7 @@ impl ProviderBridge {
         &self,
         request: NativeProviderCall,
     ) -> std::result::Result<NativeProviderResult, String> {
+        let deadline_notification = self.deadline_notification(&request);
         let started = std::time::Instant::now();
         let callback = Box::pin(self.dispatch.call_async_catch(request));
         let deadline = Box::pin(futures_timer::Delay::new(self.deadline));
@@ -379,14 +456,18 @@ impl ProviderBridge {
                 result.map_err(|failure| bounded_message(failure.to_string()))?
             }
             Either::Right(((), _)) => {
-                return Err(
-                    "JavaScript provider did not accept the call before its deadline".to_owned(),
-                )
+                return Err(self.deadline_failure(
+                    "JavaScript provider did not accept the call before its deadline",
+                    deadline_notification,
+                ));
             }
         };
         let remaining = self.deadline.saturating_sub(started.elapsed());
         if remaining.is_zero() {
-            return Err("JavaScript provider promise exceeded its deadline".to_owned());
+            return Err(self.deadline_failure(
+                "JavaScript provider promise exceeded its deadline",
+                deadline_notification,
+            ));
         }
         let promise = Box::pin(promise);
         let deadline = Box::pin(futures_timer::Delay::new(remaining));
@@ -394,10 +475,26 @@ impl ProviderBridge {
             Either::Left((result, _)) => {
                 result.map_err(|failure| bounded_message(failure.to_string()))
             }
-            Either::Right(((), _)) => {
-                Err("JavaScript provider promise exceeded its deadline".to_owned())
-            }
+            Either::Right(((), _)) => Err(self.deadline_failure(
+                "JavaScript provider promise exceeded its deadline",
+                deadline_notification,
+            )),
         }
+    }
+}
+
+fn deadline_notification_status(status: Status) -> std::result::Result<(), String> {
+    match status {
+        Status::Ok => Ok(()),
+        Status::QueueFull => {
+            Err("JavaScript provider deadline notification queue is full".to_owned())
+        }
+        Status::Closing => {
+            Err("JavaScript provider deadline notification dispatch is closing".to_owned())
+        }
+        other => Err(format!(
+            "JavaScript provider deadline notification dispatch failed: {other}"
+        )),
     }
 }
 
@@ -417,7 +514,7 @@ pub(crate) fn register_source(
     dispatch: Function<'_, NativeProviderCall, Promise<NativeProviderResult>>,
     deadline_ms: Option<u32>,
 ) -> Result<()> {
-    let bridge = ProviderBridge::new(dispatch, deadline_ms)?;
+    let bridge = ProviderBridge::new_with_instance_deadline_notifications(dispatch, deadline_ms)?;
     session
         .register_source(Arc::new(JavaScriptSourceFactory { manifest, bridge }))
         .map_err(|failure| crate::errors::error("source.registration_failed", failure.to_string()))
@@ -551,7 +648,10 @@ pub(crate) fn register_operator(
     .map_err(|failure| crate::errors::error("operator.invalid_contract", failure.to_string()))?;
     let audio_output = operator_audio_output(&manifest)?;
     let output_ports = manifest.output_ports().cloned().collect();
-    let bridge = ProviderBridge::new(dispatch, Some(bridge_deadline_ms))?;
+    let bridge = ProviderBridge::new_with_instance_deadline_notifications(
+        dispatch,
+        Some(bridge_deadline_ms),
+    )?;
     session
         .register_operator(Arc::new(JavaScriptOperatorFactory {
             manifest,
@@ -607,7 +707,7 @@ pub(crate) fn register_endpoint(
         true,
     )
     .map_err(|failure| crate::errors::error("endpoint.invalid_contract", failure.to_string()))?;
-    let bridge = ProviderBridge::new(dispatch, deadline_ms)?;
+    let bridge = ProviderBridge::new_with_instance_deadline_notifications(dispatch, deadline_ms)?;
     let maximum_batch_items = maximum_batch_items.unwrap_or(1);
     if maximum_batch_items == 0 || maximum_batch_items > 1_024 {
         return Err(crate::errors::error(
@@ -2637,6 +2737,7 @@ fn provider_call(
     NativeProviderCall {
         operation: operation.to_owned(),
         instance_id: instance_id.map(|value| value.to_string()),
+        timed_out_operation: None,
         shutdown_mode: None,
         audio: None,
         configuration,
@@ -2863,7 +2964,11 @@ fn bounded_message(mut message: String) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{bounded_message, validate_endpoint_inputs, MAXIMUM_PROVIDER_ERROR_BYTES};
+    use super::{
+        bounded_message, deadline_notification_status, validate_endpoint_inputs,
+        MAXIMUM_PROVIDER_ERROR_BYTES,
+    };
+    use napi::Status;
     use pocketstation::{MediaCaps, Multiplicity, PortDirection, PortSpec, SignalSpec, TextFormat};
 
     #[test]
@@ -2898,5 +3003,32 @@ mod tests {
         let failure = validate_endpoint_inputs(&[output]).expect_err("output must be rejected");
 
         assert!(failure.to_string().contains("endpoint.invalid_contract"));
+    }
+
+    #[test]
+    fn given_full_deadline_queue_when_notification_is_submitted_then_failure_is_explicit() {
+        let failure = deadline_notification_status(Status::QueueFull)
+            .expect_err("a full deadline queue must fail");
+
+        assert_eq!(
+            failure,
+            "JavaScript provider deadline notification queue is full"
+        );
+    }
+
+    #[test]
+    fn given_closing_deadline_dispatch_when_notification_is_submitted_then_failure_is_explicit() {
+        let failure = deadline_notification_status(Status::Closing)
+            .expect_err("a closing deadline dispatch must fail");
+
+        assert_eq!(
+            failure,
+            "JavaScript provider deadline notification dispatch is closing"
+        );
+    }
+
+    #[test]
+    fn given_available_deadline_queue_when_notification_is_submitted_then_status_passes() {
+        assert_eq!(deadline_notification_status(Status::Ok), Ok(()));
     }
 }

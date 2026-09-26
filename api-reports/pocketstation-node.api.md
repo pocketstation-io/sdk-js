@@ -331,6 +331,24 @@ export const BinaryFormat: Readonly<{
 export type BinaryFormat = (typeof BinaryFormat)[keyof typeof BinaryFormat];
 
 // @public
+export interface BusCredentialOptions extends ControlRequestOptions {
+    // (undocumented)
+    readonly busId?: string;
+}
+
+// @public
+export interface BusState {
+    // (undocumented)
+    readonly busId: string;
+    // (undocumented)
+    readonly role: string;
+    // (undocumented)
+    readonly sourceActive: boolean;
+    // (undocumented)
+    readonly sourceGeneration: number;
+}
+
+// @public
 export class BusSubscription {
     get id(): bigint;
     readonly route: RouteSettings;
@@ -1191,6 +1209,60 @@ export abstract class ConnectorWorker {
 export type ConnectorWorkerBuilder = (inputs: readonly ConnectorInputDescriptor[]) => ConnectorWorker | Promise<ConnectorWorker>;
 
 // @public
+export class ControlClient {
+    // (undocumented)
+    [Symbol.dispose](): void;
+    constructor(controlPlaneUrl: string, options?: ControlClientOptions);
+    close(): void;
+    // (undocumented)
+    readonly controlPlaneUrl: string;
+    createInvitation(sessionId: string | SessionId, sourceToken: SecretToken, options?: BusCredentialOptions): Promise<Invitation>;
+    createSession(options?: CreateSessionOptions): Promise<SessionCredentials>;
+    deleteSession(sessionId: string | SessionId, sourceToken: SecretToken, options?: ControlRequestOptions): Promise<void>;
+    issuePublisherCredentials(sessionId: string | SessionId, sourceToken: SecretToken, options: PublisherCredentialOptions): Promise<PublisherCredentials>;
+    issueSubscriberCredentials(sessionId: string | SessionId, sourceToken: SecretToken, options?: BusCredentialOptions): Promise<SubscriberCredentials>;
+    session(sessionId: string | SessionId, sourceToken: SecretToken, options?: ControlRequestOptions): Promise<SessionSnapshot>;
+}
+
+// @public
+export interface ControlClientOptions {
+    // (undocumented)
+    readonly fetch?: ControlFetch;
+    // (undocumented)
+    readonly timeoutMs?: number;
+}
+
+// @public
+export type ControlFetch = (input: URL, init?: RequestInit) => Promise<Response>;
+
+// @public
+export interface ControlIceServer {
+    // (undocumented)
+    readonly credential: SecretToken | null;
+    // (undocumented)
+    readonly urls: readonly string[];
+    // (undocumented)
+    readonly username: string | null;
+}
+
+// @public
+export class ControlPlaneError extends PocketStationError {
+    constructor(code: string, message: string, options?: {
+        statusCode?: number;
+        cause?: unknown;
+    });
+    readonly statusCode: number | null;
+}
+
+// @public
+export interface ControlRequestOptions {
+    // (undocumented)
+    readonly signal?: AbortSignal;
+    // (undocumented)
+    readonly timeoutMs?: number;
+}
+
+// @public
 export const CopyPolicy: Readonly<{
     readonly MOVE_EXCLUSIVE: "move-exclusive";
     readonly SHARE_READ_ONLY: "share-read-only";
@@ -1199,6 +1271,12 @@ export const CopyPolicy: Readonly<{
 
 // @public
 export type CopyPolicy = (typeof CopyPolicy)[keyof typeof CopyPolicy];
+
+// @public
+export interface CreateSessionOptions extends ControlRequestOptions {
+    // (undocumented)
+    readonly requiredBuses?: readonly string[];
+}
 
 // @public
 export function defineEndpoint(options: EndpointFactoryOptions): EndpointFactory;
@@ -1315,7 +1393,7 @@ export class Endpoint {
 // @public
 export interface EndpointAudioItem {
     // (undocumented)
-    readonly endpointId: bigint;
+    readonly endpointId: EndpointId;
     // (undocumented)
     readonly frame: ConnectorAudioFrame;
     // (undocumented)
@@ -1323,7 +1401,7 @@ export interface EndpointAudioItem {
     // (undocumented)
     readonly kind: 'audio';
     // (undocumented)
-    readonly routeId: bigint;
+    readonly routeId: RouteId;
 }
 
 // @public
@@ -1451,7 +1529,7 @@ export interface EndpointFactoryOptions extends EndpointProviderOptions {
     // Warning: (ae-forgotten-export) The symbol "SourceConfiguration_2" needs to be exported by the entry point index.d.ts
     // Warning: (ae-forgotten-export) The symbol "NativeEndpointInputDescriptor" needs to be exported by the entry point index.d.ts
     readonly create: (configuration: SourceConfiguration_2, inputs: readonly NativeEndpointInputDescriptor[]) => EndpointNode;
-    readonly preparationGroup?: (routeId: bigint, configuration: SourceConfiguration_2) => string | undefined;
+    readonly preparationGroup?: (routeId: RouteId, configuration: SourceConfiguration_2) => string | undefined;
     readonly validate?: (configuration: SourceConfiguration_2) => void | Promise<void>;
 }
 
@@ -1619,6 +1697,8 @@ export class EndpointPrepareContext {
     // (undocumented)
     readonly sessionTimelineOriginNs: bigint;
     // (undocumented)
+    readonly signal: AbortSignal;
+    // (undocumented)
     readonly sourceId?: SourceId;
     // (undocumented)
     readonly stemId?: StemId;
@@ -1686,13 +1766,13 @@ export type EndpointShutdownMode = (typeof EndpointShutdownMode)[keyof typeof En
 // @public
 export interface EndpointSignalItem {
     // (undocumented)
-    readonly endpointId: bigint;
+    readonly endpointId: EndpointId;
     // (undocumented)
     readonly input: string;
     // (undocumented)
     readonly kind: 'signal';
     // (undocumented)
-    readonly routeId: bigint;
+    readonly routeId: RouteId;
     // (undocumented)
     readonly signal: SignalEnvelope;
 }
@@ -1831,23 +1911,33 @@ export interface EventStreamOptions {
 
 // @public
 export class ExtensionAbiVersion {
-    constructor(structSizeBytes: number, major: number, minor: number);
+    constructor(structSizeBytes: number, abiMajor: number, abiMinor: number);
+    readonly abiMajor: number;
+    readonly abiMinor: number;
     static current(): ExtensionAbiVersion;
-    readonly major: number;
-    readonly minor: number;
+    // @deprecated (undocumented)
+    get major(): number;
+    // @deprecated (undocumented)
+    get minor(): number;
     requireCompatible(): void;
     readonly structSizeBytes: number;
 }
 
 // @public
 export class ExtensionDescriptor {
-    constructor(options: ExtensionDescriptorOptions);
+    constructor(options: ExtensionDescriptorOptions | LegacyExtensionDescriptorOptions);
     // (undocumented)
     readonly abi: ExtensionAbiVersion;
     // (undocumented)
-    readonly generation: number;
+    readonly abiMajor: number;
     // (undocumented)
-    readonly id: string;
+    readonly abiMinor: number;
+    // (undocumented)
+    readonly extensionId: string;
+    // (undocumented)
+    readonly generation: number;
+    // @deprecated (undocumented)
+    get id(): string;
     // (undocumented)
     readonly kind: ExtensionKind;
     // (undocumented)
@@ -1859,8 +1949,12 @@ export class ExtensionDescriptor {
 // @public
 export interface ExtensionDescriptorOptions {
     readonly abi?: ExtensionAbiVersion;
+    readonly abiMajor?: number;
+    readonly abiMinor?: number;
+    readonly extensionId: string;
     readonly generation?: number;
-    readonly id: string;
+    // @deprecated (undocumented)
+    readonly id?: string;
     readonly kind: ExtensionKind;
     readonly ports: readonly ExtensionPort[];
     readonly revision?: number;
@@ -1872,7 +1966,14 @@ export class ExtensionError extends PocketStationError {
 }
 
 // @public
-export type ExtensionKind = 'source' | 'operator' | 'endpoint';
+export const ExtensionKind: Readonly<{
+    readonly SOURCE: "source";
+    readonly OPERATOR: "operator";
+    readonly ENDPOINT: "endpoint";
+}>;
+
+// @public
+export type ExtensionKind = (typeof ExtensionKind)[keyof typeof ExtensionKind];
 
 // @public
 export class ExtensionPort {
@@ -1883,24 +1984,34 @@ export class ExtensionPort {
     readonly name: string;
     // (undocumented)
     readonly required: boolean;
-    // (undocumented)
-    readonly role: string;
+    // @deprecated (undocumented)
+    get role(): string;
     // (undocumented)
     readonly schema: string;
+    // (undocumented)
+    readonly semanticRole: string;
     // (undocumented)
     readonly signalId: string;
 }
 
 // @public
-export type ExtensionPortDirection = 'input' | 'output';
+export const ExtensionPortDirection: Readonly<{
+    readonly INPUT: "input";
+    readonly OUTPUT: "output";
+}>;
+
+// @public
+export type ExtensionPortDirection = (typeof ExtensionPortDirection)[keyof typeof ExtensionPortDirection];
 
 // @public
 export interface ExtensionPortOptions {
     readonly direction: ExtensionPortDirection;
     readonly name: string;
     readonly required?: boolean;
+    // @deprecated (undocumented)
     readonly role?: string;
     readonly schema?: string;
+    readonly semanticRole?: string;
     readonly signalId: string;
 }
 
@@ -1942,6 +2053,18 @@ export class GraphError extends PocketStationError {
 }
 
 // @public
+export interface Invitation {
+    // (undocumented)
+    readonly expiresAt: string;
+    // (undocumented)
+    readonly joinCode: string;
+    // (undocumented)
+    readonly joinUrl: string;
+    // (undocumented)
+    readonly sessionId: SessionId;
+}
+
+// @public
 export interface LatencyHistogram {
     // (undocumented)
     readonly futureTotal: bigint;
@@ -1960,6 +2083,12 @@ export interface LatencyHistogram {
     // (undocumented)
     readonly samplesTotal: bigint;
 }
+
+// @public @deprecated (undocumented)
+export type LegacyExtensionDescriptorOptions = Omit<ExtensionDescriptorOptions, 'extensionId'> & {
+    readonly extensionId?: string;
+    readonly id: string;
+};
 
 // @public
 export interface LifecycleEvent {
@@ -2584,7 +2713,62 @@ export const ProcessTreeScope: Readonly<{
 export type ProcessTreeScope = (typeof ProcessTreeScope)[keyof typeof ProcessTreeScope];
 
 // @public
+export class PublisherActivation {
+    constructor(snapshot: SessionSnapshot);
+    // (undocumented)
+    readonly snapshot: SessionSnapshot;
+}
+
+// @public
+export interface PublisherCredentialOptions extends ControlRequestOptions {
+    // (undocumented)
+    readonly busId: string;
+}
+
+// @public
+export interface PublisherCredentials {
+    // (undocumented)
+    readonly busId: string;
+    // (undocumented)
+    readonly iceServers: readonly ControlIceServer[];
+    // (undocumented)
+    readonly publisherToken: SecretToken;
+    // (undocumented)
+    readonly sessionId: SessionId;
+    // (undocumented)
+    readonly signalUrl: string;
+}
+
+// @public
 export type QueuePressure = 'drop-newest' | 'drop-oldest' | 'buffer' | 'fail';
+
+// @public
+export class ReceiverActivation {
+    constructor(snapshot: SessionSnapshot);
+    // (undocumented)
+    readonly snapshot: SessionSnapshot;
+}
+
+// @public
+export class ReceiverInvitation {
+    constructor(sessionId: SessionId, joinCode: string, url: string);
+    // (undocumented)
+    readonly joinCode: string;
+    // (undocumented)
+    get joinUrl(): string;
+    // (undocumented)
+    readonly sessionId: SessionId;
+    // (undocumented)
+    readonly url: string;
+}
+
+// @public
+export interface ReceiverInvitationOptions {
+    // (undocumented)
+    readonly busId?: string;
+    // (undocumented)
+    readonly signal?: AbortSignal;
+}
 
 // @public
 export interface RecordingDiscontinuity {
@@ -2718,9 +2902,26 @@ export class RegisteredSource {
     // (undocumented)
     declare(configuration?: SourceConfiguration | SourceConfigurationInput): SourceInstance;
     // (undocumented)
-    get sessionId(): bigint;
+    get sessionId(): RuntimeSessionId;
     // (undocumented)
     get sourceTypeId(): string;
+}
+
+// @public
+export interface RelayActivationOptions {
+    // (undocumented)
+    readonly pollIntervalMs?: number;
+    // (undocumented)
+    readonly signal?: AbortSignal;
+    // (undocumented)
+    readonly timeoutMs?: number;
+}
+
+// @public
+export class RelayError extends PocketStationError {
+    constructor(code: string, message: string, options?: {
+        cause?: unknown;
+    });
 }
 
 // @public
@@ -2730,7 +2931,6 @@ export interface RelayIceServer {
 
 // @public
 export class RelayPublisher {
-    audio(busId: string): Endpoint;
 }
 
 // @public
@@ -2741,6 +2941,91 @@ export interface RelayPublisherOptions {
     readonly sourceToken: string;
     readonly startupTimeoutMs?: number;
     readonly url: string;
+}
+
+// @public
+export interface RelayPublishOutcome {
+    // (undocumented)
+    readonly busId: string;
+    // (undocumented)
+    readonly cancelledOutputFramesTotal: bigint;
+    // (undocumented)
+    readonly cancelledOutputSamplesTotal: bigint;
+    // (undocumented)
+    readonly endpointId: EndpointId;
+    // (undocumented)
+    readonly error?: string;
+    // (undocumented)
+    readonly failuresTotal: bigint;
+    // (undocumented)
+    readonly framesReceivedTotal: bigint;
+    // (undocumented)
+    readonly ingressQueueDropsTotal: bigint;
+    // (undocumented)
+    readonly publisherStaleDropsTotal: bigint;
+    // (undocumented)
+    readonly routeId: RouteId;
+    // (undocumented)
+    readonly rtpPacketsSentTotal: bigint;
+    // (undocumented)
+    readonly rtpPayloadBytesSentTotal: bigint;
+}
+
+// @public
+export class RelayRoute {
+    // (undocumented)
+    readonly busId: string;
+    // (undocumented)
+    readonly routeId: RouteId;
+}
+
+// @public
+export class RelaySession {
+    // (undocumented)
+    [Symbol.asyncDispose](): Promise<void>;
+    close(options?: {
+        readonly deleteRemoteSession?: boolean;
+    }): Promise<void>;
+    static create(options: RelaySessionOptions): Promise<RelaySession>;
+    createReceiverInvitation(options?: ReceiverInvitationOptions): Promise<ReceiverInvitation>;
+    // (undocumented)
+    readonly credentials: SessionCredentials;
+    // (undocumented)
+    get invitation(): ReceiverInvitation | null;
+    publisher(session: Session): RelayPublisher;
+    // (undocumented)
+    get publisherActivation(): PublisherActivation | null;
+    // (undocumented)
+    get receiverActivation(): ReceiverActivation | null;
+    // (undocumented)
+    readonly relayUrl: string;
+    // (undocumented)
+    get sessionId(): SessionId;
+    // (undocumented)
+    toString(): string;
+    waitForPublisher(options?: RelayActivationOptions): Promise<PublisherActivation>;
+    waitForPublisherAndInvitation(options?: RelayActivationOptions & ReceiverInvitationOptions): Promise<ReceiverInvitation>;
+    waitForReceiver(options?: RelayActivationOptions): Promise<ReceiverActivation>;
+}
+
+// @public
+export interface RelaySessionOptions {
+    // (undocumented)
+    readonly controlClient?: ControlClient;
+    // (undocumented)
+    readonly controlPlaneUrl: string;
+    readonly relayUrl?: string;
+    // (undocumented)
+    readonly requestTimeoutMs?: number;
+    // (undocumented)
+    readonly requiredBuses?: readonly string[];
+    // (undocumented)
+    readonly signal?: AbortSignal;
+}
+
+// @public
+export class RelayTimeoutError extends RelayError {
+    constructor(code: string, message: string);
 }
 
 // @public @deprecated (undocumented)
@@ -2951,7 +3236,8 @@ export class RunningSession implements AsyncDisposable {
 }
 
 // @public
-export interface RuntimeCompatibility {
+export class RuntimeCompatibility {
+    constructor(options: RuntimeCompatibilityOptions);
     // (undocumented)
     readonly coreVersion: string;
     // (undocumented)
@@ -2968,6 +3254,16 @@ export interface RuntimeCompatibility {
 
 // @public
 export const runtimeCompatibility: RuntimeCompatibility;
+
+// @public
+export interface RuntimeCompatibilityOptions {
+    readonly coreVersion: string;
+    readonly nativeAbi: string;
+    readonly nodeApiVersion: number;
+    readonly nodeRequires: string;
+    readonly relayConnectorVersion: string;
+    readonly sdkVersion: string;
+}
 
 // @public
 export function RuntimeSessionId(value: bigint): RuntimeSessionId;
@@ -3004,6 +3300,16 @@ export type SampleRepresentation = (typeof SampleRepresentation)[keyof typeof Sa
 
 // @public
 export function secret(value: string): SecretValue;
+
+// @public
+export class SecretToken {
+    constructor(value: string);
+    exposeSecret(): string;
+    // (undocumented)
+    toJSON(): string;
+    // (undocumented)
+    toString(): string;
+}
 
 // @public
 export interface SecretValue {
@@ -3170,6 +3476,22 @@ export interface SessionControlFailureEvent {
 }
 
 // @public
+export interface SessionCredentials {
+    // (undocumented)
+    readonly iceServers: readonly ControlIceServer[];
+    // (undocumented)
+    readonly requiredBuses: readonly string[];
+    // (undocumented)
+    readonly sessionId: SessionId;
+    // (undocumented)
+    readonly sourceToken: SecretToken;
+    // (undocumented)
+    readonly whepUrl: string | null;
+    // (undocumented)
+    readonly whipUrl: string | null;
+}
+
+// @public
 export class SessionDeclarationError extends SessionError {
     constructor(code: string, message: string, cause?: unknown);
 }
@@ -3277,6 +3599,15 @@ export const SessionFinalizationStage: Readonly<{
 export type SessionFinalizationStage = (typeof SessionFinalizationStage)[keyof typeof SessionFinalizationStage];
 
 // @public
+export class SessionId {
+    constructor(value: string);
+    // (undocumented)
+    toJSON(): string;
+    // (undocumented)
+    toString(): string;
+}
+
+// @public
 export const SessionLifecycleState: Readonly<{
     readonly STARTING: "starting";
     readonly RUNNING: "running";
@@ -3354,6 +3685,30 @@ export type SessionRollbackStage = (typeof SessionRollbackStage)[keyof typeof Se
 // @public
 export class SessionRuntimeError extends SessionError {
     constructor(code: string, message: string, cause?: unknown);
+}
+
+// @public
+export interface SessionSnapshot {
+    // (undocumented)
+    readonly buses: readonly BusState[];
+    // (undocumented)
+    readonly codec: string;
+    // (undocumented)
+    readonly ready: boolean;
+    // (undocumented)
+    readonly relayEpoch: string | null;
+    // (undocumented)
+    readonly relayRevision: number;
+    // (undocumented)
+    readonly requiredBuses: readonly string[];
+    // (undocumented)
+    readonly sessionId: SessionId;
+    // (undocumented)
+    readonly stateRevision: number;
+    // (undocumented)
+    readonly subscriptionCount: number;
+    // (undocumented)
+    readonly subscriptions: readonly SubscriptionState[];
 }
 
 // @public
@@ -3506,13 +3861,33 @@ export class SidecarConnection {
 }
 
 // @public
-export interface SidecarDeadlines {
+export class SidecarDeadlines {
+    constructor(options?: SidecarDeadlinesOptions);
+    get processingMs(): number;
     // (undocumented)
+    readonly processingS: number;
+    get readyMs(): number;
+    // (undocumented)
+    readonly readyS: number;
+    get shutdownMs(): number;
+    // (undocumented)
+    readonly shutdownS: number;
+}
+
+// @public
+export interface SidecarDeadlinesOptions {
+    // @deprecated (undocumented)
     readonly processingMs?: number;
     // (undocumented)
+    readonly processingS?: number;
+    // @deprecated (undocumented)
     readonly readyMs?: number;
     // (undocumented)
+    readonly readyS?: number;
+    // @deprecated (undocumented)
     readonly shutdownMs?: number;
+    // (undocumented)
+    readonly shutdownS?: number;
 }
 
 // @public
@@ -3522,8 +3897,8 @@ export class SidecarError extends PocketStationError {
 
 // @public
 export class SidecarHandle {
-    readonly id: bigint;
-    readonly sessionId: bigint;
+    readonly id: SidecarId;
+    readonly sessionId: RuntimeSessionId;
 }
 
 // @public
@@ -3548,7 +3923,7 @@ export class SidecarMessage {
     // (undocumented)
     readonly signalId: string;
     // (undocumented)
-    readonly streamId: bigint;
+    readonly streamId: StreamId;
     // (undocumented)
     readonly terminal: boolean;
     // (undocumented)
@@ -3556,12 +3931,24 @@ export class SidecarMessage {
 }
 
 // @public
-export type SidecarMessageKind = 'signal' | 'ready' | 'error' | 'cancel' | 'close' | 'hello' | 'manifest' | 'configure' | 'observation' | 'closed';
+export const SidecarMessageKind: Readonly<{
+    readonly SIGNAL: "signal";
+    readonly READY: "ready";
+    readonly ERROR: "error";
+    readonly CANCEL: "cancel";
+    readonly CLOSE: "close";
+    readonly HELLO: "hello";
+    readonly MANIFEST: "manifest";
+    readonly CONFIGURE: "configure";
+    readonly OBSERVATION: "observation";
+    readonly CLOSED: "closed";
+}>;
 
-// @public
-export class SidecarProcess {
-    constructor(options: SidecarProcessOptions);
-    get id(): bigint;
+// @public (undocumented)
+export type SidecarMessageKind = (typeof SidecarMessageKind)[keyof typeof SidecarMessageKind];
+
+// @public @deprecated (undocumented)
+export class SidecarProcess extends SidecarProcessSpec {
 }
 
 // @public
@@ -3569,10 +3956,28 @@ export interface SidecarProcessOptions {
     readonly arguments?: readonly string[];
     readonly configuration?: Uint8Array;
     readonly dataCapacityMessages?: number;
-    readonly deadlines?: SidecarDeadlines;
+    readonly deadlines?: SidecarDeadlines | SidecarDeadlinesOptions;
     readonly id: bigint;
     readonly program: string;
-    readonly protocolLimits?: SidecarProtocolLimits;
+    readonly protocolLimits?: SidecarProtocolLimits | SidecarProtocolLimitsOptions;
+}
+
+// @public
+export class SidecarProcessSpec {
+    constructor(options: SidecarProcessOptions);
+    // (undocumented)
+    readonly arguments: readonly string[];
+    get configuration(): Uint8Array;
+    // (undocumented)
+    readonly dataCapacityMessages: number;
+    // (undocumented)
+    readonly deadlines: SidecarDeadlines;
+    // (undocumented)
+    readonly id: SidecarId;
+    // (undocumented)
+    readonly program: string;
+    // (undocumented)
+    readonly protocolLimits: SidecarProtocolLimits;
 }
 
 // @public
@@ -3581,7 +3986,20 @@ export class SidecarProtocolError extends SidecarError {
 }
 
 // @public
-export interface SidecarProtocolLimits {
+export class SidecarProtocolLimits {
+    constructor(options?: SidecarProtocolLimitsOptions);
+    // (undocumented)
+    readonly maxPayloadBytes: number;
+    // (undocumented)
+    readonly maxRoleBytes: number;
+    // (undocumented)
+    readonly maxSchemaBytes: number;
+    // (undocumented)
+    readonly maxSignalIdBytes: number;
+}
+
+// @public
+export interface SidecarProtocolLimitsOptions {
     // (undocumented)
     readonly maxPayloadBytes?: number;
     // (undocumented)
@@ -3628,7 +4046,7 @@ export class SidecarSnapshot {
     // (undocumented)
     readonly reapsTotal: bigint;
     // (undocumented)
-    readonly sidecarId: bigint;
+    readonly sidecarId: SidecarId;
     // (undocumented)
     readonly state: SidecarState;
     // (undocumented)
@@ -3639,14 +4057,32 @@ export class SidecarSnapshot {
 }
 
 // @public
-export type SidecarState = 'spawned' | 'hello' | 'manifest' | 'configure' | 'ready' | 'running' | 'cancelling' | 'closing' | 'closed' | 'reaped' | 'failed';
+export const SidecarState: Readonly<{
+    readonly SPAWNED: "spawned";
+    readonly HELLO: "hello";
+    readonly MANIFEST: "manifest";
+    readonly CONFIGURE: "configure";
+    readonly READY: "ready";
+    readonly RUNNING: "running";
+    readonly CANCELLING: "cancelling";
+    readonly CLOSING: "closing";
+    readonly CLOSED: "closed";
+    readonly REAPED: "reaped";
+    readonly FAILED: "failed";
+}>;
+
+// @public (undocumented)
+export type SidecarState = (typeof SidecarState)[keyof typeof SidecarState];
 
 // @public
 export class SidecarStream implements AsyncIterable<SidecarMessage> {
     // (undocumented)
     [Symbol.asyncIterator](): AsyncGenerator<SidecarMessage>;
+    get isClosed(): boolean;
     messages(options?: StreamReadOptions): AsyncGenerator<SidecarMessage>;
+    poll(options?: Omit<StreamReadOptions, 'timeoutMs'>): Promise<SidecarReadResult>;
     read(options?: StreamReadOptions): Promise<SidecarReadResult>;
+    get readerMode(): 'sidecar_read' | 'sidecar' | undefined;
 }
 
 // @public
@@ -3947,12 +4383,12 @@ export interface SourceDriverPrepareContext extends SourceContext {
     // (undocumented)
     readonly outputs: readonly {
         readonly name: string;
-        readonly streamId: bigint;
+        readonly streamId: StreamId;
     }[];
     // (undocumented)
-    readonly sessionId?: bigint;
+    readonly sessionId?: RuntimeSessionId;
     // (undocumented)
-    readonly sourceId?: bigint;
+    readonly sourceId?: SourceId;
     // (undocumented)
     readonly sourceTypeId: string;
 }
@@ -3965,7 +4401,7 @@ export class SourceEmission {
         readonly signal: SignalSpec;
     }): SourceEmission;
     // (undocumented)
-    readonly clockId?: number;
+    readonly clockId?: ClockDomainId;
     readonly data: string | Uint8Array;
     // (undocumented)
     readonly discontinuityEpoch?: bigint;
@@ -3996,7 +4432,7 @@ export type SourceEmissionInput = SourceEmission | SourceEmissionOptions;
 // @public (undocumented)
 export interface SourceEmissionOptions {
     // (undocumented)
-    readonly clockId?: number;
+    readonly clockId?: ClockDomainId | number;
     // (undocumented)
     readonly data: string | Uint8Array;
     // (undocumented)
@@ -4196,6 +4632,7 @@ export class SourceOutput {
     connect(input: OperatorInput): RouteId;
     get outputName(): string;
     get outputPort(): string;
+    publish(publisher: RelayPublisher, busId: string): RelayRoute;
     record(name: string): Endpoint;
     send(endpoint: Endpoint, options?: RouteInputOptions): RouteId;
     sendTo(connector: Connector): RouteId;
@@ -4212,7 +4649,7 @@ export class SourceOutputIdentity {
     // (undocumented)
     readonly outputPort: string;
     // (undocumented)
-    readonly streamId: bigint;
+    readonly streamId: StreamId;
 }
 
 // @public
@@ -4220,11 +4657,11 @@ export class SourcePrepareContext {
     // (undocumented)
     readonly outputs: readonly SourceOutputIdentity[];
     // (undocumented)
-    readonly sessionId?: bigint;
+    readonly sessionId?: RuntimeSessionId;
     // (undocumented)
     readonly signal: AbortSignal;
     // (undocumented)
-    readonly sourceId?: bigint;
+    readonly sourceId?: SourceId;
     // (undocumented)
     readonly sourceTypeId: string;
 }
@@ -4481,6 +4918,7 @@ export interface StableSourceId {
 export class Stem {
     connect(input: OperatorInput): RouteId;
     get id(): StemId;
+    publish(publisher: RelayPublisher, busId: string): RelayRoute;
     record(name: string): Endpoint;
     send(endpoint: Endpoint, options?: RouteInputOptions): RouteId;
     sendTo(connector: Connector): RouteId;
@@ -4505,6 +4943,7 @@ export interface StopResult {
     readonly metricsUnavailableReason?: string;
     readonly operatorFinalizationFailuresTotal: bigint;
     readonly recording?: RecordingOutcome;
+    readonly relayOutcomes: readonly RelayPublishOutcome[];
     readonly runtimeEventsTotal: bigint;
     readonly runtimeFailuresTotal: bigint;
     readonly runtimeWorkerPanicked: boolean;
@@ -4554,6 +4993,24 @@ export class StreamModeError extends StreamError {
 export interface StreamReadOptions {
     signal?: AbortSignal;
     timeoutMs?: number;
+}
+
+// @public
+export interface SubscriberCredentials {
+    // (undocumented)
+    readonly busId: string;
+    // (undocumented)
+    readonly sessionId: SessionId;
+    // (undocumented)
+    readonly subscriberToken: SecretToken;
+}
+
+// @public
+export interface SubscriptionState {
+    // (undocumented)
+    readonly busId: string;
+    // (undocumented)
+    readonly subscriberId: string;
 }
 
 // @public

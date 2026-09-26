@@ -3,7 +3,31 @@
  *
  * @packageDocumentation
  */
-export { runtimeCompatibility, type RuntimeCompatibility } from '../compatibility.js';
+export {
+  RuntimeCompatibility,
+  runtimeCompatibility,
+  type RuntimeCompatibilityOptions,
+} from '../compatibility.js';
+export {
+  ControlClient,
+  ControlPlaneError,
+  SecretToken,
+  SessionId,
+  type BusCredentialOptions,
+  type BusState,
+  type ControlClientOptions,
+  type ControlFetch,
+  type IceServer as ControlIceServer,
+  type ControlRequestOptions,
+  type CreateSessionOptions,
+  type Invitation,
+  type PublisherCredentialOptions,
+  type PublisherCredentials,
+  type SessionCredentials,
+  type SessionSnapshot,
+  type SubscriberCredentials,
+  type SubscriptionState,
+} from '../control/index.js';
 export {
   ClockDomainId,
   ConnectorId,
@@ -59,9 +83,10 @@ export {
   ExtensionAbiVersion,
   ExtensionDescriptor,
   ExtensionPort,
+  ExtensionPortDirection,
+  ExtensionKind,
   type ExtensionDescriptorOptions,
-  type ExtensionKind,
-  type ExtensionPortDirection,
+  type LegacyExtensionDescriptorOptions,
   type ExtensionPortOptions,
   type NativeExtensionLibrary,
   type NativeExtensionRegistration,
@@ -219,8 +244,19 @@ export {
   type SourceIterableFactory,
 } from './source.js';
 export {
-  EventStream,
+  PublisherActivation,
+  ReceiverActivation,
+  ReceiverInvitation,
+  RelayError,
+  RelaySession,
+  RelayTimeoutError,
+  type ReceiverInvitationOptions,
+  type RelayActivationOptions,
+  type RelaySessionOptions,
+} from './relay.js';
+export {
   EndpointFailureStage,
+  EventStream,
   SessionComponentKind,
   SessionEventType,
   SessionFailureKind,
@@ -274,6 +310,7 @@ export {
   type RecordingDiscontinuity,
   type RecordingOutcome,
   type RecordingStemOutcome,
+  type RelayPublishOutcome,
   type RouteDeliveryMetrics,
   type RouteMetrics,
   type SessionMetrics,
@@ -342,6 +379,7 @@ export {
   OperatorInput,
   OperatorInstance,
   RelayPublisher,
+  RelayRoute,
   RunningSession,
   Session,
   SourceOutput,
@@ -359,18 +397,21 @@ export {
 } from './session.js';
 export {
   SidecarConnection,
+  SidecarDeadlines,
   SidecarHandle,
   SidecarMessage,
+  SidecarMessageKind,
   SidecarProcess,
+  SidecarProcessSpec,
+  SidecarProtocolLimits,
   SidecarSnapshot,
+  SidecarState,
   SidecarStream,
-  type SidecarDeadlines,
-  type SidecarMessageKind,
+  type SidecarDeadlinesOptions,
   type SidecarProcessOptions,
-  type SidecarProtocolLimits,
+  type SidecarProtocolLimitsOptions,
   type SidecarReadResult,
   type SidecarSignalOptions,
-  type SidecarState,
 } from './sidecar.js';
 export {
   BusSubscription,

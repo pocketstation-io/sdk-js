@@ -149,4 +149,101 @@ describe('Source authoring', () => {
     });
     expect(lifecycle).toEqual(['prepare', 'close']);
   });
+
+  it('aborts a stalled Source operation at the native deadline and closes exactly once', async () => {
+    let signal: AbortSignal | undefined;
+    let closes = 0;
+    const feed = defineSource({
+      id: 'org.example.source.native-deadline.v1',
+      outputs: [PortSpec.output('text', SignalSpec.text())],
+      deadlineMs: 20,
+      create: () => ({
+        next: async (context) => {
+          signal = context.signal;
+          await waitForAbort(context.signal);
+          return undefined;
+        },
+        close: () => { closes += 1; },
+      }),
+    });
+    const session = new Session();
+    session.subscribe(session.source(feed).output('text'), { signal: SignalSpec.text() });
+
+    const running = await session.start();
+    await waitFor(() => signal?.aborted === true && closes === 1);
+    const outcome = await running.stop();
+
+    expect(outcome.success).toBe(false);
+    expect(signal?.aborted).toBe(true);
+    expect(closes).toBe(1);
+  });
+
+  it('closes a Source driver that resolves after the native creation deadline', async () => {
+    let closes = 0;
+    const feed = defineSource({
+      id: 'org.example.source.native-create-deadline.v1',
+      outputs: [PortSpec.output('text', SignalSpec.text())],
+      deadlineMs: 10,
+      create: async () => {
+        await delay(40);
+        return {
+          next: () => undefined,
+          close: () => { closes += 1; },
+        };
+      },
+    });
+    const session = new Session();
+    session.subscribe(session.source(feed).output('text'), { signal: SignalSpec.text() });
+
+    await expect(session.start()).rejects.toBeInstanceOf(Error);
+    await waitFor(() => closes === 1);
+
+    expect(closes).toBe(1);
+  });
+
+  it('bounds a Source close handler that ignores cancellation', async () => {
+    let closes = 0;
+    const feed = defineSource({
+      id: 'org.example.source.stalled-close.v1',
+      outputs: [PortSpec.output('text', SignalSpec.text())],
+      deadlineMs: 10,
+      create: () => ({
+        next: () => undefined,
+        close: () => {
+          closes += 1;
+          return new Promise<void>(() => undefined);
+        },
+      }),
+    });
+    const instanceId = 'stalled-source-close';
+    await feed._dispatch({ operation: 'source.create', instanceId });
+
+    const startedAt = Date.now();
+    await expect(feed._dispatch({ operation: 'source.close', instanceId }))
+      .rejects.toThrow('Source close exceeded 10 milliseconds');
+
+    expect(Date.now() - startedAt).toBeLessThan(500);
+    await expect(feed._dispatch({ operation: 'source.close', instanceId }))
+      .resolves.toEqual({});
+    expect(closes).toBe(1);
+  });
 });
+
+async function waitForAbort(signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return;
+  await new Promise<void>((resolve) => {
+    signal.addEventListener('abort', () => resolve(), { once: true });
+  });
+}
+
+async function waitFor(predicate: () => boolean): Promise<void> {
+  const deadline = Date.now() + 1_000;
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error('timed out waiting for Source cleanup');
+    await delay(5);
+  }
+}
+
+async function delay(milliseconds: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, milliseconds));
+}

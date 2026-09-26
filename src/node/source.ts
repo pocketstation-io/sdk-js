@@ -16,6 +16,11 @@ import {
   type NativeSourceManifestHandle,
 } from './native.js';
 import { nativeCallSync } from './errors.js';
+import {
+  RuntimeSessionId,
+  SourceId,
+  StreamId,
+} from './identity.js';
 import type { SourceInstance } from './session.js';
 
 /** Validated interface for one application-authored typed Source implementation. */
@@ -55,10 +60,10 @@ export class SourceManifest {
 /** Session-owned identity assigned to one prepared Source output. */
 export class SourceOutputIdentity {
   public readonly outputPort: string;
-  public readonly streamId: bigint;
+  public readonly streamId: StreamId;
 
   /** @internal */
-  public constructor(outputPort: string, streamId: bigint) {
+  public constructor(outputPort: string, streamId: StreamId) {
     this.outputPort = outputPort;
     this.streamId = streamId;
     Object.freeze(this);
@@ -71,18 +76,23 @@ export class SourceOutputIdentity {
 /** Immutable Session identity supplied after Core has prepared one Source. */
 export class SourcePrepareContext {
   public readonly sourceTypeId: string;
-  public readonly sessionId?: bigint;
-  public readonly sourceId?: bigint;
+  public readonly sessionId?: RuntimeSessionId;
+  public readonly sourceId?: SourceId;
   public readonly outputs: readonly SourceOutputIdentity[];
   public readonly signal: AbortSignal;
 
   /** @internal */
   public constructor(value: NativeSourceContext, signal: AbortSignal) {
     this.sourceTypeId = value.sourceTypeId;
-    if (value.sessionId != null) this.sessionId = BigInt(value.sessionId);
-    if (value.sourceId != null) this.sourceId = BigInt(value.sourceId);
+    if (value.sessionId != null) {
+      this.sessionId = RuntimeSessionId(BigInt(value.sessionId));
+    }
+    if (value.sourceId != null) this.sourceId = SourceId(BigInt(value.sourceId));
     this.outputs = Object.freeze(value.outputs.map(
-      (output) => new SourceOutputIdentity(output.name, BigInt(output.streamId)),
+      (output) => new SourceOutputIdentity(
+        output.name,
+        StreamId(BigInt(output.streamId)),
+      ),
     ));
     this.signal = signal;
     Object.freeze(this);
@@ -227,6 +237,19 @@ export class SourceProvider {
         await within(Promise.resolve(validation), this.deadlines.createMs, 'validation');
       },
       create: async (configuration): Promise<ConciseSourceDriver> => {
+        let cleanupStarted = false;
+        const cleanup = async (value: unknown): Promise<void> => {
+          if (cleanupStarted) return;
+          cleanupStarted = true;
+          const close = sourceDriverClose(value);
+          if (close !== undefined) {
+            await within(
+              Promise.resolve(close()),
+              this.deadlines.closeMs,
+              'close',
+            );
+          }
+        };
         const creation = Promise.resolve().then(
           () => createDriver(this.factory, configuration),
         );
@@ -235,12 +258,11 @@ export class SourceProvider {
           this.deadlines.createMs,
           'creation',
           () => {
-            void creation.then(async (lateDriver) => {
-              await lateDriver.close?.();
-            }).catch(() => undefined);
+            void creation.then(cleanup).catch(() => undefined);
           },
         );
         if (driver == null || typeof driver.next !== 'function') {
+          await cleanup(driver).catch(() => undefined);
           throw new TypeError('Source factory must return a driver with next()');
         }
         return {
@@ -260,7 +282,7 @@ export class SourceProvider {
             'next',
           ),
           close: async () => {
-            await within(Promise.resolve(driver.close?.()), this.deadlines.closeMs, 'close');
+            await cleanup(driver);
           },
         };
       },
@@ -270,13 +292,13 @@ export class SourceProvider {
 
 /** Session-bound Source registration used to declare configured instances. */
 export class RegisteredSource {
-  readonly #sessionId: bigint;
+  readonly #sessionId: RuntimeSessionId;
   readonly #provider: SourceProvider;
   readonly #declare: (configuration: SourceConfigurationRecord) => SourceInstance;
 
   /** @internal */
   public constructor(
-    sessionId: bigint,
+    sessionId: RuntimeSessionId,
     provider: SourceProvider,
     declare: (configuration: SourceConfigurationRecord) => SourceInstance,
   ) {
@@ -285,7 +307,7 @@ export class RegisteredSource {
     this.#declare = declare;
   }
 
-  public get sessionId(): bigint { return this.#sessionId; }
+  public get sessionId(): RuntimeSessionId { return this.#sessionId; }
   public get sourceTypeId(): string { return this.#provider.manifest.sourceTypeId; }
 
   public declare(
@@ -321,6 +343,15 @@ function factoryValidator(
   configuration: SourceConfigurationRecord,
 ): void | Promise<void> {
   return typeof factory === 'function' ? undefined : factory.validateConfig?.(configuration);
+}
+
+function sourceDriverClose(value: unknown): (() => void | Promise<void>) | undefined {
+  if ((typeof value !== 'object' && typeof value !== 'function') || value === null) {
+    return undefined;
+  }
+  const close = Reflect.get(value, 'close');
+  if (typeof close !== 'function') return undefined;
+  return () => Reflect.apply(close, value, []) as void | Promise<void>;
 }
 
 function iterableDriver(

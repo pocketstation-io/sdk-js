@@ -370,6 +370,124 @@ describe('Advanced Endpoint authoring', () => {
     expect(cancelled).toEqual(['cancel']);
   });
 
+  it('aborts a timed-out preparation and cancels its late resource exactly once', async () => {
+    let preparedSignal: AbortSignal | undefined;
+    let cancellations = 0;
+    class Prepared extends PreparedEndpointDriver {
+      public start(): RunningEndpointDriver { throw new Error('not started'); }
+      public cancelPreparation(): void { cancellations += 1; }
+    }
+    const provider = new EndpointProvider({
+      manifest: EndpointManifest.audio('org.example.endpoint.prepare-timeout.v1'),
+      deadlines: { prepareMs: 10, shutdownMs: 100 },
+      factory: async (inputs) => {
+        preparedSignal = inputs[0]?.context.signal;
+        if (preparedSignal === undefined) throw new Error('missing prepared signal');
+        await waitForAbort(preparedSignal);
+        await delay(20);
+        return new Prepared();
+      },
+    });
+    const dispatch = provider._factory()._dispatch;
+    const instanceId = 'prepare-timeout';
+    await dispatch(endpointRequest('endpoint.create', instanceId));
+
+    await expect(dispatch(endpointRequest('endpoint.prepare', instanceId))).rejects.toThrow(
+      'prepare exceeded 10 milliseconds',
+    );
+    await dispatch(endpointRequest('endpoint.cancel_preparation', instanceId));
+    await waitFor(() => cancellations === 1);
+
+    expect(preparedSignal?.aborted).toBe(true);
+    expect(cancellations).toBe(1);
+  });
+
+  it('aborts a timed-out start and finalizes its late running resource exactly once', async () => {
+    let preparedSignal: AbortSignal | undefined;
+    let cancellations = 0;
+    let shutdowns = 0;
+    let shutdownMode: string | undefined;
+    let finalizations = 0;
+    class Running extends RunningEndpointDriver {
+      public receive(): void {}
+      public requestShutdown(mode: 'drain' | 'abort'): void {
+        shutdowns += 1;
+        shutdownMode = mode;
+      }
+      public joinAndFinalize(): EndpointDriverObservations {
+        finalizations += 1;
+        return new EndpointDriverObservations();
+      }
+    }
+    class Prepared extends PreparedEndpointDriver {
+      public async start(): Promise<RunningEndpointDriver> {
+        if (preparedSignal === undefined) throw new Error('missing prepared signal');
+        await waitForAbort(preparedSignal);
+        await delay(20);
+        return new Running();
+      }
+      public cancelPreparation(): void { cancellations += 1; }
+    }
+    const provider = new EndpointProvider({
+      manifest: EndpointManifest.audio('org.example.endpoint.start-timeout.v1'),
+      deadlines: { startMs: 10, shutdownMs: 100 },
+      factory: (inputs) => {
+        preparedSignal = inputs[0]?.context.signal;
+        return new Prepared();
+      },
+    });
+    const dispatch = provider._factory()._dispatch;
+    const instanceId = 'start-timeout';
+    await dispatch(endpointRequest('endpoint.create', instanceId));
+    await dispatch(endpointRequest('endpoint.prepare', instanceId));
+
+    await expect(dispatch(endpointRequest('endpoint.start', instanceId))).rejects.toThrow(
+      'start exceeded 10 milliseconds',
+    );
+    await dispatch(endpointRequest('endpoint.cancel_preparation', instanceId));
+    await waitFor(() => shutdowns === 1 && finalizations === 1);
+
+    expect(preparedSignal?.aborted).toBe(true);
+    expect(cancellations).toBe(1);
+    expect(shutdowns).toBe(1);
+    expect(shutdownMode).toBe('abort');
+    expect(finalizations).toBe(1);
+  });
+
+  it('forwards an outer Endpoint abort to the rich prepared context', async () => {
+    let preparedSignal: AbortSignal | undefined;
+    let abortedDuringShutdown: boolean | undefined;
+    class Running extends RunningEndpointDriver {
+      public receive(): void {}
+      public requestShutdown(): void {
+        abortedDuringShutdown = preparedSignal?.aborted;
+      }
+    }
+    class Prepared extends PreparedEndpointDriver {
+      public start(): RunningEndpointDriver { return new Running(); }
+    }
+    const provider = new EndpointProvider({
+      manifest: EndpointManifest.audio('org.example.endpoint.outer-abort.v1'),
+      factory: (inputs) => {
+        preparedSignal = inputs[0]?.context.signal;
+        return new Prepared();
+      },
+    });
+    const dispatch = provider._factory()._dispatch;
+    const instanceId = 'outer-abort';
+    await dispatch(endpointRequest('endpoint.create', instanceId));
+    await dispatch(endpointRequest('endpoint.prepare', instanceId));
+    await dispatch(endpointRequest('endpoint.start', instanceId));
+    await dispatch({
+      ...endpointRequest('endpoint.stop', instanceId),
+      shutdownMode: 'abort',
+    });
+    await dispatch(endpointRequest('endpoint.close', instanceId));
+
+    expect(preparedSignal?.aborted).toBe(true);
+    expect(abortedDuringShutdown).toBe(true);
+  });
+
   it('supports the Session.endpoint convenience and blocks cross-Session reuse', async () => {
     const received: EndpointDriverItem[] = [];
     class Running extends RunningEndpointDriver {
@@ -462,6 +580,33 @@ describe('Advanced Endpoint authoring', () => {
 
 function sourceOutput(session: Session, source: ReturnType<typeof defineSource>) {
   return session.source(source).output('text');
+}
+
+function endpointRequest(operation: string, instanceId: string) {
+  return {
+    operation,
+    instanceId,
+    endpointInputs: [{
+      sessionId: '1',
+      endpointId: '2',
+      routeId: '3',
+      portName: 'audio',
+      originKind: 'source',
+      sourceId: '4',
+      streamId: '5',
+      stemId: '6',
+      sessionTimelineOriginNs: '7',
+    }],
+  };
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function waitForAbort(signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.resolve();
+  return new Promise((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }));
 }
 
 async function waitFor(predicate: () => boolean | Promise<boolean>): Promise<void> {

@@ -4,8 +4,12 @@ import {
   END_OF_STREAM,
   Session,
   SidecarBackpressureError,
+  SidecarDeadlines,
   SidecarMessage,
-  SidecarProcess,
+  SidecarMessageKind,
+  SidecarProcessSpec,
+  SidecarProtocolLimits,
+  SidecarState,
   Source,
   StreamAbortError,
 } from '../node/index.js';
@@ -25,8 +29,8 @@ function sessionWithSources(): Session {
 function process(
   mode: string,
   options: { id?: bigint; capacity?: number; shutdownMs?: number } = {},
-): SidecarProcess {
-  return new SidecarProcess({
+): SidecarProcessSpec {
+  return new SidecarProcessSpec({
     id: options.id ?? 7n,
     program: globalThis.process.execPath,
     arguments: [CHILD, mode],
@@ -51,11 +55,48 @@ function message(sequenceNumber = 1n, payload = Buffer.from('hello')): SidecarMe
 }
 
 describe('Session-owned sidecars', () => {
+  it('exposes exact protocol values and validated process declarations', () => {
+    expect(SidecarMessageKind.SIGNAL).toBe('signal');
+    expect(SidecarMessageKind.OBSERVATION).toBe('observation');
+    expect(SidecarState.RUNNING).toBe('running');
+    expect(SidecarState.REAPED).toBe('reaped');
+
+    const limits = new SidecarProtocolLimits();
+    const deadlines = new SidecarDeadlines({ readyS: 1.25, shutdownS: 0.05 });
+    const spec = new SidecarProcessSpec({
+      id: 19n,
+      program: globalThis.process.execPath,
+      arguments: [CHILD, 'healthy'],
+      configuration: Uint8Array.of(1, 2, 3),
+      protocolLimits: limits,
+      deadlines,
+    });
+    expect(spec.id).toBe(19n);
+    expect(spec.arguments).toEqual([CHILD, 'healthy']);
+    expect(spec.configuration).toEqual(Uint8Array.of(1, 2, 3));
+    const returnedConfiguration = spec.configuration;
+    returnedConfiguration[0] = 9;
+    expect(spec.configuration).toEqual(Uint8Array.of(1, 2, 3));
+    expect(spec.dataCapacityMessages).toBe(64);
+    expect(spec.protocolLimits.maxPayloadBytes).toBe(1_048_576);
+    expect(spec.deadlines.readyS).toBe(1.25);
+    expect(spec.deadlines.readyMs).toBe(1_250);
+    expect(spec.deadlines.processingS).toBe(5);
+    expect(spec.deadlines.shutdownMs).toBe(50);
+    expect(() => new SidecarDeadlines({ readyS: 1, readyMs: 1_000 })).toThrow(
+      'cannot specify both seconds and milliseconds',
+    );
+  });
+
   it('round-trips owned bytes and reaps the child on stop', async () => {
     const session = sessionWithSources();
     const handle = session.registerSidecar(process('healthy'));
     const running = await session.start();
     const sidecar = running.sidecar(handle);
+    expect(sidecar.messages.isClosed).toBe(false);
+    expect(sidecar.messages.readerMode).toBeUndefined();
+    expect(await sidecar.messages.poll()).toBeUndefined();
+    expect(sidecar.messages.readerMode).toBe('sidecar_read');
 
     const payload = Buffer.from('hello');
     const outbound = message(1n, payload);
@@ -84,6 +125,7 @@ describe('Session-owned sidecars', () => {
     expect(final?.visited('closed')).toBe(true);
     expect(final?.visited('reaped')).toBe(true);
     expect(await sidecar.messages.read()).toBe(END_OF_STREAM);
+    expect(sidecar.messages.isClosed).toBe(true);
   });
 
   it('reports finite queue saturation with a typed error and counter', async () => {
@@ -108,6 +150,17 @@ describe('Session-owned sidecars', () => {
     expect(saturated).toBe(true);
     expect((await sidecar.snapshot()).dataDroppedTotal).toBeGreaterThanOrEqual(1n);
     await running.cancel();
+  });
+
+  it('rejects opening a new sidecar connection after Session stop', async () => {
+    const session = sessionWithSources();
+    const handle = session.registerSidecar(process('healthy'));
+    const running = await session.start();
+    await running.stop();
+
+    expect(() => running.sidecar(handle)).toThrow(
+      expect.objectContaining({ code: 'session.stopped' }),
+    );
   });
 
   it('fails Session start when the child violates PKSS', async () => {
@@ -177,7 +230,7 @@ describe('Session-owned sidecars', () => {
     const pending = iterator.next();
 
     await expect(sidecar.messages.read()).rejects.toMatchObject({
-      code: 'stream.in_use',
+      code: 'stream.mode_conflict',
     });
     await sidecar.send(message());
     await expect(pending).resolves.toMatchObject({ done: false });

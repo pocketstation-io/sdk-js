@@ -33,7 +33,41 @@ try {
   );
   execFileSync(
     'npm',
-    ['install', '--offline', '--ignore-scripts', '--no-audit', '--no-fund', tarball],
+    ['install', '--offline', '--omit=optional', '--ignore-scripts', '--no-audit', '--no-fund', tarball],
+    { cwd: consumer, stdio: 'inherit' },
+  );
+
+  writeFileSync(
+    join(consumer, 'sidecar-consumer.ts'),
+    `import { SidecarMessage, SidecarProcess } from 'pocketstation/node';
+
+new SidecarProcess({ id: 1n, program: 'node' });
+SidecarMessage.signal(new Uint8Array(), {
+  streamId: 1n,
+  sequenceNumber: 0n,
+  timestampNs: 0n,
+  signalId: 'dev.pocketstation.packed.signal.v1',
+});
+`,
+  );
+  writeFileSync(
+    join(consumer, 'tsconfig.json'),
+    JSON.stringify({
+      compilerOptions: {
+        module: 'NodeNext',
+        moduleResolution: 'NodeNext',
+        target: 'ES2022',
+        strict: true,
+        noEmit: true,
+        skipLibCheck: true,
+        types: [],
+      },
+      files: ['sidecar-consumer.ts'],
+    }),
+  );
+  execFileSync(
+    process.execPath,
+    [join(process.cwd(), 'node_modules/typescript/bin/tsc'), '-p', 'tsconfig.json'],
     { cwd: consumer, stdio: 'inherit' },
   );
 
@@ -44,15 +78,32 @@ try {
   );
 
   const source = `
+    const installedPrefix = new URL('./node_modules/pocketstation/', import.meta.url).href;
+    const requireInstalledEntry = (entry) => {
+      if (!entry.startsWith(installedPrefix)) {
+        throw new Error('packed consumer resolved the checkout instead of installed package');
+      }
+    };
+    let rejectedCheckout = false;
+    try {
+      requireInstalledEntry(new URL('../sdk-js/dist/node/index.js', import.meta.url).href);
+    } catch (failure) {
+      rejectedCheckout = failure.message.includes('resolved the checkout');
+    }
+    if (!rejectedCheckout) throw new Error('packed resolution guard did not reject checkout path');
+    requireInstalledEntry(import.meta.resolve('pocketstation/node'));
     import {
       CapturePermissionLifecycle,
       Capture,
+      ClockDomainId,
+      ConnectorId,
       EndpointDriverObservations,
       EndpointFactory,
       EndpointManifest,
       EndpointProvider,
       DeliveryPolicy,
       END_OF_STREAM,
+      EndpointId,
       EventInput,
       EventInputClosedError,
       EventInputFullError,
@@ -61,6 +112,7 @@ try {
       ExtensionPort,
       MediaCaps,
       Operator,
+      OperatorInstanceId,
       OperatorEmission,
       OperatorManifest,
       OperatorProvider,
@@ -68,19 +120,34 @@ try {
       OutputGeneration,
       PortSpec,
       PreparedEndpointDriver,
+      PublisherActivation,
+      ReceiverActivation,
+      ReceiverInvitation,
+      RelayError,
+      RelayRoute,
+      RelaySession,
+      RelayTimeoutError,
+      RouteId,
       RouteSettings,
+      RunningSession,
       RunningEndpointDriver,
       SampleRepresentation,
       Session,
       SessionStartError,
+      SidecarId,
       SidecarMessage,
       SidecarProcess,
       SignalSpec,
       Source,
       SourceError,
+      SourceId,
+      SourceInstanceId,
       SourceEmission,
       SourceManifest,
       SourceProvider,
+      StemId,
+      StreamId,
+      RuntimeSessionId,
       connector,
       defineOperator,
       defineSource,
@@ -102,17 +169,42 @@ try {
     if (typeof SourceError !== 'function') {
       throw new Error('packed SourceError is unavailable');
     }
-    if (evaluateSourceActivity({
+    for (const identity of [
+      ClockDomainId,
+      ConnectorId,
+      EndpointId,
+      OperatorInstanceId,
+      RouteId,
+      RuntimeSessionId,
+      SidecarId,
+      SourceId,
+      SourceInstanceId,
+      StemId,
+      StreamId,
+    ]) {
+      if (typeof identity !== 'function') {
+        throw new Error('packed runtime identity export is unavailable');
+      }
+    }
+    if (SourceId(42n) !== 42n) {
+      throw new Error('packed runtime identity changed its numeric value');
+    }
+    if (typeof RunningSession.prototype.replaceMicrophoneSource !== 'function' ||
+        typeof RunningSession.prototype.reopenMicrophoneSource !== 'function') {
+      throw new Error('packed microphone replacement API is unavailable');
+    }
+    const activity = evaluateSourceActivity({
       sessionStartedAtNs: 0n,
       observedAtNs: 1n,
       framesReceivedTotal: 0n,
     }, {
       firstFrameTimeoutNs: 1n,
       stallTimeoutNs: 1n,
-    }).state !== 'first-frame-timed-out') {
+    });
+    if (activity.state !== 'first-frame-timed-out') {
       throw new Error('packed source activity evaluation changed');
     }
-    if (evaluateSourceSignal({
+    const signal = evaluateSourceSignal({
       observedAtNs: 1n,
       samplesObservedTotal: 1n,
       exactZeroSamplesObservedTotal: 1n,
@@ -130,8 +222,22 @@ try {
       minimumPeakDbfs: -40,
       minimumRmsDbfs: -50,
       exactZeroTimeoutNs: 1n,
-    }).state !== 'sustained-exact-digital-zero') {
+    });
+    if (signal.state !== 'sustained-exact-digital-zero') {
       throw new Error('packed source signal evaluation changed');
+    }
+    for (const relayExport of [
+      PublisherActivation,
+      ReceiverActivation,
+      ReceiverInvitation,
+      RelayError,
+      RelayRoute,
+      RelaySession,
+      RelayTimeoutError,
+    ]) {
+      if (typeof relayExport !== 'function') {
+        throw new Error('packed Node Relay composition export is unavailable');
+      }
     }
     const abi = ExtensionAbiVersion.current();
     abi.requireCompatible();

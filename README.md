@@ -184,8 +184,8 @@ microphone as separate Stems:
 ```ts
 const relay = session.relay({ url, sessionId, sourceToken });
 
-application.send(relay.audio("application"));
-microphone.send(relay.audio("microphone"));
+application.publish(relay, "application");
+microphone.publish(relay, "microphone");
 ```
 
 The Node addon uses the released Rust Relay Connector for Opus, RTP, WebRTC,
@@ -494,8 +494,7 @@ audio.srcObject = await receiver.connect();
 
 Read [Receive Relay audio in a browser](docs/reference/browser-relay.md) for
 direct subscriber access, lifecycle handling, receiver observations, and the
-current proof level. To inspect the complete workflow interactively, use the
-[PocketStation notebook](docs/guides/notebooks.md).
+current proof level.
 
 ## Develop from source
 

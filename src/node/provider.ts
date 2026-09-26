@@ -20,6 +20,14 @@ import {
   type NativeSourceManifestHandle,
 } from './native.js';
 import { nativeCallSync } from './errors.js';
+import {
+  ClockDomainId,
+  EndpointId,
+  RouteId,
+  RuntimeSessionId,
+  SourceId,
+  StreamId,
+} from './identity.js';
 
 /** String configuration supplied when a Source is declared. */
 export type SourceConfiguration = Readonly<Record<string, string>>;
@@ -33,11 +41,11 @@ export interface SourceContext {
 /** Source and stream identities assigned by Core before production begins. */
 export interface SourceDriverPrepareContext extends SourceContext {
   readonly sourceTypeId: string;
-  readonly sessionId?: bigint;
-  readonly sourceId?: bigint;
+  readonly sessionId?: RuntimeSessionId;
+  readonly sourceId?: SourceId;
   readonly outputs: readonly {
     readonly name: string;
-    readonly streamId: bigint;
+    readonly streamId: StreamId;
   }[];
 }
 
@@ -54,7 +62,7 @@ export class SourceEmission {
   public readonly sourceGeneration?: number;
   public readonly discontinuityEpoch?: bigint;
   public readonly policyEpoch?: bigint;
-  public readonly clockId?: number;
+  public readonly clockId?: ClockDomainId;
   public readonly terminal?: boolean;
 
   public constructor(options: SourceEmissionOptions) {
@@ -68,10 +76,7 @@ export class SourceEmission {
     requirePositiveInteger('sourceGeneration', this.sourceGeneration);
     this.discontinuityEpoch = optionalU64(options.discontinuityEpoch ?? 0n, 'discontinuityEpoch');
     this.policyEpoch = optionalU64(options.policyEpoch ?? 0n, 'policyEpoch');
-    this.clockId = options.clockId ?? 1;
-    if (!Number.isInteger(this.clockId) || this.clockId < 0 || this.clockId > 0xffff_ffff) {
-      throw new RangeError('clockId must be a u32 integer');
-    }
+    this.clockId = ClockDomainId(options.clockId ?? 1);
     this.terminal = options.terminal ?? false;
     validateSourceEmission(this);
     Object.freeze(this);
@@ -104,7 +109,7 @@ export interface SourceEmissionOptions {
   readonly sourceGeneration?: number;
   readonly discontinuityEpoch?: bigint;
   readonly policyEpoch?: bigint;
-  readonly clockId?: number;
+  readonly clockId?: ClockDomainId | number;
   readonly terminal?: boolean;
 }
 
@@ -143,8 +148,10 @@ export interface SourceFactoryOptions {
 }
 
 interface ActiveSource {
-  readonly driver: SourceDriver;
   readonly controller: AbortController;
+  driver?: SourceDriver;
+  closeRequested: boolean;
+  closePromise?: Promise<void>;
 }
 
 /** Reusable registration produced by `defineSource()`. */
@@ -157,7 +164,7 @@ export class SourceFactory {
   readonly #options: SourceFactoryOptions;
   readonly #manifest: NativeSourceManifestHandle;
   readonly #instances = new Map<string, ActiveSource>();
-  #sessionId: bigint | undefined;
+  #sessionId: RuntimeSessionId | undefined;
 
   public constructor(options: SourceFactoryOptions) {
     this.#options = options;
@@ -190,7 +197,7 @@ export class SourceFactory {
   }
 
   /** @internal */
-  public _bind(sessionId: bigint): void {
+  public _bind(sessionId: RuntimeSessionId): void {
     if (this.#sessionId !== undefined && this.#sessionId !== sessionId) {
       throw new TypeError('A Source factory cannot be shared by different Sessions');
     }
@@ -217,6 +224,10 @@ export class SourceFactory {
   public readonly _dispatch = async (
     request: NativeProviderCall,
   ): Promise<NativeProviderResult> => {
+    if (request.operation === 'provider.deadline_exceeded') {
+      this.#sourceDeadlineExceeded(request);
+      return {};
+    }
     const configuration = configurationFromNative(request.configuration);
     switch (request.operation) {
       case 'source.validate':
@@ -225,8 +236,19 @@ export class SourceFactory {
       case 'source.create': {
         const instanceId = required(request.instanceId, 'instanceId');
         if (this.#instances.has(instanceId)) throw new Error('Source instance already exists');
-        const driver = await this.#options.create(configuration);
-        this.#instances.set(instanceId, { driver, controller: new AbortController() });
+        const active: ActiveSource = {
+          controller: new AbortController(),
+          closeRequested: false,
+        };
+        this.#instances.set(instanceId, active);
+        try {
+          active.driver = await this.#options.create(configuration);
+          if (active.closeRequested) await this.#closeSource(instanceId, active);
+        } catch (error) {
+          if (this.#instances.get(instanceId) === active) this.#instances.delete(instanceId);
+          if (!active.controller.signal.aborted) active.controller.abort(error);
+          throw error;
+        }
         return {};
       }
       case 'source.prepare': {
@@ -236,7 +258,8 @@ export class SourceFactory {
           const context = this.#options.prepareContext === undefined
             ? sourceContext(nativeContext, active.controller.signal)
             : this.#options.prepareContext(nativeContext, active.controller.signal);
-          await active.driver.prepare?.(context);
+          await requiredValue(active.driver, 'Source driver').prepare?.(context);
+          if (active.closeRequested) await this.#closeSourceForRequest(request, active);
         } catch (error) {
           if (!active.controller.signal.aborted) active.controller.abort(error);
           throw error;
@@ -249,7 +272,10 @@ export class SourceFactory {
           active.controller.abort();
         }
         try {
-          const emission = await active.driver.next({ signal: active.controller.signal });
+          const emission = await requiredValue(active.driver, 'Source driver').next({
+            signal: active.controller.signal,
+          });
+          if (active.closeRequested) await this.#closeSourceForRequest(request, active);
           return emission === undefined ? {} : { emission: emissionToNative(emission, this.outputs) };
         } catch (error) {
           if (!active.controller.signal.aborted) active.controller.abort(error);
@@ -260,9 +286,7 @@ export class SourceFactory {
         const instanceId = required(request.instanceId, 'instanceId');
         const active = this.#instances.get(instanceId);
         if (active === undefined) return {};
-        this.#instances.delete(instanceId);
-        if (!active.controller.signal.aborted) active.controller.abort();
-        await active.driver.close?.();
+        await this.#closeSource(instanceId, active);
         return {};
       }
       default:
@@ -275,6 +299,45 @@ export class SourceFactory {
     const active = this.#instances.get(instanceId);
     if (active === undefined) throw new Error('Source instance is no longer active');
     return active;
+  }
+
+  #sourceDeadlineExceeded(request: NativeProviderCall): void {
+    const instanceId = required(request.instanceId, 'instanceId');
+    const operation = required(request.timedOutOperation, 'timedOutOperation');
+    if (!operation.startsWith('source.')) {
+      throw new Error(`Unsupported Source deadline operation: ${operation}`);
+    }
+    const active = this.#instances.get(instanceId);
+    if (active === undefined) return;
+    active.closeRequested = true;
+    if (!active.controller.signal.aborted) {
+      active.controller.abort(new Error(`JavaScript provider ${operation} exceeded its deadline`));
+    }
+    if (operation === 'source.create' && active.driver !== undefined) {
+      void this.#closeSource(instanceId, active).catch(() => {});
+    }
+  }
+
+  async #closeSourceForRequest(
+    request: NativeProviderCall,
+    active: ActiveSource,
+  ): Promise<void> {
+    await this.#closeSource(required(request.instanceId, 'instanceId'), active);
+  }
+
+  async #closeSource(instanceId: string, active: ActiveSource): Promise<void> {
+    active.closeRequested = true;
+    if (!active.controller.signal.aborted) active.controller.abort();
+    const driver = active.driver;
+    if (driver === undefined) return;
+    active.closePromise ??= boundedProviderCleanup(
+      Promise.resolve().then(async () => await driver.close?.()),
+      this.deadlineMs,
+      'Source close',
+    ).finally(() => {
+      if (this.#instances.get(instanceId) === active) this.#instances.delete(instanceId);
+    });
+    await active.closePromise;
   }
 }
 
@@ -387,8 +450,11 @@ export interface OperatorFactoryOptions {
 }
 
 interface ActiveOperator {
-  readonly node: OperatorNode;
   readonly controller: AbortController;
+  node?: OperatorNode;
+  closeRequested: boolean;
+  timedOutOperation?: string;
+  cleanupPromise?: Promise<void>;
 }
 
 /** Reusable registration produced by `defineOperator()`. */
@@ -408,7 +474,7 @@ export class OperatorFactory {
   public readonly terminalRoles: readonly string[];
   readonly #options: OperatorFactoryOptions;
   readonly #instances = new Map<string, ActiveOperator>();
-  #sessionId: bigint | undefined;
+  #sessionId: RuntimeSessionId | undefined;
 
   public constructor(options: OperatorFactoryOptions) {
     this.#options = options;
@@ -455,7 +521,7 @@ export class OperatorFactory {
   }
 
   /** @internal */
-  public _bind(sessionId: bigint): void {
+  public _bind(sessionId: RuntimeSessionId): void {
     if (this.#sessionId !== undefined && this.#sessionId !== sessionId) {
       throw new TypeError('An Operator factory cannot be shared by different Sessions');
     }
@@ -491,6 +557,10 @@ export class OperatorFactory {
 
   /** @internal */
   public readonly _dispatch = async (request: NativeProviderCall): Promise<NativeProviderResult> => {
+    if (request.operation === 'provider.deadline_exceeded') {
+      this.#operatorDeadlineExceeded(request);
+      return {};
+    }
     const configuration = configurationFromNative(request.configuration);
     switch (request.operation) {
       case 'operator.validate':
@@ -499,10 +569,23 @@ export class OperatorFactory {
       case 'operator.create': {
         const instanceId = required(request.instanceId, 'instanceId');
         if (this.#instances.has(instanceId)) throw new Error('Operator instance already exists');
-        this.#instances.set(instanceId, {
-          node: await this.#options.create(configuration),
+        const active: ActiveOperator = {
           controller: new AbortController(),
-        });
+          closeRequested: false,
+        };
+        this.#instances.set(instanceId, active);
+        try {
+          const node = await this.#options.create(configuration);
+          if (node == null || typeof node.process !== 'function') {
+            throw new TypeError('Operator factory must return a node with process()');
+          }
+          active.node = node;
+          if (active.closeRequested) await this.#cleanupTimedOutOperator(instanceId, active);
+        } catch (error) {
+          if (this.#instances.get(instanceId) === active) this.#instances.delete(instanceId);
+          if (!active.controller.signal.aborted) active.controller.abort(error);
+          throw error;
+        }
         return {};
       }
       case 'operator.prepare': {
@@ -513,37 +596,70 @@ export class OperatorFactory {
             requiredValue(request.operatorContext, 'Operator prepare context'),
             active.controller.signal,
           );
-        await active.node.prepare?.(context);
+        await this.#runOperatorOperation(
+          required(request.instanceId, 'instanceId'),
+          request.operation,
+          active,
+          async () => await requiredValue(active.node, 'Operator node').prepare?.(context),
+        );
+        if (active.closeRequested) {
+          await this.#cleanupTimedOutOperator(required(request.instanceId, 'instanceId'), active);
+        }
         return {};
       }
       case 'operator.process': {
         const active = this.#active(request);
         if (request.signal == null) throw new Error('Operator input is unavailable');
-        const emissions = await active.node.process(
-          _envelopeFromNative(request.signal),
-          request.inputPort ?? 'input',
-          { signal: active.controller.signal },
+        const signal = request.signal;
+        const emissions = await this.#runOperatorOperation(
+          required(request.instanceId, 'instanceId'),
+          request.operation,
+          active,
+          async () => await requiredValue(active.node, 'Operator node').process(
+            _envelopeFromNative(signal),
+            request.inputPort ?? 'input',
+            { signal: active.controller.signal },
+          ),
         );
+        if (active.closeRequested) {
+          await this.#cleanupTimedOutOperator(required(request.instanceId, 'instanceId'), active);
+          return {};
+        }
         return { emissions: emissions.map((value) => operatorEmissionToNative(value, this.outputs)) };
       }
       case 'operator.flush': {
         const active = this.#active(request);
-        const emissions = (await active.node.flush?.({ signal: active.controller.signal })) ?? [];
+        const emissions = (await this.#runOperatorOperation(
+          required(request.instanceId, 'instanceId'),
+          request.operation,
+          active,
+          async () => await requiredValue(active.node, 'Operator node').flush?.({
+            signal: active.controller.signal,
+          }),
+        )) ?? [];
+        if (active.closeRequested) {
+          await this.#cleanupTimedOutOperator(required(request.instanceId, 'instanceId'), active);
+          return {};
+        }
         return { emissions: emissions.map((value) => operatorEmissionToNative(value, this.outputs)) };
       }
       case 'operator.cancel': {
-        const active = this.#active(request);
+        const instanceId = required(request.instanceId, 'instanceId');
+        const active = this.#instances.get(instanceId);
+        if (active === undefined) return {};
         if (!active.controller.signal.aborted) active.controller.abort();
-        await active.node.cancel?.({ signal: active.controller.signal });
+        if (active.cleanupPromise !== undefined) {
+          await active.cleanupPromise;
+          return {};
+        }
+        await active.node?.cancel?.({ signal: active.controller.signal });
         return {};
       }
       case 'operator.close': {
         const instanceId = required(request.instanceId, 'instanceId');
         const active = this.#instances.get(instanceId);
         if (active === undefined) return {};
-        this.#instances.delete(instanceId);
-        if (!active.controller.signal.aborted) active.controller.abort();
-        await active.node.close?.();
+        await this.#closeOperator(instanceId, active);
         return {};
       }
       default:
@@ -556,6 +672,96 @@ export class OperatorFactory {
     const active = this.#instances.get(instanceId);
     if (active === undefined) throw new Error('Operator instance is no longer active');
     return active;
+  }
+
+  #operatorDeadlineExceeded(request: NativeProviderCall): void {
+    const instanceId = required(request.instanceId, 'instanceId');
+    const operation = required(request.timedOutOperation, 'timedOutOperation');
+    if (!operation.startsWith('operator.')) {
+      throw new Error(`Unsupported Operator deadline operation: ${operation}`);
+    }
+    const active = this.#instances.get(instanceId);
+    if (active === undefined) return;
+    active.closeRequested = true;
+    active.timedOutOperation ??= operation;
+    if (!active.controller.signal.aborted) {
+      active.controller.abort(new Error(`JavaScript provider ${operation} exceeded its deadline`));
+    }
+    if (active.node !== undefined) {
+      void this.#cleanupTimedOutOperator(instanceId, active).catch(() => {});
+    }
+  }
+
+  async #runOperatorOperation<T>(
+    instanceId: string,
+    operation: string,
+    active: ActiveOperator,
+    run: () => T | Promise<T>,
+  ): Promise<T> {
+    try {
+      return await run();
+    } catch (error) {
+      if (isJavaScriptOperatorTimeout(error)) {
+        active.closeRequested = true;
+        active.timedOutOperation ??= operation;
+        if (!active.controller.signal.aborted) active.controller.abort(error);
+        void this.#cleanupTimedOutOperator(instanceId, active).catch(() => {});
+      }
+      throw error;
+    }
+  }
+
+  async #cleanupTimedOutOperator(instanceId: string, active: ActiveOperator): Promise<void> {
+    active.closeRequested = true;
+    if (!active.controller.signal.aborted) active.controller.abort();
+    const node = active.node;
+    if (node === undefined) return;
+    active.cleanupPromise ??= (async () => {
+      let firstFailure: unknown;
+      if (active.timedOutOperation !== 'operator.create') {
+        try {
+          await boundedProviderCleanup(
+            Promise.resolve(node.cancel?.({ signal: active.controller.signal })),
+            this.deadlineMs,
+            'Operator cancellation',
+          );
+        } catch (error) {
+          firstFailure = error;
+        }
+      }
+      try {
+        await boundedProviderCleanup(
+          Promise.resolve(node.close?.()),
+          this.deadlineMs,
+          'Operator close',
+        );
+      } catch (error) {
+        firstFailure ??= error;
+      } finally {
+        if (this.#instances.get(instanceId) === active) this.#instances.delete(instanceId);
+      }
+      if (firstFailure !== undefined) throw firstFailure;
+    })();
+    await active.cleanupPromise;
+  }
+
+  async #closeOperator(instanceId: string, active: ActiveOperator): Promise<void> {
+    active.closeRequested = true;
+    if (!active.controller.signal.aborted) active.controller.abort();
+    if (active.cleanupPromise !== undefined) {
+      await active.cleanupPromise;
+      return;
+    }
+    const node = active.node;
+    if (node === undefined) return;
+    active.cleanupPromise = boundedProviderCleanup(
+      Promise.resolve().then(async () => await node.close?.()),
+      this.deadlineMs,
+      'Operator close',
+    ).finally(() => {
+      if (this.#instances.get(instanceId) === active) this.#instances.delete(instanceId);
+    });
+    await active.cleanupPromise;
   }
 }
 
@@ -574,8 +780,8 @@ export interface EndpointContext {
 export interface EndpointAudioItem {
   readonly kind: 'audio';
   readonly input: string;
-  readonly endpointId: bigint;
-  readonly routeId: bigint;
+  readonly endpointId: EndpointId;
+  readonly routeId: RouteId;
   readonly frame: ConnectorAudioFrame;
 }
 
@@ -583,8 +789,8 @@ export interface EndpointAudioItem {
 export interface EndpointSignalItem {
   readonly kind: 'signal';
   readonly input: string;
-  readonly endpointId: bigint;
-  readonly routeId: bigint;
+  readonly endpointId: EndpointId;
+  readonly routeId: RouteId;
   readonly signal: SignalEnvelope;
 }
 
@@ -642,7 +848,7 @@ export interface EndpointFactoryOptions extends EndpointProviderOptions {
   readonly validate?: (configuration: SourceConfiguration) => void | Promise<void>;
   /** Select route-local preparation or a stable shared preparation group. */
   readonly preparationGroup?: (
-    routeId: bigint,
+    routeId: RouteId,
     configuration: SourceConfiguration,
   ) => string | undefined;
 }
@@ -650,7 +856,11 @@ export interface EndpointFactoryOptions extends EndpointProviderOptions {
 interface ActiveEndpoint {
   readonly node: EndpointNode;
   readonly controller: AbortController;
+  readonly inFlight: Set<Promise<void>>;
   state: 'new' | 'preparing' | 'prepared' | 'running' | 'stopping' | 'closed';
+  timedOutOperation?: string;
+  abortCleanupPromise?: Promise<NativeEndpointDriverObservations | undefined>;
+  finishPromise?: Promise<NativeEndpointDriverObservations | undefined>;
 }
 
 /**
@@ -667,7 +877,7 @@ export class EndpointFactory {
   public readonly maximumBatchItems: number;
   readonly #options: EndpointFactoryOptions;
   readonly #instances = new Map<string, ActiveEndpoint>();
-  #sessionId: bigint | undefined;
+  #sessionId: RuntimeSessionId | undefined;
 
   public constructor(options: EndpointFactoryOptions) {
     this.#options = options;
@@ -691,7 +901,7 @@ export class EndpointFactory {
   }
 
   /** @internal */
-  public _bind(sessionId: bigint): void {
+  public _bind(sessionId: RuntimeSessionId): void {
     if (this.#sessionId !== undefined && this.#sessionId !== sessionId) {
       throw new TypeError('An Endpoint factory cannot be shared by different Sessions');
     }
@@ -724,12 +934,16 @@ export class EndpointFactory {
 
   /** @internal */
   public readonly _dispatch = async (request: NativeProviderCall): Promise<NativeProviderResult> => {
+    if (request.operation === 'provider.deadline_exceeded') {
+      this.#endpointDeadlineExceeded(request);
+      return {};
+    }
     const configuration = configurationFromNative(request.configuration);
     switch (request.operation) {
       case 'endpoint.preparation_group': {
         if (this.#options.preparationGroup === undefined) return {};
         const group = this.#options.preparationGroup(
-          BigInt(required(request.routeId, 'routeId')),
+          RouteId(BigInt(required(request.routeId, 'routeId'))),
           configuration,
         );
         return group === undefined
@@ -748,6 +962,7 @@ export class EndpointFactory {
             Object.freeze([...(request.endpointInputs ?? [])]),
           ),
           controller: new AbortController(),
+          inFlight: new Set(),
           state: 'new',
         });
         return {};
@@ -756,14 +971,26 @@ export class EndpointFactory {
         const active = this.#active(request);
         if (active.state !== 'new') throw new Error(`Endpoint cannot prepare while ${active.state}`);
         active.state = 'preparing';
-        const preparation = await active.node.prepare?.({ signal: active.controller.signal });
+        const preparation = await this.#runEndpointOperation(
+          active,
+          async () => await active.node.prepare?.({ signal: active.controller.signal }),
+        );
+        if (active.timedOutOperation !== undefined) {
+          return {};
+        }
         active.state = 'prepared';
         return { idleEnabled: preparation?.idleEnabled ?? false };
       }
       case 'endpoint.start': {
         const active = this.#active(request);
         if (active.state !== 'prepared') throw new Error(`Endpoint cannot start while ${active.state}`);
-        await active.node.start?.({ signal: active.controller.signal });
+        await this.#runEndpointOperation(
+          active,
+          async () => await active.node.start?.({ signal: active.controller.signal }),
+        );
+        if (active.timedOutOperation !== undefined) {
+          return {};
+        }
         active.state = 'running';
         return {};
       }
@@ -771,7 +998,10 @@ export class EndpointFactory {
         const active = this.#active(request);
         if (active.state === 'stopping' || active.state === 'closed') return {};
         if (active.state !== 'running') throw new Error('Endpoint start gate opened outside its running lifetime');
-        await active.node.gateOpen?.({ signal: active.controller.signal });
+        await this.#runEndpointOperation(
+          active,
+          async () => await active.node.gateOpen?.({ signal: active.controller.signal }),
+        );
         return {};
       }
       case 'endpoint.receive': {
@@ -779,7 +1009,15 @@ export class EndpointFactory {
         if (active.state !== 'running') {
           throw new Error('Endpoint received data outside its running lifetime');
         }
-        const outcome = await active.node.receive(endpointItem(request), { signal: active.controller.signal });
+        const outcome = await this.#runEndpointOperation(
+          active,
+          async () => await active.node.receive(endpointItem(request), {
+            signal: active.controller.signal,
+          }),
+        );
+        if (active.timedOutOperation !== undefined) {
+          return {};
+        }
         return { outcome: endpointDeliveryOutcome(outcome) };
       }
       case 'endpoint.receive_batch': {
@@ -790,18 +1028,32 @@ export class EndpointFactory {
         const items = Object.freeze((request.endpointItems ?? []).map(endpointItem));
         if (items.length === 0) throw new Error('Endpoint received an empty batch');
         if (active.node.receiveBatch !== undefined) {
-          const outcome = await active.node.receiveBatch(items, { signal: active.controller.signal });
+          const outcome = await this.#runEndpointOperation(
+            active,
+            async () => await active.node.receiveBatch?.(items, {
+              signal: active.controller.signal,
+            }),
+          );
           const outcomes = Array.isArray(outcome)
             ? outcome.map(endpointDeliveryOutcome)
             : items.map(() => endpointDeliveryOutcome(outcome));
           if (outcomes.length !== items.length) throw new Error('Endpoint returned the wrong number of batch outcomes');
+          if (active.timedOutOperation !== undefined) {
+            return {};
+          }
           return { outcomes: [...outcomes] };
         } else {
           const outcomes: EndpointDeliveryOutcome[] = [];
           for (const item of items) {
             outcomes.push(endpointDeliveryOutcome(
-              await active.node.receive(item, { signal: active.controller.signal }),
+              await this.#runEndpointOperation(
+                active,
+                async () => await active.node.receive(item, { signal: active.controller.signal }),
+              ),
             ));
+          }
+          if (active.timedOutOperation !== undefined) {
+            return {};
           }
           return { outcomes };
         }
@@ -809,7 +1061,10 @@ export class EndpointFactory {
       case 'endpoint.idle': {
         const active = this.#active(request);
         if (active.state !== 'running') throw new Error('Endpoint cannot idle outside its running lifetime');
-        await active.node.idle?.({ signal: active.controller.signal });
+        await this.#runEndpointOperation(
+          active,
+          async () => await active.node.idle?.({ signal: active.controller.signal }),
+        );
         return {};
       }
       case 'endpoint.stop': {
@@ -820,27 +1075,26 @@ export class EndpointFactory {
           : 'drain';
         active.state = 'stopping';
         if (mode === 'abort' && !active.controller.signal.aborted) active.controller.abort();
-        await active.node.stop?.(mode, { signal: active.controller.signal });
+        await this.#runEndpointOperation(
+          active,
+          async () => await active.node.stop?.(mode, { signal: active.controller.signal }),
+        );
         return {};
       }
       case 'endpoint.cancel_preparation': {
         const instanceId = required(request.instanceId, 'instanceId');
         const active = this.#instances.get(instanceId);
         if (active === undefined) return {};
-        active.state = 'stopping';
-        if (!active.controller.signal.aborted) active.controller.abort();
-        try {
-          await active.node.stop?.('abort', { signal: active.controller.signal });
-        } finally {
-          await this.#finish(instanceId, active);
-        }
+        await this.#abortAndFinish(instanceId, active);
         return {};
       }
       case 'endpoint.close': {
         const instanceId = required(request.instanceId, 'instanceId');
         const active = this.#instances.get(instanceId);
         if (active === undefined) return {};
-        const endpointObservations = await this.#finish(instanceId, active);
+        const endpointObservations = active.abortCleanupPromise === undefined
+          ? await this.#finish(instanceId, active)
+          : await active.abortCleanupPromise;
         return { endpointObservations };
       }
       default:
@@ -855,16 +1109,97 @@ export class EndpointFactory {
     return active;
   }
 
+  #endpointDeadlineExceeded(request: NativeProviderCall): void {
+    const instanceId = required(request.instanceId, 'instanceId');
+    const operation = required(request.timedOutOperation, 'timedOutOperation');
+    if (!operation.startsWith('endpoint.')) {
+      throw new Error(`Unsupported Endpoint deadline operation: ${operation}`);
+    }
+    const active = this.#instances.get(instanceId);
+    if (active === undefined) return;
+    active.timedOutOperation = operation;
+    if (!active.controller.signal.aborted) {
+      active.controller.abort(new Error(`JavaScript provider ${operation} exceeded its deadline`));
+    }
+    void this.#abortAndFinish(instanceId, active).catch(() => {});
+  }
+
+  async #abortAndFinish(
+    instanceId: string,
+    active: ActiveEndpoint,
+  ): Promise<NativeEndpointDriverObservations | undefined> {
+    active.abortCleanupPromise ??= (async () => {
+      active.state = 'stopping';
+      if (!active.controller.signal.aborted) active.controller.abort();
+      let firstFailure: unknown;
+      const inFlight = [...active.inFlight];
+      if (inFlight.length > 0) {
+        try {
+          await boundedProviderCleanup(
+            Promise.allSettled(inFlight).then(() => undefined),
+            this.deadlineMs,
+            'Endpoint in-flight shutdown',
+          );
+        } catch (error) {
+          firstFailure = error;
+        }
+      }
+      try {
+        await boundedProviderCleanup(
+          Promise.resolve().then(async () =>
+            await active.node.stop?.('abort', { signal: active.controller.signal }),
+          ),
+          this.deadlineMs,
+          'Endpoint abort stop',
+        );
+      } catch (error) {
+        firstFailure ??= error;
+      }
+      let observations: NativeEndpointDriverObservations | undefined;
+      try {
+        observations = await this.#finish(instanceId, active);
+      } catch (error) {
+        firstFailure ??= error;
+      }
+      if (firstFailure !== undefined) throw firstFailure;
+      return observations;
+    })();
+    return await active.abortCleanupPromise;
+  }
+
+  async #runEndpointOperation<T>(
+    active: ActiveEndpoint,
+    operation: () => T | Promise<T>,
+  ): Promise<T> {
+    const pending = Promise.resolve().then(operation);
+    const settled = pending.then(
+      () => {},
+      () => {},
+    );
+    active.inFlight.add(settled);
+    try {
+      return await pending;
+    } finally {
+      active.inFlight.delete(settled);
+    }
+  }
+
   async #finish(
     instanceId: string,
     active: ActiveEndpoint,
   ): Promise<NativeEndpointDriverObservations | undefined> {
-    if (active.state === 'closed') return active.node._finalObservations?.();
-    active.state = 'closed';
-    if (!active.controller.signal.aborted) active.controller.abort();
-    this.#instances.delete(instanceId);
-    await active.node.close?.();
-    return active.node._finalObservations?.();
+    active.finishPromise ??= (async () => {
+      active.state = 'closed';
+      if (!active.controller.signal.aborted) active.controller.abort();
+      if (this.#instances.get(instanceId) === active) this.#instances.delete(instanceId);
+      await boundedProviderCleanup(
+        Promise.resolve().then(async () => await active.node.close?.()),
+        this.deadlineMs,
+        'Endpoint close',
+      );
+      return active.node._finalObservations?.();
+    })();
+    return await active.finishPromise;
   }
 }
 
@@ -901,8 +1236,8 @@ export function defineEndpoint(
 function endpointItem(request: NativeProviderCall | NativeEndpointItem): EndpointItem {
   const common = {
     input: required(request.inputPort, 'inputPort'),
-    endpointId: BigInt(required(request.endpointId, 'endpointId')),
-    routeId: BigInt(required(request.routeId, 'routeId')),
+    endpointId: EndpointId(BigInt(required(request.endpointId, 'endpointId'))),
+    routeId: RouteId(BigInt(required(request.routeId, 'routeId'))),
   };
   if (request.audio != null) {
     return Object.freeze({
@@ -925,11 +1260,18 @@ function sourceContext(value: NativeSourceContext | null | undefined, signal: Ab
   if (value == null) throw new Error('Source prepare context is unavailable');
   return Object.freeze({
     sourceTypeId: value.sourceTypeId,
-    ...(value.sessionId == null ? {} : { sessionId: BigInt(value.sessionId) }),
-    ...(value.sourceId == null ? {} : { sourceId: BigInt(value.sourceId) }),
+    ...(value.sessionId == null
+      ? {}
+      : { sessionId: RuntimeSessionId(BigInt(value.sessionId)) }),
+    ...(value.sourceId == null
+      ? {}
+      : { sourceId: SourceId(BigInt(value.sourceId)) }),
     outputs: Object.freeze(
       value.outputs.map((output) =>
-        Object.freeze({ name: output.name, streamId: BigInt(output.streamId) }),
+        Object.freeze({
+          name: output.name,
+          streamId: StreamId(BigInt(output.streamId)),
+        }),
       ),
     ),
     signal,
@@ -1066,6 +1408,33 @@ function required(value: string | null | undefined, name: string): string {
 function requiredValue<T>(value: T | null | undefined, name: string): T {
   if (value == null) throw new Error(`${name} is unavailable`);
   return value;
+}
+
+async function boundedProviderCleanup(
+  operation: Promise<void>,
+  milliseconds: number,
+  label: string,
+): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      operation,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`${label} exceeded ${milliseconds} milliseconds`)),
+          milliseconds,
+        );
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+function isJavaScriptOperatorTimeout(error: unknown): boolean {
+  return error instanceof Error
+    && 'code' in error
+    && error.code === 'javascript.operator.timeout';
 }
 
 function exactText(value: string, name: string): string {

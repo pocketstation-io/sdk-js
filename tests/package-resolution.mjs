@@ -1,8 +1,25 @@
 import assert from 'node:assert/strict';
 
 const node = await import('pocketstation/node');
+assert.equal(typeof node.RuntimeCompatibility, 'function');
 assert.equal(node.runtimeCompatibility.sdkVersion, '0.1.4');
 assert.equal(node.runtimeCompatibility.coreVersion, '1.1.11');
+for (const identity of [
+  node.ClockDomainId,
+  node.ConnectorId,
+  node.EndpointId,
+  node.OperatorInstanceId,
+  node.RouteId,
+  node.RuntimeSessionId,
+  node.SidecarId,
+  node.SourceId,
+  node.SourceInstanceId,
+  node.StemId,
+  node.StreamId,
+]) {
+  assert.equal(typeof identity, 'function');
+}
+assert.equal(node.SourceId(42n), 42n);
 assert.equal(typeof node.Session, 'function');
 assert.equal(typeof node.Source, 'function');
 assert.equal(typeof node.RunningSession, 'function');
@@ -40,6 +57,13 @@ assert.equal(typeof node.SidecarMessage, 'function');
 assert.equal(typeof node.SidecarConnection, 'function');
 assert.equal(typeof node.SidecarSnapshot, 'function');
 assert.equal(typeof node.SidecarStream, 'function');
+assert.equal(typeof node.PublisherActivation, 'function');
+assert.equal(typeof node.ReceiverActivation, 'function');
+assert.equal(typeof node.ReceiverInvitation, 'function');
+assert.equal(typeof node.RelayError, 'function');
+assert.equal(typeof node.RelayRoute, 'function');
+assert.equal(typeof node.RelaySession, 'function');
+assert.equal(typeof node.RelayTimeoutError, 'function');
 assert.equal(typeof node.Connector, 'function');
 assert.equal(typeof node.connector, 'function');
 assert.equal(typeof node.SourceFactory, 'function');

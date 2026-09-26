@@ -11,6 +11,7 @@ import {
   OperatorInstanceId,
   RouteId,
   RuntimeSessionId,
+  SidecarId,
   SourceId,
   SourceInstanceId,
   StemId,
@@ -134,6 +135,7 @@ import {
   _sessionMetricsFromNative,
   _traceOutcomeFromNative,
   type RecordingOutcome,
+  type RelayPublishOutcome,
   type SessionMetrics,
   type SessionTraceOutcome,
 } from './observations.js';
@@ -222,6 +224,8 @@ export interface StopResult {
   readonly runtimeEventsTotal: bigint;
   /** Final process state and queue counters for every registered sidecar. */
   readonly sidecarOutcomes: readonly SidecarSnapshot[];
+  /** Final native Relay publication totals for every named AudioBus. */
+  readonly relayOutcomes: readonly RelayPublishOutcome[];
   /** Multistem recording result when this Session declared recording outputs. */
   readonly recording?: RecordingOutcome;
   /** Native trace write result when tracing was enabled. */
@@ -332,6 +336,7 @@ export class RelayPublisher {
   readonly #session: Session;
   readonly #options: RelayPublisherOptions;
   readonly #destinations = new Map<string, Endpoint>();
+  readonly #publishedBusIds = new Set<string>();
 
   private constructor(session: Session, options: RelayPublisherOptions) {
     this.#session = session;
@@ -343,8 +348,7 @@ export class RelayPublisher {
     return new RelayPublisher(session, options);
   }
 
-  /** Return the Session destination for one named Relay AudioBus. */
-  public audio(busId: string): Endpoint {
+  #audio(busId: string): Endpoint {
     const bus = busId.trim();
     if (bus.length === 0) {
       throw new RangeError('Relay AudioBus name cannot be empty');
@@ -354,6 +358,40 @@ export class RelayPublisher {
     const endpoint = this.#session._relayAudio(this.#options, bus);
     this.#destinations.set(bus, endpoint);
     return endpoint;
+  }
+
+  /** @internal */
+  public _publish(busId: string, send: (endpoint: Endpoint) => RouteId): RelayRoute {
+    const bus = busId.trim();
+    if (bus.length === 0) {
+      throw new RangeError('Relay AudioBus name cannot be empty');
+    }
+    if (this.#publishedBusIds.has(bus)) {
+      throw new RangeError('Relay AudioBus names must be unique within one publisher');
+    }
+    const endpoint = this.#audio(bus);
+    this.#publishedBusIds.add(bus);
+    try {
+      const routeId = send(endpoint);
+      this.#session._registerRelayRoute(bus, endpoint, routeId);
+      return new RelayRoute(bus, routeId);
+    } catch (failure) {
+      this.#publishedBusIds.delete(bus);
+      throw failure;
+    }
+  }
+}
+
+/** One Session route publishing a source-aware Stem to a named Relay AudioBus. */
+export class RelayRoute {
+  public readonly busId: string;
+  public readonly routeId: RouteId;
+
+  /** @internal */
+  public constructor(busId: string, routeId: RouteId) {
+    this.busId = busId;
+    this.routeId = routeId;
+    Object.freeze(this);
   }
 }
 
@@ -398,6 +436,11 @@ export class Stem {
   /** Send this Stem to one application-owned Connector. */
   public sendTo(connector: Connector): RouteId {
     return this.send(this.#session.destination(connector));
+  }
+
+  /** Publish this Stem to one named Relay AudioBus. */
+  public publish(publisher: RelayPublisher, busId: string): RelayRoute {
+    return publisher._publish(busId, (endpoint) => this.send(endpoint));
   }
 
   /** Connect this Stem to one named Operator input. */
@@ -546,6 +589,11 @@ export class SourceOutput {
     );
     this.#conversationEndpointIds.add(endpoint.id);
     return endpoint;
+  }
+
+  /** Publish this Source output to one named Relay AudioBus. */
+  public publish(publisher: RelayPublisher, busId: string): RelayRoute {
+    return publisher._publish(busId, (endpoint) => this.send(endpoint));
   }
 
   /** @internal */
@@ -864,6 +912,22 @@ function stopResultFromNative(result: NativeStopResult): StopResult {
     sidecarOutcomes: Object.freeze(
       result.sidecarOutcomes.map((snapshot) => new SidecarSnapshot(snapshot)),
     ),
+    relayOutcomes: Object.freeze(
+      result.relayOutcomes.map((outcome) => Object.freeze({
+        busId: outcome.busId,
+        endpointId: EndpointId(BigInt(outcome.endpointId)),
+        routeId: RouteId(BigInt(outcome.routeId)),
+        framesReceivedTotal: BigInt(outcome.framesReceivedTotal),
+        rtpPacketsSentTotal: BigInt(outcome.rtpPacketsSentTotal),
+        rtpPayloadBytesSentTotal: BigInt(outcome.rtpPayloadBytesSentTotal),
+        ingressQueueDropsTotal: BigInt(outcome.ingressQueueDropsTotal),
+        publisherStaleDropsTotal: BigInt(outcome.publisherStaleDropsTotal),
+        cancelledOutputFramesTotal: BigInt(outcome.cancelledOutputFramesTotal),
+        cancelledOutputSamplesTotal: BigInt(outcome.cancelledOutputSamplesTotal),
+        failuresTotal: BigInt(outcome.failuresTotal),
+        error: outcome.error ?? undefined,
+      })),
+    ),
     recording:
       result.recording == null
         ? undefined
@@ -1061,6 +1125,9 @@ export class RunningSession implements AsyncDisposable {
 
   /** Access one child process registered by the same Session. */
   public sidecar(handle: SidecarHandle): SidecarConnection {
+    if (this.#finish !== undefined || this.#stopResult !== undefined) {
+      throw new PocketStationError('session.stopped', 'Session has stopped');
+    }
     if (handle.sessionId !== this.sessionId) {
       throw new TypeError('SidecarHandle belongs to a different Session');
     }
@@ -1131,6 +1198,7 @@ export class Session {
   readonly #registeredSourceProviders = new WeakMap<SourceProvider, RegisteredSource>();
   readonly #registeredSources = new WeakSet<SourceFactory>();
   readonly #registeredOperators = new WeakSet<OperatorFactory>();
+  #relayDeclared = false;
   #nextEndpointRegistration = 0;
   #nextConnectorIdentity = 0n;
   readonly #providers = new Set<{ _abort(reason?: unknown): void }>();
@@ -1244,9 +1312,9 @@ export class Session {
 
   /** Register one managed process to be started with this Session. */
   public registerSidecar(process: SidecarProcess): SidecarHandle {
-    const id = BigInt(
+    const id = SidecarId(BigInt(
       nativeCallSync(() => this.#native.registerSidecar(process._nativeSpec())),
-    );
+    ));
     return new SidecarHandle(id, this.id);
   }
 
@@ -1344,7 +1412,15 @@ export class Session {
   /** Publish one or more named audio buses through one native Relay connection. */
   public relay(options: RelayPublisherOptions): RelayPublisher {
     validateRelayPublisherOptions(options);
-    return RelayPublisher._create(this, options);
+    if (this.#relayDeclared) {
+      throw new SessionDeclarationError(
+        'session.invalid_endpoint',
+        'A Session supports one Relay publisher with multiple named AudioBuses',
+      );
+    }
+    const publisher = RelayPublisher._create(this, options);
+    this.#relayDeclared = true;
+    return publisher;
   }
 
   /**
@@ -1385,6 +1461,21 @@ export class Session {
     return Endpoint._create(
       this,
       nativeCallSync(() => this.#native.relayAudio(nativeOptions)),
+    );
+  }
+
+  /** @internal */
+  public _registerRelayRoute(
+    busId: string,
+    endpoint: Endpoint,
+    routeId: RouteId,
+  ): void {
+    nativeCallSync(() =>
+      this.#native.registerRelayRoute(
+        busId,
+        endpoint._nativeHandle(),
+        routeId.toString(),
+      ),
     );
   }
 
