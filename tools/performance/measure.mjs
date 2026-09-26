@@ -10,6 +10,7 @@ import process, {
 } from 'node:process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { setTimeout as wait } from 'node:timers/promises';
+import { nearestRankPercentile } from './statistics.mjs';
 
 const options = parseArguments(process.argv.slice(2));
 const packageJsonPath = resolve(options.packageRoot, 'package.json');
@@ -668,9 +669,9 @@ function summarize(values) {
   const sorted = [...values].sort((left, right) => left - right);
   return {
     samplesTotal: sorted.length,
-    p50Ms: percentile(sorted, 50),
-    p95Ms: percentile(sorted, 95),
-    p99Ms: percentile(sorted, 99),
+    p50Ms: nearestRankPercentile(sorted, 50),
+    p95Ms: nearestRankPercentile(sorted, 95),
+    p99Ms: nearestRankPercentile(sorted, 99),
     maxMs: sorted.at(-1),
   };
 }
@@ -699,11 +700,6 @@ function latencyFromCore(histogram) {
     p99Ms: nanosecondsToMilliseconds(histogram.p99Ns),
     maxMs: nanosecondsToMilliseconds(histogram.maxNs),
   };
-}
-
-function percentile(sorted, percentage) {
-  const rank = Math.max(0, Math.ceil((percentage / 100) * sorted.length) - 1);
-  return sorted[rank];
 }
 
 function nanosecondsToMilliseconds(nanoseconds) {
