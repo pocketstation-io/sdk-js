@@ -1193,3 +1193,42 @@ registry build remains `BLOCKED` on PocketStation Core `1.1.11` publication.
   implementation.
 - Direct Node tests cover 0, 1, 50, 95, 99 and 100 percentiles and reject empty,
   non-finite and out-of-range inputs. This is qualification-tool parity only;
+
+
+## 2026-09-26: root and native package assembly — Candidate 114
+
+Status: `SAFE-TO-TEST` locally. Phase 2 implementation uses the recorded
+`phase-exception-approved` JavaScript SDK closure. Publication and the remaining
+platform/performance/OSS gates are still pending.
+
+- The root npm archive contains JavaScript and declarations. Six exact-version
+  optional native package manifests target macOS arm64/x64, Windows arm64/x64,
+  and glibc Linux arm64/x64. The local Darwin arm64 package contains the real
+  release addon; no other platform binary is fabricated or claimed qualified.
+- Native loading uses normal package resolution, checks the exact SDK version,
+  rejects unsupported CPU/OS/libc, and preserves actionable typed failures. It
+  has no checkout-relative fallback, install downloader or compilation hook.
+- Node ESM wrappers and CommonJS share one runtime implementation and class/error
+  identities. Browser/default ESM remains separate. The TypeScript compiler
+  generates wrapper exports without evaluating native-dependent demo modules.
+- Local gates passed TypeScript, six API reports, 37 suites / 457 assertions
+  (one existing opt-in test skipped), docs/examples, native format, Clippy and
+  all 23 Rust tests. Separate installed root/native consumers cover real PCM
+  Session execution, shared ESM/CJS identities, mixed-mode NodeNext types,
+  browser graph separation, and missing/version/unsupported-target failures.
+  The existing complete packed consumer also passed. The assembly consumer now
+  runs in `test:packed` so CI cannot omit it.
+- Invariants/ownership: sdk-js owns packaging and module loading; Core retains
+  capture, routing, timing and lifecycle. Runtime version remains 0.1.4.
+  Failure is explicit; no silent source fallback or second runtime is added.
+- The canonical workspace's seven tracked edits and old tarball are preserved
+  byte-for-byte. This candidate starts from accepted ea94849 in a separate
+  branch/worktree and does not incorporate or erase that unrelated work.
+- Staff Bar Self-Check: smallest correct design: normal npm optional packages
+  and shared Node implementation; tests added/updated: real installed consumers;
+  hot-path safe: setup/build only; public API: existing exports unchanged, CJS
+  added; new third-party dependency: none; phase scope: existing exception;
+  unsafe added: no; scaffold inventory: n/a. Remaining risks: other target
+  binaries, installed performance, independent browser bundle/runtime,
+  supply-chain notices and public npm publication require subsequent gates.
+  Historical 10 ms physical failure and its thresholds remain unchanged.

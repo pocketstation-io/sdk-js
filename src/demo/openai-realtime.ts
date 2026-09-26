@@ -1,6 +1,6 @@
 import { Buffer } from 'node:buffer';
-import { createRequire } from 'node:module';
 
+import { requirePackage } from '../require-package.cjs';
 import type { AudioInput, OutputGeneration } from '../node/application-audio.js';
 import type { Endpoint, RunningSession, Session } from '../node/session.js';
 import type { AudioFrame } from '../node/streams.js';
@@ -14,7 +14,6 @@ import { DuplexVoiceContext } from '../voice/duplex.js';
 import { VoiceEvent } from '../voice/events.js';
 import { ConversationOutcome } from '../voice/turns.js';
 
-const require = createRequire(import.meta.url);
 const MODEL_SAMPLE_RATE_HZ = 24_000;
 const SESSION_SAMPLE_RATE_HZ = 48_000;
 const MICROPHONE_FRAME_SAMPLE_COUNTS = new Set([480, 960]);
@@ -906,7 +905,7 @@ async function defaultSocketFactory(options: {
 }): Promise<RealtimeSocket> {
   let module: unknown;
   try {
-    module = require('ws');
+    module = requirePackage('ws');
   } catch (failure) {
     throw new Error(
       'OpenAIRealtime requires the optional ws package; install it with npm install ws',

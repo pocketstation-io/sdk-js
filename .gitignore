@@ -16,3 +16,6 @@ coverage/
 .vscode/
 .idea/
 .claude/
+npm/*/*.node
+npm/*/LICENSE
+npm/*/README.md

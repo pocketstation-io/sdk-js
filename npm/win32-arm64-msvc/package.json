@@ -1,0 +1,28 @@
+{
+  "name": "@pocketstation/native-win32-arm64-msvc",
+  "version": "0.1.4",
+  "description": "PocketStation native Node-API addon for win32-arm64-msvc",
+  "main": "pocketstation-js.win32-arm64-msvc.node",
+  "files": [
+    "pocketstation-js.win32-arm64-msvc.node",
+    "LICENSE",
+    "README.md"
+  ],
+  "os": [
+    "win32"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "engines": {
+    "node": ">=20.17"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pocketstation-io/sdk-js.git"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
