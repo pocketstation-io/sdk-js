@@ -83,7 +83,7 @@ export async function resolveRelayInvitation(
 
 /** Receive one selected Relay AudioBus as a browser MediaStream. */
 export class RelayReceiver {
-  readonly #requestedAccess: RelayReceiverAccess | RelayInvitation;
+  #requestedAccess: RelayReceiverAccess | RelayInvitation | null;
   readonly #options: RelayReceiverOptions;
   #state: RelayReceiverState = 'idle';
   #access: RelayReceiverAccess | null = null;
@@ -107,22 +107,33 @@ export class RelayReceiver {
     access: RelayReceiverAccess | RelayInvitation,
     options: RelayReceiverOptions = {},
   ) {
-    this.#requestedAccess = access;
-    this.#options = options;
-    finiteTimeout(
+    const connectTimeoutMs = finiteTimeout(
       options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS,
       'connectTimeoutMs',
     );
-    finiteTimeout(
+    const disconnectTimeoutMs = finiteTimeout(
       options.disconnectTimeoutMs ?? DEFAULT_DISCONNECT_TIMEOUT_MS,
       'disconnectTimeoutMs',
     );
+    this.#options = Object.freeze({
+      connectTimeoutMs,
+      disconnectTimeoutMs,
+      onStateChange: options.onStateChange,
+      onSessionState: options.onSessionState,
+      onError: options.onError,
+    });
     if (isInvitation(access)) {
       parseControlUrl(access.controlUrl);
       requiredText(access.joinCode, 'invitation joinCode');
+      this.#requestedAccess = Object.freeze({
+        controlUrl: access.controlUrl,
+        joinCode: access.joinCode,
+      });
     } else {
       validateAccess(access);
-      this.#access = access;
+      const snapshot = snapshotAccess(access);
+      this.#requestedAccess = snapshot;
+      this.#access = snapshot;
     }
   }
 
@@ -143,7 +154,7 @@ export class RelayReceiver {
     const signal = operation.signal;
     this.#connectOperation = this.#connect(signal).catch(async (cause: unknown) => {
       const failure = receiverFailure(cause, signal);
-      if (!this.#closing) this.#reportFailure(failure);
+      if (!this.#closing && this.#state !== 'closed') this.#reportFailure(failure);
       try {
         await this.#closeResources();
       } catch (cleanupCause) {
@@ -166,6 +177,8 @@ export class RelayReceiver {
     );
     try {
       await this.#closeResources();
+      this.#requestedAccess = null;
+      this.#access = null;
       this.#setState('closed');
     } finally {
       this.#closing = false;
@@ -233,14 +246,11 @@ export class RelayReceiver {
       );
     }
     const reports = await connection.getStats();
-    let inbound: Record<string, unknown> | null = null;
-    reports.forEach((report) => {
-      const candidate = report as unknown as Record<string, unknown>;
-      if (candidate.type === 'inbound-rtp' && candidate.kind !== 'video') {
-        inbound = candidate;
-      }
+    let inbound: RTCInboundRtpStreamStats | null = null;
+    reports.forEach((report: RTCStats) => {
+      if (isInboundAudioStats(report)) inbound = report;
     });
-    const report = inbound as Record<string, unknown> | null;
+    const report = inbound;
     const emitted = numberField(report, 'jitterBufferEmittedCount');
     const delaySeconds = numberField(report, 'jitterBufferDelay');
     this.#observationRevision += 1;
@@ -289,8 +299,15 @@ export class RelayReceiver {
 
   async #connect(signal: AbortSignal): Promise<MediaStream> {
     if (this.#access === null) {
+      const requestedAccess = this.#requestedAccess;
+      if (requestedAccess === null || !isInvitation(requestedAccess)) {
+        throw new PocketStationError(
+          'relay.receiver_closed',
+          'RelayReceiver authority was released during close',
+        );
+      }
       this.#setState('resolving-invitation');
-      this.#access = await resolveRelayInvitation(this.#requestedAccess as RelayInvitation, {
+      this.#access = await resolveRelayInvitation(requestedAccess, {
         signal,
         timeoutMs: this.#options.connectTimeoutMs,
       });
@@ -459,7 +476,7 @@ export class RelayReceiver {
           codec: message.codec ?? null,
         });
         this.#sessionState = state;
-        this.#options.onSessionState?.(state);
+        this.#notify(this.#options.onSessionState, state, 'onSessionState');
         break;
       }
       case 'ERROR':
@@ -509,9 +526,11 @@ export class RelayReceiver {
     this.#pendingIce = [];
     const transport = this.#transport;
     this.#transport = null;
+    const stream = this.#stream;
     this.#connection?.close();
     this.#connection = null;
     this.#stream = null;
+    for (const track of stream?.getTracks() ?? []) track.stop();
     if (transport !== null) {
       await transport.close(
         this.#options.disconnectTimeoutMs ?? DEFAULT_DISCONNECT_TIMEOUT_MS,
@@ -547,15 +566,43 @@ export class RelayReceiver {
   }
 
   #reportFailure(error: PocketStationError): void {
+    if (this.#state === 'closed') return;
     this.#lastError = error;
     if (!this.#closing) this.#setState('failed');
-    this.#options.onError?.(error);
+    this.#notifyError(error);
   }
 
   #setState(state: RelayReceiverState): void {
     if (this.#state === state) return;
     this.#state = state;
-    this.#options.onStateChange?.(state);
+    this.#notify(this.#options.onStateChange, state, 'onStateChange');
+  }
+
+  #notify<T>(
+    callback: ((value: T) => void) | undefined,
+    value: T,
+    callbackName: string,
+  ): void {
+    if (callback === undefined) return;
+    try {
+      callback(value);
+    } catch (cause) {
+      this.#notifyError(
+        new PocketStationError(
+          'relay.receiver_callback_failed',
+          `RelayReceiver ${callbackName} callback failed`,
+          { cause },
+        ),
+      );
+    }
+  }
+
+  #notifyError(error: Error): void {
+    try {
+      this.#options.onError?.(error);
+    } catch {
+      // An observer cannot take ownership of the media lifecycle by throwing.
+    }
   }
 }
 
@@ -628,6 +675,30 @@ function validateAccess(access: RelayReceiverAccess): void {
   for (const server of access.iceServers ?? []) validateIceServer(server);
 }
 
+function snapshotAccess(access: RelayReceiverAccess): RelayReceiverAccess {
+  return Object.freeze({
+    signalUrl: access.signalUrl,
+    sessionId: access.sessionId,
+    busId: access.busId,
+    subscriberToken: access.subscriberToken,
+    iceServers:
+      access.iceServers === undefined
+        ? undefined
+        : Object.freeze(access.iceServers.map(snapshotIceServer)),
+  });
+}
+
+function snapshotIceServer(server: RTCIceServer): RTCIceServer {
+  const urls: string | string[] =
+    typeof server.urls === 'string' ? server.urls : [...server.urls];
+  if (Array.isArray(urls)) Object.freeze(urls);
+  return Object.freeze({
+    urls,
+    ...(server.username === undefined ? {} : { username: server.username }),
+    ...(server.credential === undefined ? {} : { credential: server.credential }),
+  });
+}
+
 function invitationAccess(value: unknown): RelayReceiverAccess {
   if (!isRecord(value)) {
     throw invalidInvitation('Invitation response must be a JSON object');
@@ -643,7 +714,7 @@ function invitationAccess(value: unknown): RelayReceiverAccess {
         : invitationIceServers(value.ice_servers),
   };
   validateAccess(access);
-  return Object.freeze(access);
+  return snapshotAccess(access);
 }
 
 function invitationIceServers(value: unknown): RTCIceServer[] {
@@ -778,9 +849,13 @@ function receiverFailure(cause: unknown, signal?: AbortSignal): PocketStationErr
   );
 }
 
-function numberField(value: Record<string, unknown> | null, name: string): number | null {
+function isInboundAudioStats(report: RTCStats): report is RTCInboundRtpStreamStats {
+  return report.type === 'inbound-rtp' && 'kind' in report && report.kind === 'audio';
+}
+
+function numberField(value: RTCStats | null, name: string): number | null {
   if (value === null) return null;
-  const field = value[name];
+  const field = Reflect.get(value, name);
   return typeof field === 'number' && Number.isFinite(field) ? field : null;
 }
 

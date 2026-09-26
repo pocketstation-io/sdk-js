@@ -54,6 +54,7 @@ class FakePeerConnection {
     this.onconnectionstatechange?.();
   });
   public packetsSent = 1;
+  public includeAudioStats = true;
 
   public constructor(configuration: RTCConfiguration) {
     this.configuration = configuration;
@@ -81,7 +82,8 @@ class FakePeerConnection {
   }
 
   public async getStats(): Promise<RTCStatsReport> {
-    const report = {
+    const thisConnection = this;
+    const audio = {
       type: 'outbound-rtp',
       kind: 'audio',
       timestamp: 1234,
@@ -95,7 +97,18 @@ class FakePeerConnection {
     };
     return {
       forEach(callback: (value: RTCStats) => void): void {
-        callback(report as unknown as RTCStats);
+        callback({
+          type: 'outbound-rtp',
+          kind: 'video',
+          packetsSent: 999,
+        } as unknown as RTCStats);
+        callback({
+          type: 'outbound-rtp',
+          packetsSent: 999,
+        } as unknown as RTCStats);
+        if (thisConnection.includeAudioStats) {
+          callback(audio as unknown as RTCStats);
+        }
       },
     } as RTCStatsReport;
   }
@@ -221,6 +234,8 @@ describe('RelayPublisher', () => {
     await publisher.disconnect();
 
     expect(publisher.state).toBe('closed');
+    expect(publisher.access).toBeNull();
+    expect(publisher.stream).toBeNull();
     expect(track.stop).not.toHaveBeenCalled();
     expect(FakePeerConnection.instances[0]?.close).toHaveBeenCalledTimes(1);
   });
@@ -379,6 +394,101 @@ describe('RelayPublisher', () => {
 
     await expect(publisher.publish(empty)).rejects.toMatchObject({
       code: 'relay.publisher_audio_track_count',
+    });
+  });
+
+  it('snapshots authority, ICE, deadlines, and callbacks at construction', async () => {
+    const originalStates: string[] = [];
+    const replacementStates: string[] = [];
+    const urls = ['stun:original.example:3478'];
+    const mutableAccess = {
+      signalUrl: access.signalUrl,
+      sessionId: access.sessionId,
+      busId: access.busId,
+      publisherToken: access.publisherToken,
+      iceServers: [{ urls }],
+    };
+    const mutableOptions = {
+      connectTimeoutMs: 2_000,
+      disconnectTimeoutMs: 1_000,
+      onStateChange: (state: string) => originalStates.push(state),
+    };
+    const publisher = new RelayPublisher(mutableAccess, mutableOptions);
+
+    mutableAccess.signalUrl = 'ws://attacker.invalid/v1/signal';
+    mutableAccess.sessionId = 'attacker-session';
+    mutableAccess.busId = 'attacker-bus';
+    mutableAccess.publisherToken = 'attacker-token';
+    urls[0] = 'stun:attacker.invalid:3478';
+    mutableOptions.connectTimeoutMs = 0;
+    mutableOptions.onStateChange = (state: string) => replacementStates.push(state);
+
+    await publisher.publish(streamWith(new FakeTrack()));
+
+    expect(FakeWebSocket.instances[0]?.url).toBe(access.signalUrl);
+    expect(FakeWebSocket.instances[0]?.sent).toContainEqual(
+      expect.objectContaining({
+        session_id: access.sessionId,
+        bus_id: access.busId,
+        token: access.publisherToken,
+      }),
+    );
+    expect(FakePeerConnection.instances[0]?.configuration).toEqual({
+      iceServers: [{ urls: ['stun:original.example:3478'] }],
+    });
+    expect(publisher.access).toMatchObject({
+      signalUrl: access.signalUrl,
+      sessionId: access.sessionId,
+      busId: access.busId,
+      publisherToken: access.publisherToken,
+    });
+    expect(Object.isFrozen(publisher.access)).toBe(true);
+    expect(Object.isFrozen(publisher.access.iceServers)).toBe(true);
+    expect(Object.isFrozen(publisher.access.iceServers?.[0]?.urls)).toBe(true);
+    expect(originalStates).toEqual(['signaling', 'connecting', 'publishing']);
+    expect(replacementStates).toEqual([]);
+    await publisher.disconnect();
+  });
+
+  it('rejects reconnect before publication asynchronously', async () => {
+    const publisher = new RelayPublisher(access);
+    const reconnect = publisher.reconnect();
+
+    await expect(reconnect).rejects.toMatchObject({
+      code: 'relay.publisher_stream_missing',
+    });
+  });
+
+  it('does not let an observer callback tear down healthy publication', async () => {
+    const callbackErrors: Error[] = [];
+    const publisher = new RelayPublisher(access, {
+      onStateChange: () => {
+        throw new Error('UI observer failed');
+      },
+      onError: (error) => callbackErrors.push(error),
+    });
+
+    await publisher.publish(streamWith(new FakeTrack()));
+
+    expect(publisher.state).toBe('publishing');
+    expect(callbackErrors).toEqual([
+      expect.objectContaining({ code: 'relay.publisher_callback_failed' }),
+      expect.objectContaining({ code: 'relay.publisher_callback_failed' }),
+      expect.objectContaining({ code: 'relay.publisher_callback_failed' }),
+    ]);
+    await publisher.disconnect();
+  });
+
+  it('does not accept video or missing-kind RTP reports as audio readiness', async () => {
+    const publisher = new RelayPublisher(access, { connectTimeoutMs: 30 });
+    const publication = publisher.publish(streamWith(new FakeTrack()));
+    await Promise.resolve();
+    const connection = FakePeerConnection.instances[0];
+    if (connection === undefined) throw new Error('missing fake PeerConnection');
+    connection.includeAudioStats = false;
+
+    await expect(publication).rejects.toMatchObject({
+      code: 'relay.publisher_connect_timeout',
     });
   });
 });

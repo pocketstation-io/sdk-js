@@ -90,7 +90,7 @@ export interface RelayPlayoutObservation {
 export class RelayPublisher {
     constructor(access: RelayPublisherAccess, options?: RelayPublisherOptions);
     // (undocumented)
-    get access(): RelayPublisherAccess;
+    get access(): RelayPublisherAccess | null;
     disconnect(): Promise<void>;
     // (undocumented)
     get lastCodecHint(): RelayCodecHint | null;

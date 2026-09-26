@@ -1109,3 +1109,24 @@ registry build remains `BLOCKED` on PocketStation Core `1.1.11` publication.
 - This remains a local candidate. No npm publication, tag, push, hosted
   deployment, WAN, cross-platform, browser-audibility, or physical-device
   claim is made by this step.
+
+## 2026-09-26: browser authority and media ownership hardening
+
+- `RelayPublisher` and `RelayReceiver` copy and freeze validated signaling
+  authority, nested ICE URLs, finite deadlines, and observer callbacks at
+  construction. Later caller mutation can no longer redirect a bearer token or
+  replace a previously validated bound.
+- WebRTC RTP observations now select the standards-defined `kind === "audio"`
+  field exactly. Video and missing-identity reports cannot satisfy audio
+  readiness or supply audio observations.
+- Observer callback exceptions are isolated from the media lifecycle. They are
+  reported through the error observer where possible and cannot tear down a
+  healthy publisher or receiver.
+- Publisher reconnect-before-publish now returns a rejected Promise instead of
+  throwing during default-argument evaluation. Receiver teardown explicitly
+  stops the remote tracks it owns; publisher teardown continues to preserve the
+  caller-owned source track.
+- TypeScript and twenty-three focused publisher/receiver tests pass. The
+  installed three-browser Relay proof remains required before this candidate
+  can be accepted. No WAN, TURN-only, acoustic-output, physical-device,
+  deployment, publication, or release claim is made.
