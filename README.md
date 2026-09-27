@@ -197,16 +197,37 @@ named ports, generated audio, compiler diagnostics, and delivery settings.
 
 ## Publish independent Stems to Relay
 
-Use the connection values returned by your PocketStation control plane. One
-publisher carries every named AudioBus while Core keeps the application and
-microphone as separate Stems:
+Use `RelaySession` to own the remote Session and its renewable owner credential.
+The service URL can point to standalone Relay or its managed control-plane
+mount; both expose the same Session API. One publisher carries the named
+AudioBuses while Core keeps application and microphone Stems independent:
 
 ```ts
-const relay = session.relay({ url, sessionId, sourceToken });
+import { RelaySession, Session, Source } from "pocketstation/node";
 
-application.publish(relay, "application");
-microphone.publish(relay, "microphone");
+await using remote = await RelaySession.create({
+  controlPlaneUrl: "https://service.example",
+  requiredBuses: ["application", "microphone"],
+});
+const session = new Session();
+const application = session.capture(Source.application("Zoom"));
+const microphone = session.capture(Source.microphone());
+const publisher = remote.publisher(session);
+application.publish(publisher, "application");
+microphone.publish(publisher, "microphone");
+
+await using live = await session.start();
+await remote.waitForPublisher();
+const invitation = await remote.createReceiverInvitation({ busId: "application" });
+// Deliberate credential disclosure: deliver only to the intended receiver.
+const receiverUrl = invitation.exposeShareUrl();
+// Keep this scope open while your application uses the live Session.
 ```
+
+Create a separate invitation for the microphone bus when needed. Readable words
+navigate to the Session; the URL's fragment carries the existing join credential.
+Normal invitation formatting redacts that credential. `session.relay()` remains
+available when the caller already owns the connection and credential lifecycle.
 
 The Node addon uses the released Rust Relay Connector for Opus, RTP, WebRTC,
 and signaling. JavaScript does not encode audio or maintain another media

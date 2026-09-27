@@ -98,8 +98,14 @@ describe('native Node Session', () => {
 
   it('Given successful Session work When run Then accepted work is drained', async () => {
     const session = Session._conformance();
-    const input = session.audioInput('test input');
-    input.output.send(session.audio());
+    const input = session.pcmSource({
+      name: 'test input',
+      sampleRateHz: 48_000,
+      channels: 1,
+      capacityFrames: 8,
+      frameSamplesPerChannel: 960,
+    });
+    input.output.send(session.polledAudio());
     let active: RunningSession | undefined;
 
     const result = await session.run(async (running) => {

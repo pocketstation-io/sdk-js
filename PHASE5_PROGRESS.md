@@ -1661,3 +1661,29 @@ dependencies remain unchanged. Evidence is retained under
 scaffold (inventory n/a); provider ownership, bounded resources, units and
 whitespace CODE_PROTOCOL checks pass. SAFE-TO-TEST pending the fresh declared
 ten-second-context Lab profile with all original thresholds.
+
+
+### Consolidation 131 — accepted work and preserved canonical edits
+
+Local main fast-forwards to accepted 56b580b before reconciliation. Exact original
+staged/unstaged/untracked bytes and Git stash objects are retained in root
+`consolidation-131/sdk-js` evidence and `refs/preserve/consolidation-131/`.
+Retain the useful owned RelaySession README journey using current per-bus,
+redacted invitation APIs, and the explicit PCM-source lifecycle test variant;
+the adjacent audioInput compatibility test remains. Preserve accepted complete
+progress, required lifecycle mock, readable formatting, equivalent selector
+checks, and native bytes instead of replaying older deletions/cosmetic edits.
+The preserved historical source/authorization parity note remains available in
+the exact snapshot; it is not a fresh qualification of current artifacts.
+
+Validation is recorded in consolidation-131 evidence. No native implementation,
+model behavior, package version, or product-proof claim changes in this step.
+Staff gate: ownership and vocabulary preserved; no new scaffold; component
+qualification only, retained live evidence remains scoped to its original bytes.
+
+Canonical qualification: 44 Jest suites / 566 passed assertions, one explicitly
+optional real-model test skipped; API/type, docs, CLI, export-resolution and
+example compilation gates PASS. Initial stale-dist package check failure was
+retained, TypeScript regenerated, then the complete suite rerun. Production
+native and TypeScript source bytes match accepted 56b580b; this commit changes
+only documentation/progress and the explicit PCM lifecycle regression variant.
