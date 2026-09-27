@@ -1601,3 +1601,34 @@ produces no late transcript, and does not run queued inference. No model quality
 or physical-device claim follows from this MOCKED callback/LOOPBACK-ONLY gate.
 Focused Jest2/2 and TypeScript pass. Only tests and this progress file changed;
 production source/native trees and the105a812 package remain byte-identical.
+
+
+## C130 — explicit bounded source-affine model concurrency
+
+Purpose: first-window inference on one stem must not necessarily wait for the
+other stem's complete model call. `inferenceConcurrency` (default1, maximum8)
+assigns sources stably to owned inference Operators; `cpuThreads` is their total
+budget, and parallel mode requires numWorkers1. Per-stem assemblers and Core's
+existing finite edges remain unchanged. A typed MANY-input forwarding Operator
+merges parallel transcripts with original lineage and no second scheduler. Each
+worker owns cancellation/close of its model child. General optional initialPrompt
+is bounded to2048 UTF-8 bytes, forwarded literally, and never fixture-specific.
+The installed demo exposes explicit concurrency/thread/prompt flags.
+
+Native mock regressions verify simultaneous inference,5-thread budget split2+3,
+source affinity, outer/payload lineage, both-source EOF, recording completeness
+and joined stop/abort. Literal executable prompt forwarding and invalid limits
+are covered. Existing serial overload isolation remains passing. Full44 Jest
+suites pass557 assertions with one optional real-model test left to Lab; API,
+TypeScript, docs, installed CLI mock lifecycle and exports pass. Native/Core
+source and bytes are unchanged from129; production addon restored after using
+the exact matching conformance addon. No native rebuild or new dependency.
+
+Existing unprompted ComfyUI45s quality FAIL is preserved. Exact18-window offline
+equivalence and bounded2xCPU2 feasibility motivate the change but do not qualify
+new latency/quality. Prompt-assisted/independent-reference real-path acceptance
+belongs to Lab. Tests here use MOCKED finite models and LOOPBACK-ONLY native
+PCM; no physical-device or full-parity claim. Scaffold inventory: no new live
+scaffold; mock-only test doubles explicit. CODE_PROTOCOL: provider outsideCore,
+Session/Operator vocabulary, finitequeues/lifecycle, units, type/API/docs gates
+and diff whitespace check PASS. Staff decision SAFE-TO-TEST pending realmodelLab.

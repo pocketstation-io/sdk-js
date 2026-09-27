@@ -27,6 +27,9 @@ Options:
   --whisper-cli <path>   whisper.cpp executable (default: PKS_WHISPER_CLI or whisper-cli)
   --no-gpu               use the CPU model backend (default)
   --gpu                  explicitly enable the local GPU backend
+  --cpu-threads <count>  total model CPU thread budget (default: 4)
+  --inference-concurrency <count>  source-affine model workers (default: 1; maximum: 8)
+  --initial-prompt <text> optional application vocabulary/context (maximum: 2048 UTF-8 bytes)
   --microphone           capture and transcribe the default microphone
   --record-to <path>     write independent application and microphone WAV Stems
   --relay                publish each Stem to a named Relay AudioBus
@@ -80,6 +83,8 @@ async function main() {
   const transcription = new WhisperTranscriber(
     new WhisperTranscriberConfiguration({
       model, whisperCliExecutable, inputFrameSamplesPerChannel: 480, useGpu: arguments_.useGpu,
+      cpuThreads: arguments_.cpuThreads, inferenceConcurrency: arguments_.inferenceConcurrency,
+      initialPrompt: arguments_.initialPrompt,
     }),
   );
   // The Operator and its routes must be declared before Session.start().
@@ -236,6 +241,9 @@ function parseArguments(values) {
     frames: DEFAULT_FRAME_LIMIT,
     model: undefined,
     whisperCli: undefined,
+    cpuThreads: 4,
+    inferenceConcurrency: 1,
+    initialPrompt: undefined,
   };
   let gpuPreference;
   for (let index = 0; index < values.length; index += 1) {
@@ -247,6 +255,13 @@ function parseArguments(values) {
       result.useGpu = preference;
     } else if (value === '--microphone') {
       result.microphone = true;
+    } else if (value === '--cpu-threads' || value === '--inference-concurrency') {
+      const count = Number(requiredValue(values, ++index, value));
+      const maximum = value === '--cpu-threads' ? 64 : 8;
+      if (!Number.isInteger(count) || count < 1 || count > maximum) throw new RangeError(`${value} is outside its supported integer range`);
+      result[value === '--cpu-threads' ? 'cpuThreads' : 'inferenceConcurrency'] = count;
+    } else if (value === '--initial-prompt') {
+      result.initialPrompt = requiredValue(values, ++index, value);
     } else if (value === '--relay') {
       result.relay = true;
     } else if (value === '--show-links' || value === '--show-private-links') {
@@ -271,6 +286,7 @@ function parseArguments(values) {
       throw new RangeError(`unexpected argument: ${value}`);
     }
   }
+  if (result.inferenceConcurrency > result.cpuThreads) throw new RangeError('inferenceConcurrency exceeds cpuThreads budget');
   return result;
 }
 

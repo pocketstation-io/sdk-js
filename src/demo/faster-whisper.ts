@@ -27,7 +27,7 @@ import {
 import { WINDOW_SIGNAL, encodeWindow, decodeWindow } from './window-signal.js';
 import { TRANSCRIPT_SIGNAL, Transcript } from './transcript.js';
 
-import { WhisperCliModel } from './whisper-cli-model.js';
+import { WhisperCliModel, validateInitialPrompt } from './whisper-cli-model.js';
 export { WhisperCliModel, readUtf8WithLimit } from './whisper-cli-model.js';
 
 /** One segment returned by a local Whisper implementation. */
@@ -58,6 +58,7 @@ export interface WhisperModel {
     options: {
       readonly beamSize: number;
       readonly language: string | undefined;
+      readonly initialPrompt?: string;
     },
   ): WhisperResult | Promise<WhisperResult>;
 }
@@ -68,6 +69,10 @@ export class WhisperTranscriberConfiguration {
   /** Enable the local whisper-cli GPU backend; false selects a reproducible CPU profile. */
   public readonly useGpu: boolean;
   public readonly cpuThreads: number;
+  /** Maximum source-affine model workers; cpuThreads is their total CPU budget. */
+  public readonly inferenceConcurrency: number;
+  /** Optional application vocabulary/context, never inferred from audio fixtures. */
+  public readonly initialPrompt: string | undefined;
   public readonly numWorkers: number;
   public readonly language: string | undefined;
   public readonly beamSize: number;
@@ -87,6 +92,8 @@ export class WhisperTranscriberConfiguration {
     readonly model?: string;
     readonly useGpu?: boolean;
     readonly cpuThreads?: number;
+    readonly inferenceConcurrency?: number;
+    readonly initialPrompt?: string;
     readonly numWorkers?: number;
     readonly language?: string;
     readonly beamSize?: number;
@@ -105,7 +112,11 @@ export class WhisperTranscriberConfiguration {
     this.useGpu = options.useGpu ?? false;
     if (typeof this.useGpu !== 'boolean') throw new TypeError('useGpu must be boolean');
     this.cpuThreads = integer(options.cpuThreads ?? 4, 'cpuThreads', 1, 64);
+    this.inferenceConcurrency = integer(options.inferenceConcurrency === undefined ? 1 : options.inferenceConcurrency, 'inferenceConcurrency', 1, 8);
     this.numWorkers = integer(options.numWorkers ?? 1, 'numWorkers', 1, 16);
+    if (this.inferenceConcurrency > this.cpuThreads) throw new RangeError('inferenceConcurrency exceeds cpuThreads budget');
+    if (this.inferenceConcurrency > 1 && this.numWorkers !== 1) throw new RangeError('parallel inference requires numWorkers=1');
+    this.initialPrompt = validateInitialPrompt(options.initialPrompt);
     this.language = optionalAscii(options.language, 'language');
     this.beamSize = integer(options.beamSize ?? 5, 'beamSize', 1, 32);
     this.windowSeconds = finite(options.windowSeconds ?? 5, 'windowSeconds', 0.1, 30);
@@ -239,7 +250,13 @@ export class WhisperTranscriber {
       drainQueued: false,
     }), () => new WindowNode(configuration, this.#audioConverter)));
     const windowsByStream = selected.map(() => windowRegistration.declare());
-    const inference = session.registerOperator(OperatorProvider.withNode(new OperatorManifest({
+    const workerCount = Math.min(configuration.inferenceConcurrency, selected.length);
+    const configurations = Array.from({ length: workerCount }, (_, index) => new WhisperTranscriberConfiguration({
+      ...configuration,
+      inferenceConcurrency: 1,
+      cpuThreads: Math.floor(configuration.cpuThreads / workerCount) + (index < configuration.cpuThreads % workerCount ? 1 : 0),
+    }));
+    const inferenceRegistration = session.registerOperator(OperatorProvider.withNode(new OperatorManifest({
       operatorId: 'community.whisper.inference.v1',
       inputs: [PortSpec.input('window', WINDOW_SIGNAL, { multiplicity: Multiplicity.MANY })],
       outputs: this.manifest.outputs,
@@ -248,19 +265,36 @@ export class WhisperTranscriber {
       filesystemAllowed: true,
       drainQueued: false,
       terminalRoles: this.manifest.terminalRoles,
-    }), async () => new WindowInferenceNode(new WhisperTranscriberNode(
-      configuration, await this.#modelFactory(configuration), this.#audioConverter,
-    )), { deadlines: new OperatorDeadlines({
+    }), async (values) => {
+      const workerConfiguration = configurations[integer(Number(values.workerIndex), 'workerIndex', 0, workerCount - 1)]!;
+      return new WindowInferenceNode(new WhisperTranscriberNode(
+        workerConfiguration, await this.#modelFactory(workerConfiguration), this.#audioConverter,
+      ));
+    }, { deadlines: new OperatorDeadlines({
       createMs: Math.round(configuration.createTimeoutS * 1_000),
       processMs: Math.round((configuration.inferenceTimeoutS + 0.5) * 1_000),
       closeMs: 5_000,
-    }) })).declare();
+    }) }));
+    const inference = configurations.map((_value, index) => inferenceRegistration.declare({ workerIndex: String(index) }));
     for (const [index, stream] of selected.entries()) {
       const windows = windowsByStream[index]!;
       stream.connect(windows.input('audio'));
-      windows.output('window').connect(inference.input('window'));
+      windows.output('window').connect(inference[index % workerCount]!.input('window'));
     }
-    return session.subscribe(inference.output('transcript'), { signal: TRANSCRIPT_SIGNAL });
+    if (inference.length === 1) return session.subscribe(inference[0]!.output('transcript'), { signal: TRANSCRIPT_SIGNAL });
+    const merge = session.registerOperator(OperatorProvider.fromHandler(new OperatorManifest({
+      operatorId: 'community.whisper.transcripts.v1',
+      inputs: [PortSpec.input('transcript', TRANSCRIPT_SIGNAL, { multiplicity: Multiplicity.MANY })],
+      outputs: this.manifest.outputs,
+      queueCapacitySignals: 8,
+      drainQueued: false,
+      terminalRoles: this.manifest.terminalRoles,
+    }), (port, envelope) => {
+      if (port !== 'transcript' || envelope.payload.kind !== 'text') throw new TypeError('expected transcript text');
+      return [OperatorEmission.text(envelope.payload.text, { signal: TRANSCRIPT_SIGNAL })];
+    })).declare();
+    for (const worker of inference) worker.output('transcript').connect(merge.input('transcript'));
+    return session.subscribe(merge.output('transcript'), { signal: TRANSCRIPT_SIGNAL });
   }
 
   public transcribe(capture: Capture): AsyncGenerator<Transcript> {
@@ -370,6 +404,7 @@ class WhisperTranscriberNode implements AuthoredOperatorNode {
       : await this.#model.transcribe(preparedAudio ?? this.#audioConverter(window), {
         beamSize: this.#configuration.beamSize,
         language: this.#configuration.language,
+        ...(this.#configuration.initialPrompt === undefined ? {} : { initialPrompt: this.#configuration.initialPrompt }),
       });
     if (this.#cancelled) throw new Error('transcription Operator is cancelled');
     const transcript = {
@@ -447,4 +482,3 @@ function finite(value: number, name: string, minimum: number, maximum: number): 
   }
   return value;
 }
-

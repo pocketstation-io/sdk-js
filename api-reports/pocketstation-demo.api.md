@@ -287,6 +287,7 @@ export class WhisperCliModel implements WhisperModel {
     transcribe(audio: Float32Array, options: {
         readonly beamSize: number;
         readonly language: string | undefined;
+        readonly initialPrompt?: string;
     }): Promise<WhisperResult>;
 }
 
@@ -308,6 +309,7 @@ export interface WhisperModel {
     transcribe(audio: Float32Array, options: {
         readonly beamSize: number;
         readonly language: string | undefined;
+        readonly initialPrompt?: string;
     }): WhisperResult | Promise<WhisperResult>;
 }
 
@@ -369,6 +371,8 @@ export class WhisperTranscriberConfiguration {
         readonly model?: string;
         readonly useGpu?: boolean;
         readonly cpuThreads?: number;
+        readonly inferenceConcurrency?: number;
+        readonly initialPrompt?: string;
         readonly numWorkers?: number;
         readonly language?: string;
         readonly beamSize?: number;
@@ -389,8 +393,10 @@ export class WhisperTranscriberConfiguration {
     readonly cpuThreads: number;
     // (undocumented)
     readonly createTimeoutS: number;
+    readonly inferenceConcurrency: number;
     // (undocumented)
     readonly inferenceTimeoutS: number;
+    readonly initialPrompt: string | undefined;
     readonly inputChannels: 1 | 2 | 'any';
     // (undocumented)
     readonly inputFrameSamplesPerChannel: number;

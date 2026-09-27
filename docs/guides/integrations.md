@@ -79,8 +79,8 @@ try {
 ```
 
 `attachMany` gives each selected stem its own window assembler and feeds their
-complete windows to one shared inference Operator. Inference never blocks frame
-assembly. Core's audio input edges hold eight frames; typed window edges hold
+complete windows to one shared inference Operator by default. Inference never blocks
+frame assembly. Core's audio input edges hold eight frames; typed window edges hold
 eight windows per producer. `queueCapacitySignals` describes the authoring
 manifest, not a request to enlarge Core's compiled audio edges. If inference
 cannot keep up, window-route drops remain visible in Session metrics while
@@ -112,3 +112,31 @@ Before shipping, exercise a stalled provider and stop the Session. Verify that:
 - the terminal result contains the Connector or Endpoint failure;
 - shutdown completes within the configured deadline;
 - no provider work runs on an audio callback.
+
+### Bound inference concurrency and supply application vocabulary
+
+Set `inferenceConcurrency: 2` and `cpuThreads: 4` for two source-affine model
+workers with two CPU threads each. The default is one worker. Worker count is
+bounded to eight and cannot exceed the total CPU thread budget or selected
+source count. Parallel mode requires `numWorkers: 1`; this avoids multiplying
+the declared CPU budget through nested model workers. Uneven budgets distribute
+one extra thread to the first workers. Each worker owns its model and shutdown;
+Python's model has additional resident-memory cost, and JS owns at most one
+whisper-cli child per worker. Source assignment is stable, while results across
+different sources may arrive out of order. Original source/time lineage remains
+on every transcript. A typed MANY-input Operator merges outputs through Core's
+existing bounded queues; it does not schedule inference or grow an extra queue.
+
+`initialPrompt` optionally supplies application vocabulary/context, bounded to
+2048 UTF-8 bytes without NUL. It is sent literally to the local model; it is not
+inferred from fixture names and does not guarantee accurate transcription.
+For a fair comparison, declare the same prompt and decoding settings in both
+live and reference runs. Whole-recording model output is not human ground truth.
+The demo CLI exposes `--cpu-threads`, `--inference-concurrency` and
+`--initial-prompt`. Defaults preserve the earlier single-worker behavior.
+
+The low-level direct provider remains one Operator; parallel scheduling applies
+to `attach`/`attachMany`. Model-route loss, failure and queue capacity remain
+visible separately from recording/Relay. Cancel owns each active JS child and
+joins it before return. This resource policy alone makes no latency or accuracy
+claim; qualify it on the target machine and workload.
