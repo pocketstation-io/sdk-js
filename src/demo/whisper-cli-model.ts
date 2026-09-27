@@ -22,7 +22,7 @@ export class WhisperCliModel implements WhisperModel {
   }
 
   public transcribe(audio: Float32Array, options: {
-    readonly beamSize: number; readonly language: string | undefined;
+    readonly beamSize: number; readonly language: string | undefined; readonly initialPrompt?: string;
   }): Promise<WhisperResult> {
     if (this.#closed) return Promise.reject(new Error('Whisper model is closed'));
     const abort = new AbortController();
@@ -42,7 +42,7 @@ export class WhisperCliModel implements WhisperModel {
   }
 
   async #transcribe(audio: Float32Array, options: {
-    readonly beamSize: number; readonly language: string | undefined;
+    readonly beamSize: number; readonly language: string | undefined; readonly initialPrompt?: string;
   }, signal: AbortSignal): Promise<WhisperResult> {
     const directory = await mkdtemp(join(tmpdir(), 'pks-whisper-'));
     const input = join(directory, 'input.wav');
@@ -51,6 +51,7 @@ export class WhisperCliModel implements WhisperModel {
       signal.throwIfAborted();
       await writeFile(input, pcm16Wave(audio, 16_000));
       signal.throwIfAborted();
+      const initialPrompt = validateInitialPrompt(options.initialPrompt ?? this.#configuration.initialPrompt);
       const argumentsList = [
         '-m', this.#configuration.model,
         '-f', input,
@@ -62,6 +63,7 @@ export class WhisperCliModel implements WhisperModel {
         '-p', String(this.#configuration.numWorkers),
         '-bs', String(options.beamSize),
         '-l', options.language ?? 'auto',
+        ...(initialPrompt === undefined ? [] : ['--prompt', initialPrompt]),
       ];
       const execution = executeFile(this.#configuration.whisperCliExecutable, argumentsList, {
         signal, killSignal: 'SIGKILL',
@@ -81,6 +83,16 @@ export class WhisperCliModel implements WhisperModel {
       await rm(directory, { recursive: true, force: true });
     }
   }
+}
+
+/** @internal Validate context without including application text in diagnostics. */
+export function validateInitialPrompt(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string' || value.trim().length === 0 || value.includes('\0')
+      || Buffer.byteLength(value, 'utf8') > 2048) {
+    throw new TypeError('initialPrompt must be non-empty text of at most 2048 UTF-8 bytes without NUL');
+  }
+  return value;
 }
 
 export async function readUtf8WithLimit(path: string, maximumBytes: number): Promise<string> {
