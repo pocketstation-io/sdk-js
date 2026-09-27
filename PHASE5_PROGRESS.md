@@ -1588,3 +1588,16 @@ its first tail arrives at Session finalization, so this case does not qualify a
 7s microphone first-result claim. Long equal-duration Lab replay must test that.
 All evidence is LOOPBACK-ONLY retained audio, not new physical capture. API,
 docs, typecheck, mocked CLI lifecycle, bounded child cleanup and exports pass.
+
+
+### C129 deterministic complete-window overload follow-up (test-only)
+
+Two actual native PCM/recording tests hold one mocked model inference while
+feeding both stems, filling the existing16-window aggregate capacity. Each
+observes23 dropped complete model windows, zero audio/recording loss, and
+source sequence gaps after recovery. Recover and abort finalize in107/165ms
+(2s budget); all workers join. Abort calls the owned model cancellation hook,
+produces no late transcript, and does not run queued inference. No model quality
+or physical-device claim follows from this MOCKED callback/LOOPBACK-ONLY gate.
+Focused Jest2/2 and TypeScript pass. Only tests and this progress file changed;
+production source/native trees and the105a812 package remain byte-identical.
