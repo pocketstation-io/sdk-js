@@ -44,6 +44,10 @@ export class WhisperCliModel implements WhisperModel {
   async #transcribe(audio: Float32Array, options: {
     readonly beamSize: number; readonly language: string | undefined; readonly initialPrompt?: string;
   }, signal: AbortSignal): Promise<WhisperResult> {
+    const audioContextSeconds = this.#configuration.audioContextSeconds;
+    if (audioContextSeconds !== undefined && audio.length > Math.ceil(audioContextSeconds * 50) * 320) {
+      throw new RangeError('audio exceeds configured audioContextSeconds');
+    }
     const directory = await mkdtemp(join(tmpdir(), 'pks-whisper-'));
     const input = join(directory, 'input.wav');
     const output = join(directory, 'transcript');
@@ -63,6 +67,7 @@ export class WhisperCliModel implements WhisperModel {
         '-p', String(this.#configuration.numWorkers),
         '-bs', String(options.beamSize),
         '-l', options.language ?? 'auto',
+        ...(audioContextSeconds === undefined ? [] : ['-ac', String(Math.ceil(audioContextSeconds * 50))]),
         ...(initialPrompt === undefined ? [] : ['--prompt', initialPrompt]),
       ];
       const execution = executeFile(this.#configuration.whisperCliExecutable, argumentsList, {

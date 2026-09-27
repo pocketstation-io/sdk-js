@@ -135,6 +135,19 @@ live and reference runs. Whole-recording model output is not human ground truth.
 The demo CLI exposes `--cpu-threads`, `--inference-concurrency` and
 `--initial-prompt`. Defaults preserve the earlier single-worker behavior.
 
+For the local whisper-cli backend, `audioContextSeconds` explicitly bounds the
+encoder context. Its default remains the backend's full context. A five-second
+window can use a ten-second encoder context to reduce CPU work spent encoding
+padding. The value must cover `windowSeconds` and cannot exceed thirty seconds;
+it maps to whisper-cli `-ac` in fifty encoder positions per second, rounded up
+to the next twenty-millisecond position. Direct model calls reject audio longer
+than that context instead of truncating it. The CLI exposes
+`--audio-context-seconds`. This changes model text as well as computation cost:
+record it in the live/reference profile and requalify accuracy and latency.
+It does not shorten input windows, move the Session-start clock or change
+delivery/quality thresholds. The Python faster-whisper backend does not expose
+an equivalent variable encoder context; this is an explicit backend distinction.
+
 The low-level direct provider remains one Operator; parallel scheduling applies
 to `attach`/`attachMany`. Model-route loss, failure and queue capacity remain
 visible separately from recording/Relay. Cancel owns each active JS child and

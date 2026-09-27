@@ -1632,3 +1632,32 @@ PCM; no physical-device or full-parity claim. Scaffold inventory: no new live
 scaffold; mock-only test doubles explicit. CODE_PROTOCOL: provider outsideCore,
 Session/Operator vocabulary, finitequeues/lifecycle, units, type/API/docs gates
 and diff whitespace check PASS. Staff decision SAFE-TO-TEST pending realmodelLab.
+
+## Product130: explicit local encoder-context budget
+
+The demo-owned whisper-cli adapter accepts optional audioContextSeconds, bounded
+by the configured input window and thirty seconds. It maps seconds to fifty
+encoder positions per second (rounded up); direct model input exceeding that
+context fails rather than truncates. Omission preserves existing backend
+defaults. Per-source workers inherit the setting and the CLI exposes it. This
+changes padding/encoder work and potentially text, never input window length,
+Session clocks, model queues or acceptance thresholds. Python faster-whisper
+has no equivalent variable encoder-context API; no false symmetry was added.
+
+The unchanged corpus replay passed coverage, WER, loss and workload gates but
+failed first-result latency at7.32/7.35seconds. Offline first-window diagnosis
+with the same model/audio/CPU4 found the default context took2.056/2.045seconds;
+ten-second context took1.016/.756seconds. A single subsequent18-window corpus
+diagnostic scored WER.2653/.1549 against the same published text, retaining
+silence outputs in the score. These are feasibility results, not integrated
+acceptance; all old failed evidence remains unchanged.
+
+Focused native/mock tests31pass (one optional realmodel case skipped), type/API,
+docs, exports and seven mocked CLI lifecycle cases pass. Tests reject invalid
+context/window combinations and oversized direct input, check default omission,
+literal CLI unit conversion and worker propagation. Native source/artifacts and
+dependencies remain unchanged. Evidence is retained under
+/private/tmp/pks-product-130-evidence/model/first-result-diagnostic. No live
+scaffold (inventory n/a); provider ownership, bounded resources, units and
+whitespace CODE_PROTOCOL checks pass. SAFE-TO-TEST pending the fresh declared
+ten-second-context Lab profile with all original thresholds.
