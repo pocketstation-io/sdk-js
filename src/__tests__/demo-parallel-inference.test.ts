@@ -19,6 +19,37 @@ test('validates total CPU and prompt bounds without disclosing prompt text', () 
   expect(new WhisperTranscriberConfiguration().inferenceConcurrency).toBe(1);
 });
 
+test.each([0, 4.99, 30.01, NaN, Infinity, null, '10'])('rejects invalid encoder context %p', value => {
+  expect(() => new WhisperTranscriberConfiguration({ audioContextSeconds: value as number })).toThrow('audioContextSeconds');
+});
+
+test('encoder context preserves defaults and cannot truncate configured windows', () => {
+  expect(new WhisperTranscriberConfiguration().audioContextSeconds).toBeUndefined();
+  expect(new WhisperTranscriberConfiguration({ audioContextSeconds: 10 }).audioContextSeconds).toBe(10);
+  expect(() => new WhisperTranscriberConfiguration({ windowSeconds: 15, audioContextSeconds: 10 })).toThrow('audioContextSeconds');
+});
+
+test('CLI model maps seconds to encoder positions and rejects oversized direct input', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'pks-context-model-'));
+  const executable = join(directory, 'mock-whisper.mjs');
+  await writeFile(executable, `#!${process.execPath}\nimport fs from 'node:fs';\nconst a=process.argv;\nconst context=a.includes('-ac')?a[a.indexOf('-ac')+1]:'default';\nfs.writeFileSync(a[a.indexOf('-of')+1]+'.json',JSON.stringify({transcription:[{text:context,offsets:{from:0,to:10}}],result:{language:'en'}}));\n`);
+  await chmod(executable, 0o700);
+  try {
+    for (const audioContextSeconds of [undefined, 10, 10.01]) {
+      const model = new WhisperCliModel(new WhisperTranscriberConfiguration({ model: 'mock',
+        whisperCliExecutable: executable, audioContextSeconds }));
+      try {
+        const result = await model.transcribe(new Float32Array(160), { beamSize: 1, language: 'en' });
+        expect(result.segments[0]!.text).toBe(audioContextSeconds === undefined ? 'default' : String(Math.ceil(audioContextSeconds * 50)));
+        if (audioContextSeconds !== undefined) {
+          await expect(model.transcribe(new Float32Array(Math.ceil(audioContextSeconds * 50) * 320 + 1),
+            { beamSize: 1, language: 'en' })).rejects.toThrow('audioContextSeconds');
+        }
+      } finally { await model.close(); }
+    }
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
 test('CLI model forwards configured context literally to an owned executable', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'pks-prompt-model-'));
   const executable = join(directory, 'mock-whisper.mjs');
@@ -41,8 +72,9 @@ test.each(['stop', 'cancel'] as const)('parallel source-affine inference preserv
   const budgets: number[] = [], modelSources: Set<boolean>[] = [];
   let active = 0, maximumActive = 0, closed = 0, cancelled = 0, calls = 0;
   const configuration = new WhisperTranscriberConfiguration({ windowSeconds: .1,
-    inferenceConcurrency: 2, cpuThreads: 5, maximumSources: 2, initialPrompt: 'application vocabulary' });
+    inferenceConcurrency: 2, cpuThreads: 5, maximumSources: 2, initialPrompt: 'application vocabulary', audioContextSeconds: 10 });
   const model = new WhisperTranscriber(configuration, { modelFactory: worker => {
+    expect(worker.audioContextSeconds).toBe(10);
     budgets.push(worker.cpuThreads);
     const sources = new Set<boolean>(); modelSources.push(sources);
     let localActive = false, aborted = false;

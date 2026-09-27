@@ -377,6 +377,7 @@ export class WhisperTranscriberConfiguration {
         readonly language?: string;
         readonly beamSize?: number;
         readonly windowSeconds?: number;
+        readonly audioContextSeconds?: number;
         readonly queueCapacitySignals?: number;
         readonly maximumSources?: number;
         readonly maximumOutputBytes?: number;
@@ -387,6 +388,7 @@ export class WhisperTranscriberConfiguration {
         readonly inputFrameSamplesPerChannel?: number;
         readonly whisperCliExecutable?: string;
     });
+    readonly audioContextSeconds: number | undefined;
     // (undocumented)
     readonly beamSize: number;
     // (undocumented)

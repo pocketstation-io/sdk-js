@@ -77,6 +77,8 @@ export class WhisperTranscriberConfiguration {
   public readonly language: string | undefined;
   public readonly beamSize: number;
   public readonly windowSeconds: number;
+  /** Optional whisper-cli encoder context, in seconds; omitted preserves its full context. */
+  public readonly audioContextSeconds: number | undefined;
   public readonly queueCapacitySignals: number;
   public readonly maximumSources: number;
   public readonly maximumOutputBytes: number;
@@ -98,6 +100,7 @@ export class WhisperTranscriberConfiguration {
     readonly language?: string;
     readonly beamSize?: number;
     readonly windowSeconds?: number;
+    readonly audioContextSeconds?: number;
     readonly queueCapacitySignals?: number;
     readonly maximumSources?: number;
     readonly maximumOutputBytes?: number;
@@ -120,6 +123,8 @@ export class WhisperTranscriberConfiguration {
     this.language = optionalAscii(options.language, 'language');
     this.beamSize = integer(options.beamSize ?? 5, 'beamSize', 1, 32);
     this.windowSeconds = finite(options.windowSeconds ?? 5, 'windowSeconds', 0.1, 30);
+    this.audioContextSeconds = options.audioContextSeconds === undefined ? undefined
+      : finite(options.audioContextSeconds, 'audioContextSeconds', this.windowSeconds, 30);
     this.queueCapacitySignals = integer(
       options.queueCapacitySignals ?? 512,
       'queueCapacitySignals',

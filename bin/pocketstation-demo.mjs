@@ -30,6 +30,7 @@ Options:
   --cpu-threads <count>  total model CPU thread budget (default: 4)
   --inference-concurrency <count>  source-affine model workers (default: 1; maximum: 8)
   --initial-prompt <text> optional application vocabulary/context (maximum: 2048 UTF-8 bytes)
+  --audio-context-seconds <seconds> whisper-cli encoder context (5–30; default: backend full context)
   --microphone           capture and transcribe the default microphone
   --record-to <path>     write independent application and microphone WAV Stems
   --relay                publish each Stem to a named Relay AudioBus
@@ -85,6 +86,7 @@ async function main() {
       model, whisperCliExecutable, inputFrameSamplesPerChannel: 480, useGpu: arguments_.useGpu,
       cpuThreads: arguments_.cpuThreads, inferenceConcurrency: arguments_.inferenceConcurrency,
       initialPrompt: arguments_.initialPrompt,
+      audioContextSeconds: arguments_.audioContextSeconds,
     }),
   );
   // The Operator and its routes must be declared before Session.start().
@@ -244,6 +246,7 @@ function parseArguments(values) {
     cpuThreads: 4,
     inferenceConcurrency: 1,
     initialPrompt: undefined,
+    audioContextSeconds: undefined,
   };
   let gpuPreference;
   for (let index = 0; index < values.length; index += 1) {
@@ -262,6 +265,10 @@ function parseArguments(values) {
       result[value === '--cpu-threads' ? 'cpuThreads' : 'inferenceConcurrency'] = count;
     } else if (value === '--initial-prompt') {
       result.initialPrompt = requiredValue(values, ++index, value);
+    } else if (value === '--audio-context-seconds') {
+      const seconds = Number(requiredValue(values, ++index, value));
+      if (!Number.isFinite(seconds) || seconds < 5 || seconds > 30) throw new RangeError('--audio-context-seconds must be between 5 and 30');
+      result.audioContextSeconds = seconds;
     } else if (value === '--relay') {
       result.relay = true;
     } else if (value === '--show-links' || value === '--show-private-links') {

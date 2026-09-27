@@ -14,6 +14,12 @@ assert.match(help.stdout, /--no-gpu/);
 assert.match(help.stdout, /--gpu/);
 assert.match(help.stdout, /--inference-concurrency/);
 assert.match(help.stdout, /--initial-prompt/);
+assert.match(help.stdout, /--audio-context-seconds/);
+for (const value of ['0', '4.99', '30.01', 'NaN']) {
+  const invalidContext = run('--audio-context-seconds', value);
+  assert.equal(invalidContext.status, 1);
+  assert.match(invalidContext.stderr, /--audio-context-seconds must be between 5 and 30/);
+}
 assert.equal(run('--inference-concurrency', '2', '--cpu-threads', '1').status, 1);
 const conflictingBackend = run('--gpu', '--no-gpu');
 assert.equal(conflictingBackend.status, 1);
@@ -83,6 +89,7 @@ try {
       '--experimental-loader', './tests/fixtures/demo-cli/loader.mjs',
       'bin/pocketstation-demo.mjs', 'Test App', '--model', model,
       '--whisper-cli', process.execPath, '--no-gpu', '--microphone', '--relay', '--frames', '4',
+      '--audio-context-seconds', '10',
       ...(mode === 'exposed' ? ['--show-links'] : []),
       ...(mode === 'legacy-exposed' ? ['--show-private-links'] : []),
     ], {
