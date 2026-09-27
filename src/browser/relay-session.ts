@@ -946,7 +946,7 @@ function validatedInvitationLocator(value: string | SecretToken): string {
   const locator = requiredText(value instanceof SecretToken ? value.exposeSecret() : value, 'invitation locator').trim();
   if (
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(locator) ||
-    /^[a-z]{4,24}-[a-z]{4,24}(?:-[a-z]{4,24})?$/.test(locator)
+    /^[a-z]{3,24}-[a-z]{3,24}(?:-[a-z]{3,24})?$/.test(locator)
   ) {
     return locator;
   }

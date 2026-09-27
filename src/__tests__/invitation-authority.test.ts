@@ -8,7 +8,7 @@ const other = '00000000-0000-4000-8000-000000000000';
 const access = { session_id: 'session_123', bus_id: 'application', subscriber_token: 'subscriber-capability', signal_url: 'wss://relay.example/v1/signal', whep_url: 'https://relay.example/v1/sessions/session_123/whep', ice_servers: [] };
 
 describe('readable navigation has no independent authority', () => {
-  test.each(['quiet-willow', 'quiet-willow-river'])('%s requires original code in control and browser clients', async (words) => {
+  test.each(['quiet-willow', 'quiet-willow-river', 'owl-sun', 'owl-sun-elm', 'rice-river', 'silly-mountain', 'lemon-corpus', 'amberaura-amberbadger'])('%s requires original code in control and browser clients', async (words) => {
     const fetch = jest.fn(async (_url: string | URL | Request, _init?: RequestInit) => new Response(JSON.stringify(access)));
     const client = new ControlClient('https://control.example', { fetch });
     globalThis.fetch = fetch;
@@ -51,4 +51,26 @@ describe('readable navigation has no independent authority', () => {
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(() => parseRelayInvitationLocation('https://receiver.example/quiet-willow#secret=abcdefghijklmnopqrstuv')).toThrow();
   });
+});
+
+// These are syntax bounds, not a copy of Relay's owned vocabulary or authority.
+test.each(['ab-river', 'rice-ab', 'rice-river-ab', 'a'.repeat(25) + '-river', 'rice/river', 'rice-river-extra-word'])('rejects malformed navigation %s without HTTP', async (words) => {
+  const fetch = jest.fn(async () => new Response('{}'));
+  const client = new ControlClient('https://control.example', { fetch });
+  await expect(client.redeemInvitation(words, { joinCode: new SecretToken(code) })).rejects.toThrow();
+  expect(() => parseRelayInvitationLocation(`https://receiver.example/${words}#join=${code}`)).toThrow();
+  expect(fetch).not.toHaveBeenCalled();
+});
+
+test.each(['owl-sun', 'owl-sun-elm', 'rice-river', 'silly-mountain', 'lemon-corpus'])('accepts real service invitation response %s', async (words) => {
+  const visibility = words.split('-').length === 2 ? 'public' : 'private';
+  const fetch = jest.fn(async () => new Response(JSON.stringify({
+    join_code: code, join_url: `https://receiver.example/join#join=${code}`,
+    share_alias: words, share_url: `https://receiver.example/${words}#join=${code}`,
+    visibility, expires_at: '2030-01-01T00:00:00Z',
+  }), { status: 201 }));
+  const client = new ControlClient('https://control.example', { fetch });
+  const invitation = await client.createInvitation('session_123', new SecretToken('source-capability'), { visibility, busId: 'application' });
+  expect(invitation.shareAlias).toBe(words);
+  expect(JSON.stringify(invitation)).not.toContain(code);
 });

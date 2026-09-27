@@ -891,7 +891,7 @@ function invitationLocator(value: string | SecretToken): string {
   if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(locator)) {
     return locator;
   }
-  if (/^[a-z]{4,24}-[a-z]{4,24}(?:-[a-z]{4,24})?$/.test(locator)) {
+  if (/^[a-z]{3,24}-[a-z]{3,24}(?:-[a-z]{3,24})?$/.test(locator)) {
     return locator;
   }
   throw new RangeError('invitation locator must be an opaque code or a two- or three-word alias');
