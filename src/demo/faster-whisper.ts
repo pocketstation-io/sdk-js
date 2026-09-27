@@ -78,7 +78,8 @@ export class WhisperTranscriberConfiguration {
   public readonly createTimeoutS: number;
   public readonly inferenceTimeoutS: number;
   public readonly inputSampleRateHz: number;
-  public readonly inputChannels: 1 | 2;
+  /** Accept each source's channel layout by default; optionally constrain it. */
+  public readonly inputChannels: 1 | 2 | 'any';
   public readonly inputFrameSamplesPerChannel: number;
   public readonly whisperCliExecutable: string;
 
@@ -95,7 +96,7 @@ export class WhisperTranscriberConfiguration {
     readonly createTimeoutS?: number;
     readonly inferenceTimeoutS?: number;
     readonly inputSampleRateHz?: number;
-    readonly inputChannels?: 1 | 2;
+    readonly inputChannels?: 1 | 2 | 'any';
     readonly inputFrameSamplesPerChannel?: number;
     readonly whisperCliExecutable?: string;
   } = {}) {
@@ -131,7 +132,10 @@ export class WhisperTranscriberConfiguration {
       8_000,
       384_000,
     );
-    this.inputChannels = options.inputChannels ?? 1;
+    this.inputChannels = options.inputChannels ?? 'any';
+    if (![1, 2, 'any'].includes(this.inputChannels)) {
+      throw new RangeError('inputChannels must be 1, 2, or any');
+    }
     this.inputFrameSamplesPerChannel = integer(
       options.inputFrameSamplesPerChannel ?? 960,
       'inputFrameSamplesPerChannel',
@@ -225,7 +229,8 @@ export class WhisperTranscriber {
     const audioMedia = MediaCaps.audio({
       sampleRateHz: configuration.inputSampleRateHz,
       frameSamples: configuration.inputFrameSamplesPerChannel,
-      channelLayout: configuration.inputChannels === 1 ? 'mono' : 'stereo',
+      channelLayout: configuration.inputChannels === 'any'
+        ? 'any' : configuration.inputChannels === 1 ? 'mono' : 'stereo',
     });
     this.manifest = new OperatorManifest({
       operatorId: 'community.whisper.stt.v1',

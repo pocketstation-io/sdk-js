@@ -362,7 +362,7 @@ export class WhisperTranscriberConfiguration {
         readonly createTimeoutS?: number;
         readonly inferenceTimeoutS?: number;
         readonly inputSampleRateHz?: number;
-        readonly inputChannels?: 1 | 2;
+        readonly inputChannels?: 1 | 2 | 'any';
         readonly inputFrameSamplesPerChannel?: number;
         readonly whisperCliExecutable?: string;
     });
@@ -374,8 +374,7 @@ export class WhisperTranscriberConfiguration {
     readonly createTimeoutS: number;
     // (undocumented)
     readonly inferenceTimeoutS: number;
-    // (undocumented)
-    readonly inputChannels: 1 | 2;
+    readonly inputChannels: 1 | 2 | 'any';
     // (undocumented)
     readonly inputFrameSamplesPerChannel: number;
     // (undocumented)

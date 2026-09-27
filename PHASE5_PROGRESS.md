@@ -1366,3 +1366,15 @@ unchanged accepted production binary is the prerequisite for its rerun.
 Packed consumer rerun and the 24-document check pass.
 No version, native/Core code, provider, dependency, hot path or live scaffold
 change. This remains SAFE-TO-TEST until the real-path Lab proof is accepted.
+
+Candidate 124 physical compilation then exposed a second demo-owned defect:
+application sources declare stereo while the physical microphone declares mono.
+Whisper's fixed default mono port demanded an unregistered mono-mix adapter;
+forcing stereo moved the failure to the microphone edge. Neither the control
+plane nor Relay caused it: the isolated Capture + Whisper graph failed alone.
+The existing bounded window converter already downmixes each source using its
+own channel count. Its declaration now defaults inputChannels to 'any'; explicit
+1/2 constraints remain available. Public API reports reflect the additive type.
+Mono and stereo two-source tests exercise real native routing and the real
+converter with a mock model. A first test attempted mixed AudioInput layouts,
+which Core correctly rejects; physical app/mic mixing remains the Lab gate.
