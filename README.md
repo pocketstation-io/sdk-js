@@ -550,3 +550,8 @@ qualification and are removed before packaging.
 ## License
 
 MIT
+
+Readable Relay names may use short natural words such as `owl-sun`, `rice-river`,
+`silly-mountain` or `lemon-corpus`. They are navigation, not credentials: pass
+the complete generated share URL. Clients accept the retained legacy compound
+syntax without duplicating Relay's vocabulary or exposing a grammar prefix.

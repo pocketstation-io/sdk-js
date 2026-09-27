@@ -1424,3 +1424,18 @@ The final independent review also replaces the malformed publisher signal-URL
 parser diagnostic with a fixed message, avoiding runtime-dependent URL excerpts.
 A focused regression covers the unknown credential marker and absent raw cause.
 Control tests, typecheck and build pass; native/API behavior is unchanged.
+
+## 2026-09-27 — Relay short-word navigation compatibility
+
+Actual standalone Relay/browser qualification exposed a client mismatch: Relay
+now emits ordinary three-letter words, while SDK control and browser validators
+required four. Both parsers now accept 3–24 lowercase ASCII letters per word;
+the upper bound preserves retained legacy compounds. Clients do not duplicate
+Relay's vocabulary, generate names or derive permission from names.
+
+72 focused control/browser assertions pass, including actual response decoding
+for owl-sun and owl-sun-elm, requested natural examples, legacy compatibility,
+wrong/missing capabilities and malformed two-/25-letter or four-word locators.
+TypeScript build passes. The HTTP fixtures are MOCKED; exact packed consumer
+qualification against real standalone/managed services belongs to Lab. No new
+scaffold, native/API/dependency/version change. Inventory n/a. SAFE-TO-TEST.
