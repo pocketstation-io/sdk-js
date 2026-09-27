@@ -146,14 +146,14 @@ export interface SessionSnapshot {
   readonly codec: string;
 }
 
-/** Whether an invitation needs a separate private fragment secret. */
+/** @deprecated Selects two- or three-word formatting only; never authorization. */
 export type InvitationVisibility = 'public' | 'private';
 
 /** One time-limited exact-AudioBus receiver invitation. */
 export interface Invitation {
   readonly sessionId: SessionId;
   readonly busId: string;
-  readonly joinCode: string;
+  readonly joinCode: SecretToken;
   readonly joinUrl: SecretUrl | null;
   readonly shareAlias: string;
   readonly shareUrl: SecretUrl | null;
@@ -218,6 +218,9 @@ export interface CreateInvitationOptions extends ControlRequestOptions {
 
 /** Options for redeeming one invitation after an explicit user action. */
 export interface RedeemInvitationOptions extends ControlRequestOptions {
+  /** Original opaque delegated join credential required for a readable locator. */
+  readonly joinCode?: SecretToken;
+  /** @deprecated Alias of joinCode; accepts the same opaque credential only. */
   readonly secret?: SecretToken;
 }
 

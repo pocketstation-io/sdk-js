@@ -33,10 +33,10 @@ export class ControlClient {
     createInvitation(sessionId: string | SessionId, sourceToken: SecretToken, options: CreateInvitationOptions): Promise<Invitation>;
     createSession(options?: CreateSessionOptions): Promise<SessionCredentials>;
     deleteSession(sessionId: string | SessionId, sourceToken: SecretToken, options?: ControlRequestOptions): Promise<void>;
-    inspectInvitation(locator: string, options?: ControlRequestOptions): Promise<InvitationMetadata>;
+    inspectInvitation(locator: string | SecretToken, options?: ControlRequestOptions): Promise<InvitationMetadata>;
     issuePublisherCredentials(sessionId: string | SessionId, sourceToken: SecretToken, options: PublisherCredentialOptions): Promise<PublisherCredentials>;
     issueSubscriberCredentials(sessionId: string | SessionId, sourceToken: SecretToken, options?: BusCredentialOptions): Promise<SubscriberCredentials>;
-    redeemInvitation(locator: string, options?: RedeemInvitationOptions): Promise<RedeemedInvitation>;
+    redeemInvitation(locator: string | SecretToken, options?: RedeemInvitationOptions): Promise<RedeemedInvitation>;
     session(sessionId: string | SessionId, sourceToken: SecretToken, options?: ControlRequestOptions): Promise<SessionSnapshot>;
 }
 
@@ -99,7 +99,7 @@ export interface Invitation {
     // (undocumented)
     readonly expiresAt: string;
     // (undocumented)
-    readonly joinCode: string;
+    readonly joinCode: SecretToken;
     // (undocumented)
     readonly joinUrl: SecretUrl | null;
     // (undocumented)
@@ -127,7 +127,7 @@ export class InvitationUnavailableError extends ControlPlaneError {
     constructor();
 }
 
-// @public
+// @public @deprecated (undocumented)
 export type InvitationVisibility = 'public' | 'private';
 
 // @public
@@ -177,7 +177,8 @@ export interface RedeemedInvitation {
 
 // @public
 export interface RedeemInvitationOptions extends ControlRequestOptions {
-    // (undocumented)
+    readonly joinCode?: SecretToken;
+    // @deprecated (undocumented)
     readonly secret?: SecretToken;
 }
 

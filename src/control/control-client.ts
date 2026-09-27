@@ -202,10 +202,11 @@ export class ControlClient {
 
   /** Inspect safe invitation metadata without consuming the invitation. */
   public async inspectInvitation(
-    locator: string,
+    locator: string | SecretToken,
     options: ControlRequestOptions = {},
   ): Promise<InvitationMetadata> {
     const normalizedLocator = invitationLocator(locator);
+    if (/^[0-9a-f]{8}-/.test(normalizedLocator)) throw new RangeError('Inspection requires a readable navigation alias');
     let payload: JsonObject;
     try {
       payload = await this.#request(
@@ -224,22 +225,27 @@ export class ControlClient {
 
   /** Redeem one invitation exactly once through the consuming POST boundary. */
   public async redeemInvitation(
-    locator: string,
+    locator: string | SecretToken,
     options: RedeemInvitationOptions = {},
   ): Promise<RedeemedInvitation> {
     const normalizedLocator = invitationLocator(locator);
-    const secret = options.secret?.exposeSecret();
+    const suppliedJoinCode = redemptionJoinCode(options);
+    const opaqueLocator = /^[0-9a-f]{8}-/.test(normalizedLocator);
+    if (opaqueLocator && suppliedJoinCode !== undefined && suppliedJoinCode !== normalizedLocator) throw new InvitationUnavailableError();
+    const joinCode = opaqueLocator ? normalizedLocator : suppliedJoinCode;
+    if (joinCode === undefined) throw new InvitationUnavailableError();
+    const redactedValues = [normalizedLocator, joinCode];
     let payload: JsonObject;
     try {
       payload = await this.#request(
         'POST',
-        `v1/invitations/${encodeURIComponent(normalizedLocator)}/redeem`,
+        opaqueLocator ? 'v1/join' : `v1/join/${encodeURIComponent(normalizedLocator)}`,
         {
           expectedStatus: 200,
           expectJson: true,
           options,
-          jsonBody: secret === undefined ? {} : { secret },
-          redactedValues: secret === undefined ? [] : [secret],
+          jsonBody: { join_code: joinCode },
+          redactedValues,
         },
       );
     } catch (error) {
@@ -323,6 +329,9 @@ export class ControlClient {
           headers,
           body,
           signal: operation.signal,
+          redirect: 'error',
+          credentials: 'omit',
+          referrerPolicy: 'no-referrer',
         });
       } catch (error) {
         throw requestFailure(
@@ -828,26 +837,17 @@ function invitation(
   requestedBus: string,
 ): Invitation {
   const visibility = decodedInvitationVisibility(payload);
-  const joinCode = decodedInvitationLocator(payload, 'join_code');
-  const shareAlias = invitationAlias(
-    requiredString(payload, 'share_alias'),
-    visibility,
-  );
-  const joinUrl = invitationUrl(payload, 'join_url', `/join/${joinCode}`, visibility);
-  const shareUrl = invitationUrl(payload, 'share_url', `/${shareAlias}`, visibility);
-  const joinSecret = invitationUrlSecret(joinUrl, visibility);
-  const shareSecret = invitationUrlSecret(shareUrl, visibility);
-  if (
-    joinSecret !== null &&
-    shareSecret !== null &&
-    joinSecret !== shareSecret
-  ) {
-    throw responseDecode('control-plane invitation URLs contain different secrets');
+  const joinCode = decodedOpaqueJoinCode(payload);
+  const shareAlias = invitationAlias(requiredString(payload, 'share_alias'), visibility);
+  const joinUrl = invitationUrl(payload, 'join_url', '/join', joinCode);
+  const shareUrl = invitationUrl(payload, 'share_url', `/${shareAlias}`, joinCode);
+  if (joinUrl && shareUrl && new URL(joinUrl.exposeSecret()).origin !== new URL(shareUrl.exposeSecret()).origin) {
+    throw responseDecode('control-plane invitation URLs use different receiver origins');
   }
   return Object.freeze({
     sessionId,
     busId: requestedBus,
-    joinCode,
+    joinCode: new SecretToken(joinCode),
     joinUrl,
     shareAlias,
     shareUrl,
@@ -899,8 +899,8 @@ function decodedInvitationVisibility(payload: JsonObject): InvitationVisibility 
   }
 }
 
-function invitationLocator(value: string): string {
-  const locator = value.trim();
+function invitationLocator(value: string | SecretToken): string {
+  const locator = (value instanceof SecretToken ? value.exposeSecret() : value).trim();
   if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(locator)) {
     return locator;
   }
@@ -930,13 +930,29 @@ function invitationAlias(
   return alias;
 }
 
-function decodedInvitationLocator(payload: JsonObject, key: string): string {
-  try {
-    return invitationLocator(requiredString(payload, key));
-  } catch (error) {
-    if (error instanceof ControlPlaneError) throw error;
-    throw responseDecode(safeErrorMessage(error));
+function opaqueJoinCode(value: string): string {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value)) {
+    throw new RangeError('joinCode must be an opaque delegated join credential');
   }
+  return value;
+}
+
+function redemptionJoinCode(options: RedeemInvitationOptions): string | undefined {
+  for (const value of [options.joinCode, options.secret]) {
+    if (value !== undefined && !(value instanceof SecretToken)) throw new TypeError('joinCode must be a SecretToken');
+  }
+  const primary = options.joinCode?.exposeSecret();
+  const compatibility = options.secret?.exposeSecret();
+  if (primary !== undefined && compatibility !== undefined && primary !== compatibility) {
+    throw new RangeError('joinCode and deprecated secret alias disagree');
+  }
+  const value = primary ?? compatibility;
+  return value === undefined ? undefined : opaqueJoinCode(value);
+}
+
+function decodedOpaqueJoinCode(payload: JsonObject): string {
+  try { return opaqueJoinCode(requiredString(payload, 'join_code')); }
+  catch { throw responseDecode('control-plane join_code must be an opaque delegated credential'); }
 }
 
 function requiredExpiry(payload: JsonObject): string {
@@ -954,7 +970,7 @@ function invitationUrl(
   payload: JsonObject,
   field: 'join_url' | 'share_url',
   expectedPath: string,
-  visibility: InvitationVisibility,
+  joinCode: string,
 ): SecretUrl | null {
   const value = optionalString(payload, field);
   if (value === null || value.length === 0) return null;
@@ -973,14 +989,8 @@ function invitationUrl(
   ) {
     throw responseDecode(`control-plane ${field} has an invalid receiver URL`);
   }
-  const secret = parsed.hash.length === 0
-    ? null
-    : privateFragmentSecret(parsed.hash);
-  if (visibility === 'private' && secret === null) {
-    throw responseDecode(`control-plane private ${field} is missing its fragment secret`);
-  }
-  if (visibility === 'public' && secret !== null) {
-    throw responseDecode(`control-plane public ${field} must not contain a secret`);
+  if (joinFragmentCode(parsed.hash) !== joinCode) {
+    throw responseDecode(`control-plane ${field} does not contain its delegated join credential`);
   }
   try {
     return new SecretUrl(parsed.href);
@@ -989,27 +999,16 @@ function invitationUrl(
   }
 }
 
-function invitationUrlSecret(
-  value: SecretUrl | null,
-  visibility: InvitationVisibility,
-): string | null {
-  if (value === null || visibility === 'public') return null;
-  return privateFragmentSecret(new URL(value.exposeSecret()).hash);
-}
-
-function privateFragmentSecret(hash: string): string {
+function joinFragmentCode(hash: string): string {
   const parameters = new URLSearchParams(hash.slice(1));
   const keys: string[] = [];
   parameters.forEach((_value, key) => keys.push(key));
-  const secrets = parameters.getAll('secret');
-  if (
-    keys.some((key) => key !== 'secret') ||
-    secrets.length !== 1 ||
-    !/^[A-Za-z0-9_-]{22}$/.test(secrets[0] ?? '')
-  ) {
-    throw responseDecode('control-plane invitation fragment is invalid');
+  const values = parameters.getAll('join');
+  if (keys.some((key) => key !== 'join') || values.length !== 1) {
+    throw responseDecode('control-plane invitation fragment must contain one join credential');
   }
-  return secrets[0] as string;
+  try { return opaqueJoinCode(values[0] as string); }
+  catch { throw responseDecode('control-plane invitation fragment contains an invalid join credential'); }
 }
 
 function transportUrl(

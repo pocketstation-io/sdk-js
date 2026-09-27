@@ -27,7 +27,7 @@ The browser uses a separate export because it receives WebRTC audio and does
 not need the native addon:
 
 ```ts
-const receiver = new RelayReceiver({ controlUrl, joinCode });
+const receiver = new RelayReceiver({ locator: joinCode }, { controlPlaneUrl: controlUrl });
 audio.srcObject = await receiver.connect();
 ```
 

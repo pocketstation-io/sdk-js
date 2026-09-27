@@ -508,7 +508,7 @@ separate so browser builds never load a native addon:
 ```ts
 import { RelayReceiver } from "pocketstation/browser";
 
-const receiver = new RelayReceiver({ controlUrl, joinCode });
+const receiver = new RelayReceiver({ locator: joinCode }, { controlPlaneUrl: controlUrl });
 audio.srcObject = await receiver.connect();
 ```
 

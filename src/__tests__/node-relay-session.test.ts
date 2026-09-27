@@ -1,6 +1,6 @@
 import { inspect } from 'node:util';
 
-import { ControlClient, SecretUrl } from '../control/index.js';
+import { ControlClient, SecretToken, SecretUrl } from '../control/index.js';
 import {
   RelayError,
   RelaySession,
@@ -21,10 +21,10 @@ const createResponse = {
 const privateInvitationResponse = {
   join_code: '4a54c6b9-fdc2-4e0c-a740-715efdcf03de',
   join_url:
-    'https://receiver.example/join/4a54c6b9-fdc2-4e0c-a740-715efdcf03de#secret=abcdefghijklmnopqrstuv',
+    'https://receiver.example/join#join=4a54c6b9-fdc2-4e0c-a740-715efdcf03de',
   share_alias: 'quiet-willow-river',
   share_url:
-    'https://receiver.example/quiet-willow-river#secret=abcdefghijklmnopqrstuv',
+    'https://receiver.example/quiet-willow-river#join=4a54c6b9-fdc2-4e0c-a740-715efdcf03de',
   visibility: 'private',
   expires_at: '2026-09-21T18:00:00Z',
 };
@@ -92,16 +92,16 @@ describe('Node RelaySession composition', () => {
     expect(receiverActivation.snapshot.subscriptionCount).toBe(1);
     expect(invitation).toMatchObject({
       busId: 'application',
-      joinCode: '4a54c6b9-fdc2-4e0c-a740-715efdcf03de',
+      joinCode: expect.any(SecretToken),
       shareAlias: 'quiet-willow-river',
       visibility: 'private',
     });
     expect(invitation.joinUrl).toBeInstanceOf(SecretUrl);
     expect(invitation.shareUrl).toBeInstanceOf(SecretUrl);
     expect(invitation.exposeShareUrl()).toBe(privateInvitationResponse.share_url);
-    expect(JSON.stringify(invitation)).not.toContain('abcdefghijklmnopqrstuv');
-    expect(String(invitation)).not.toContain('abcdefghijklmnopqrstuv');
-    expect(inspect(invitation)).not.toContain('abcdefghijklmnopqrstuv');
+    expect(JSON.stringify(invitation)).not.toContain('4a54c6b9-fdc2-4e0c-a740-715efdcf03de');
+    expect(String(invitation)).not.toContain('4a54c6b9-fdc2-4e0c-a740-715efdcf03de');
+    expect(inspect(invitation)).not.toContain('4a54c6b9-fdc2-4e0c-a740-715efdcf03de');
     expect(invitation.sessionId.toString()).toBe('session_123');
     expect(remote.relayUrl).toBe('https://relay.example');
     expect(remote.toString()).not.toContain('source-secret');
@@ -221,21 +221,21 @@ describe('Node RelaySession composition', () => {
   it.each([
     [
       'wrong opaque-link path',
-      { join_url: 'https://receiver.example/join/00000000-0000-4000-8000-000000000000#secret=abcdefghijklmnopqrstuv' },
+      { join_url: 'https://receiver.example/join/00000000-0000-4000-8000-000000000000#join=4a54c6b9-fdc2-4e0c-a740-715efdcf03de' },
     ],
     [
       'query-bearing readable link',
-      { share_url: 'https://receiver.example/quiet-willow-river?token=leak#secret=abcdefghijklmnopqrstuv' },
+      { share_url: 'https://receiver.example/quiet-willow-river?token=leak#join=4a54c6b9-fdc2-4e0c-a740-715efdcf03de' },
     ],
     [
       'different private secrets',
-      { share_url: 'https://receiver.example/quiet-willow-river#secret=zyxwvutsrqponmlkjihgfe' },
+      { share_url: 'https://receiver.example/quiet-willow-river#join=zyxwvutsrqponmlkjihgfe' },
     ],
     [
       'public visibility with a three-word alias',
       {
         visibility: 'public',
-        join_url: 'https://receiver.example/join/4a54c6b9-fdc2-4e0c-a740-715efdcf03de',
+        join_url: 'https://receiver.example/join#join=4a54c6b9-fdc2-4e0c-a740-715efdcf03de',
         share_url: 'https://receiver.example/quiet-willow-river',
       },
     ],

@@ -73,21 +73,29 @@ The SDK does not implement authentication UI or agent authorization policy.
 
 ## Join with an invitation
 
-The normal browser flow starts with a one-time invitation from your application
-server or PocketStation control plane:
+Readable words navigate to the existing single-use join flow. Both two-word
+and three-word links carry the same kind of opaque credential in `#join=…`;
+words alone cannot authorize a receiver. The deprecated `visibility` setting
+only chooses word formatting. Treat every complete link as sensitive.
 
 ```ts
-import { RelayReceiver } from "pocketstation/browser";
+import { RelayReceiver, parseRelayInvitationLocation } from "pocketstation/browser";
 
-const receiver = new RelayReceiver({
-  controlUrl: "https://control.example.com",
-  joinCode,
+const invitation = parseRelayInvitationLocation(window.location.href);
+// Keep the parsed capability in memory and immediately remove it from the URL.
+window.history.replaceState(null, "", "/join");
+const receiver = new RelayReceiver(invitation, {
+  controlPlaneUrl: "https://control.example.com",
 });
-
 const audio = document.querySelector("audio");
 audio.srcObject = await receiver.connect();
 await audio.play();
 ```
+
+Readable redemption sends `POST /v1/join/{words}` with `join_code` in the JSON
+body. Direct opaque redemption sends `POST /v1/join` with the same body, so the
+credential stays out of HTTP URLs. `joinCode` is a redacted `SecretToken`;
+`secret` is a deprecated alias for that same credential, never a second factor.
 
 `connect()` resolves the invitation, opens Relay signaling, completes WebRTC
 negotiation, and returns after the selected audio track arrives. Its default

@@ -55,8 +55,10 @@ export interface RelayConnectOptions {
 
 // @public
 export interface RelayInvitation {
-    readonly locator: string;
-    readonly secret: SecretToken | null;
+    readonly joinCode?: SecretToken | null;
+    readonly locator: string | SecretToken;
+    // @deprecated (undocumented)
+    readonly secret?: SecretToken | null;
 }
 
 // @public

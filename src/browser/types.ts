@@ -30,10 +30,12 @@ export interface RelayPublisherAccess {
 
 /** A one-time invitation issued by the PocketStation control plane. */
 export interface RelayInvitation {
-  /** Opaque join code or two- or three-word share alias. */
-  readonly locator: string;
-  /** Private URL-fragment secret, absent for public invitations. */
-  readonly secret: SecretToken | null;
+  /** Readable navigation alias, or a redacted opaque join credential. */
+  readonly locator: string | SecretToken;
+  /** Original delegated credential; required for every readable word format. */
+  readonly joinCode?: SecretToken | null;
+  /** @deprecated Alias of joinCode, accepting the same opaque credential only. */
+  readonly secret?: SecretToken | null;
 }
 
 /** Receiver startup and shutdown settings. */
