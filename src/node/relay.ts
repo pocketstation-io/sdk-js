@@ -122,6 +122,9 @@ export interface RelayActivationOptions {
 /** Options for creating one receiver invitation. */
 export interface ReceiverInvitationOptions {
   readonly busId: string;
+  /** Choose a fixed name length; omit to use Relay allocation policy. */
+  readonly wordCount?: 2 | 3;
+  /** @deprecated Formatting only; cannot be combined with wordCount. */
   readonly visibility?: InvitationVisibility;
   readonly signal?: AbortSignal;
 }
@@ -270,6 +273,7 @@ export class RelaySession {
       {
         busId: options.busId,
         visibility: options.visibility,
+        wordCount: options.wordCount,
         timeoutMs: this.#requestTimeoutMs,
         signal: options.signal,
       },

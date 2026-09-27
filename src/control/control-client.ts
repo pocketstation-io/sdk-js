@@ -185,7 +185,14 @@ export class ControlClient {
   ): Promise<Invitation> {
     const identifier = sessionIdentifier(sessionId);
     const requestedBus = busId(options.busId, 'busId');
-    const visibility = invitationVisibility(options.visibility ?? 'private');
+    const visibility = options.visibility === undefined ? undefined : invitationVisibility(options.visibility);
+    const wordCount = options.wordCount;
+    if (wordCount !== undefined && wordCount !== 2 && wordCount !== 3) {
+      throw new RangeError('wordCount must be 2 or 3');
+    }
+    if (wordCount !== undefined && visibility !== undefined) {
+      throw new RangeError('wordCount and deprecated visibility cannot be combined');
+    }
     const payload = await this.#request(
       'POST',
       `v1/sessions/${encodeURIComponent(identifier.toString())}/invitations`,
@@ -194,7 +201,8 @@ export class ControlClient {
         expectJson: true,
         authorization: sourceToken,
         options,
-        jsonBody: { bus_id: requestedBus, visibility },
+        jsonBody: { bus_id: requestedBus, ...(visibility === undefined ? {} : { visibility }),
+          ...(wordCount === undefined ? {} : { word_count: wordCount }) },
       },
     );
     return invitation(payload, identifier, requestedBus);

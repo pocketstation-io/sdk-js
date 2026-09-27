@@ -62,7 +62,8 @@ export class RelaySession {
     record('publisher');
   }
   async createReceiverInvitation(options) {
-    assert.equal(options.visibility, 'private');
+    assert.equal(options.visibility, undefined);
+    assert.equal(options.wordCount, undefined);
     record(`invite:${options.busId}`);
     return {
       shareAlias: `${options.busId}-words`,

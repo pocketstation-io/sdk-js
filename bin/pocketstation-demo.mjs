@@ -132,7 +132,7 @@ async function main() {
         for (const busId of live.microphone === undefined
           ? ['application'] : ['application', 'microphone']) {
           const invitation = await remote.createReceiverInvitation({
-            busId, visibility: 'private', signal: abort.signal,
+            busId, signal: abort.signal,
           });
           console.log(arguments_.showPrivateLinks
             ? `Listen live (${busId}): ${invitation.exposeShareUrl()}`

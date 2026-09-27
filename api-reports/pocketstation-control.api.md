@@ -72,8 +72,9 @@ export interface ControlRequestOptions {
 export interface CreateInvitationOptions extends ControlRequestOptions {
     // (undocumented)
     readonly busId: string;
-    // (undocumented)
+    // @deprecated (undocumented)
     readonly visibility?: InvitationVisibility;
+    readonly wordCount?: 2 | 3;
 }
 
 // @public

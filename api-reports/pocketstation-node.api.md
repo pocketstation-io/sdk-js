@@ -2808,8 +2808,9 @@ export interface ReceiverInvitationOptions {
     readonly busId: string;
     // (undocumented)
     readonly signal?: AbortSignal;
-    // (undocumented)
+    // @deprecated (undocumented)
     readonly visibility?: InvitationVisibility;
+    readonly wordCount?: 2 | 3;
 }
 
 // @public
