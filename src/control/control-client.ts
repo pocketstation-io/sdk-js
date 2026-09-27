@@ -1,3 +1,4 @@
+import { isReadableInvitationLocator } from './invitation-locator.js';
 import { PocketStationError } from '../errors.js';
 import {
   SecretToken,
@@ -187,8 +188,8 @@ export class ControlClient {
     const requestedBus = busId(options.busId, 'busId');
     const visibility = options.visibility === undefined ? undefined : invitationVisibility(options.visibility);
     const wordCount = options.wordCount;
-    if (wordCount !== undefined && wordCount !== 2 && wordCount !== 3) {
-      throw new RangeError('wordCount must be 2 or 3');
+    if (wordCount !== undefined && (typeof wordCount !== 'number' || !Number.isInteger(wordCount) || wordCount < 2 || wordCount > 15)) {
+      throw new RangeError('wordCount must be an integer from 2 to 15');
     }
     if (wordCount !== undefined && visibility !== undefined) {
       throw new RangeError('wordCount and deprecated visibility cannot be combined');
@@ -205,7 +206,7 @@ export class ControlClient {
           ...(wordCount === undefined ? {} : { word_count: wordCount }) },
       },
     );
-    return invitation(payload, identifier, requestedBus);
+    return invitation(payload, identifier, requestedBus, wordCount ?? (visibility === undefined ? undefined : visibility === 'public' ? 2 : 3));
   }
 
   /** Inspect safe invitation metadata without consuming the invitation. */
@@ -830,10 +831,15 @@ function invitation(
   payload: JsonObject,
   sessionId: SessionId,
   requestedBus: string,
+  requestedWordCount?: number,
 ): Invitation {
   const visibility = decodedInvitationVisibility(payload);
   const joinCode = decodedOpaqueJoinCode(payload);
-  const shareAlias = invitationAlias(requiredString(payload, 'share_alias'), visibility);
+  const wordCount = decodedInvitationWordCount(payload, visibility);
+  if (requestedWordCount !== undefined && wordCount !== requestedWordCount) {
+    throw responseDecode('invitation word_count does not match the requested length');
+  }
+  const shareAlias = invitationAlias(requiredString(payload, 'share_alias'), wordCount);
   const joinUrl = invitationUrl(payload, 'join_url', '/join', joinCode);
   const shareUrl = invitationUrl(payload, 'share_url', `/${shareAlias}`, joinCode);
   if (joinUrl && shareUrl && new URL(joinUrl.exposeSecret()).origin !== new URL(shareUrl.exposeSecret()).origin) {
@@ -846,6 +852,7 @@ function invitation(
     joinUrl,
     shareAlias,
     shareUrl,
+    wordCount,
     visibility,
     expiresAt: requiredExpiry(payload),
   });
@@ -853,12 +860,14 @@ function invitation(
 
 function invitationMetadata(payload: JsonObject): InvitationMetadata {
   const visibility = decodedInvitationVisibility(payload);
+  const wordCount = decodedInvitationWordCount(payload, visibility);
   return Object.freeze({
     shareAlias: invitationAlias(
       requiredString(payload, 'share_alias'),
-      visibility,
+      wordCount,
     ),
     visibility,
+    wordCount,
     expiresAt: requiredExpiry(payload),
   });
 }
@@ -899,30 +908,28 @@ function invitationLocator(value: string | SecretToken): string {
   if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(locator)) {
     return locator;
   }
-  if (/^[a-z]{3,24}-[a-z]{3,24}(?:-[a-z]{3,24})?$/.test(locator)) {
+  if (isReadableInvitationLocator(locator)) {
     return locator;
   }
-  throw new RangeError('invitation locator must be an opaque code or a two- or three-word alias');
+  throw new RangeError('invitation locator must be an opaque code or a 2–15-word alias of at most 134 ASCII bytes');
 }
 
-function invitationAlias(
-  value: string,
-  visibility: InvitationVisibility,
-): string {
-  let alias: string;
-  try {
-    alias = invitationLocator(value);
-  } catch (error) {
-    throw responseDecode(safeErrorMessage(error));
+function decodedInvitationWordCount(payload: JsonObject, visibility: InvitationVisibility): number {
+  const count = 'word_count' in payload ? payload.word_count : visibility === 'public' ? 2 : 3;
+  if (typeof count !== 'number' || !Number.isInteger(count) || count < 2 || count > 15) {
+    throw responseDecode('invitation word_count must be an integer from 2 to 15');
   }
-  const wordCount = alias.split('-').length;
-  const expectedWords = visibility === 'public' ? 2 : 3;
-  if (wordCount !== expectedWords) {
-    throw responseDecode(
-      `${visibility} invitation share_alias must contain ${expectedWords} words`,
-    );
+  if ((visibility === 'public') !== (count === 2)) {
+    throw responseDecode('invitation visibility is inconsistent with word_count');
   }
-  return alias;
+  return count;
+}
+
+function invitationAlias(value: string, expectedWords: number): string {
+  if (!isReadableInvitationLocator(value) || value.split('-').length !== expectedWords) {
+    throw responseDecode('invitation share_alias does not match its word_count or syntax bounds');
+  }
+  return value;
 }
 
 function opaqueJoinCode(value: string): string {

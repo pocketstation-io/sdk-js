@@ -289,6 +289,7 @@ describe('ControlClient', () => {
     });
 
     expect(metadata).toEqual({
+      wordCount: 3,
       shareAlias: 'quiet-willow-river',
       visibility: 'private',
       expiresAt: '2026-09-26T18:00:00Z',
@@ -755,7 +756,7 @@ describe('Relay-owned name allocation preferences', () => {
   test('invalid or conflicting preference fails before any request', async () => {
     let requests = 0;
     const client = new ControlClient('https://service.example', { fetch: async () => { requests++;throw new Error('unexpected request'); } });
-    for (const options of [{ wordCount: 2 as const, visibility: 'public' as const }, { wordCount: 4 as unknown as 2 }, { wordCount: true as unknown as 2 }]) {
+    for (const options of [{ wordCount: 2 as const, visibility: 'public' as const }, { wordCount: 16 }, { wordCount: true as unknown as 2 }]) {
       await expect(client.createInvitation('session_123', new SecretToken('owner'), { busId: 'application', ...options })).rejects.toThrow(/wordCount/);
     }
     expect(requests).toBe(0);

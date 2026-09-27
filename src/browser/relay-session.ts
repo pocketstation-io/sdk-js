@@ -1,3 +1,4 @@
+import { isReadableInvitationLocator } from '../control/invitation-locator.js';
 import { PocketStationError } from '../errors.js';
 import { InvitationUnavailableError } from '../control/control-client.js';
 import { SecretToken, type IceServer } from '../control/types.js';
@@ -946,13 +947,13 @@ function validatedInvitationLocator(value: string | SecretToken): string {
   const locator = requiredText(value instanceof SecretToken ? value.exposeSecret() : value, 'invitation locator').trim();
   if (
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(locator) ||
-    /^[a-z]{3,24}-[a-z]{3,24}(?:-[a-z]{3,24})?$/.test(locator)
+    isReadableInvitationLocator(locator)
   ) {
     return locator;
   }
   throw new PocketStationError(
     'relay.invalid_invitation_location',
-    'Invitation locator must be an opaque code or a two- or three-word alias',
+    'Invitation locator must be an opaque code or a 2–15-word alias of at most 134 ASCII bytes',
   );
 }
 

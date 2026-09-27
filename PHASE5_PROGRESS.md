@@ -1467,3 +1467,30 @@ credential-bearing-link copy for both name formats. `--show-private-links`
 remains a deprecated, tested alias. Seven focused mocked CLI lifecycle cases
 and TypeScript pass. No control/native code changed after the full suite;
 package provenance is refreshed for this exact copy/flag change.
+
+
+## 2026-09-27 — C128 configurable two through fifteen word names
+
+Invitation options accept integer `wordCount` 2–15 while omission still delegates
+to Relay. Created invitations, preview metadata and ReceiverInvitation expose
+actual returned `wordCount`; deprecated visibility labels no longer imply three
+words when a count is present. Responses must match alias cardinality, label and
+any explicit requested count. Old responses missing count remain valid only for
+two/three-word formatting. Null, booleans, fractions, invalid ranges and combined
+count/visibility selectors fail before HTTP. Malformed response diagnostics do
+not retain unknown response credentials.
+
+Control and browser entry points share one private bounded syntax validator:
+2–15 lowercase 3–24-letter words and at most134ASCIIbytes. The long per-word
+compatibility bound preserves old compounds; Relay alone owns the dictionary,
+phrase construction and allocation policy. No authorization behavior changes.
+
+Validation: full38Jest suites/534cases including real whisper-cli PASS; final
+focused110cases PASS adds a fifteenth-word RelaySession forwarding/count test,
+so all535 current cases have executed. API reports/check, TypeScript build,
+docs, package exports and seven mocked demo CLI lifecycle cases PASS. Native
+production/conformance artifacts are unchanged Core1.1.12; production restored
+before packing. No new dependency/native/version/live scaffold; inventory n/a.
+CODE_PROTOCOL and whitespace review PASS. SAFE-TO-TEST pending installed final
+C128 Lab service qualification; no broad parity, physical/model-quality or WAN
+claim follows from mocked HTTP fixtures.
