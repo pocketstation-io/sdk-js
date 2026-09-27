@@ -160,6 +160,12 @@ async function main() {
     if (transcriptOutcome.status === 'failed' && !interrupted) {
       throw transcriptOutcome.error;
     }
+    for (const operator of outcome.metrics?.operators ?? []) {
+      const delivery = operator.inputDelivery;
+      console.log(`Model input ${operator.operatorInstanceId}: `
+        + `${delivery.framesDroppedTotal} dropped frames, `
+        + `${delivery.discontinuitiesTotal} discontinuities`);
+    }
     console.log({ application, sourceFrames: Object.fromEntries(sourceFrames), outcome });
     if (!outcome.success && !interrupted) {
       throw new Error('capture finalization failed; inspect the Session outcome');
