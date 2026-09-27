@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -63,6 +63,40 @@ try {
     /^pocketstation-demo: cannot execute local whisper\.cpp CLI/,
   );
   assert.doesNotMatch(missingExecutable.stderr, /\n\s+at /);
+
+  // Deterministic lifecycle regression, explicitly mocked: real media is a Lab gate.
+  for (const mode of ['redacted', 'exposed', 'early-stream', 'failed-outcome',
+    'close-failure', 'receiver-failure']) {
+    const trace = join(temporaryDirectory, `${mode}.txt`);
+    writeFileSync(trace, '');
+    const result = spawnSync(process.execPath, [
+      '--experimental-loader', './tests/fixtures/demo-cli/loader.mjs',
+      'bin/pocketstation-demo.mjs', 'Test App', '--model', model,
+      '--whisper-cli', process.execPath, '--microphone', '--relay', '--frames', '4',
+      ...(mode === 'exposed' ? ['--show-private-links'] : []),
+    ], {
+      cwd: root, encoding: 'utf8', timeout: 5_000,
+      env: { ...process.env, PKS_DEMO_TEST_MODE: mode, PKS_DEMO_TEST_TRACE: trace },
+    });
+    assert.equal(result.error, undefined, `${mode}: ${result.error}`);
+    assert.equal(result.status, ['redacted', 'exposed'].includes(mode) ? 0 : 1,
+      `${mode}: ${result.stderr}`);
+    const events = readFileSync(trace, 'utf8');
+    assert.match(events, /capture-close\nremote-close/);
+    if (mode !== 'early-stream') {
+      assert.match(events, /invite:application\ninvite:microphone/);
+    }
+    if (mode === 'exposed') {
+      assert.match(result.stdout, /Listen live \(application\): https:.*application-words#private-secret/);
+      assert.match(result.stdout, /Listen live \(microphone\): https:.*microphone-words#private-secret/);
+    } else {
+      assert.doesNotMatch(result.stdout + result.stderr, /#private-secret/);
+    }
+    if (mode === 'early-stream') assert.match(result.stderr, /audio stream ended/);
+    if (mode === 'failed-outcome') assert.match(result.stderr, /capture finalization failed/);
+    if (mode === 'receiver-failure') assert.match(events, /cancel/);
+  }
+
 } finally {
   rmSync(temporaryDirectory, { recursive: true, force: true });
 }
