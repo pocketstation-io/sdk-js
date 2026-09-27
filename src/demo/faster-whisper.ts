@@ -1,9 +1,3 @@
-import { execFile } from 'node:child_process';
-import { mkdtemp, open, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { promisify } from 'node:util';
-
 import { Capture } from '../node/capture.js';
 import {
   MediaCaps,
@@ -30,9 +24,11 @@ import {
   mono16Khz,
   type AudioWindow,
 } from './audio-windows.js';
+import { WINDOW_SIGNAL, encodeWindow, decodeWindow } from './window-signal.js';
 import { TRANSCRIPT_SIGNAL, Transcript } from './transcript.js';
 
-const executeFile = promisify(execFile);
+import { WhisperCliModel } from './whisper-cli-model.js';
+export { WhisperCliModel, readUtf8WithLimit } from './whisper-cli-model.js';
 
 /** One segment returned by a local Whisper implementation. */
 export interface WhisperSegment {
@@ -55,6 +51,8 @@ export interface WhisperResult {
 
 /** Interface used by the demo-owned batch transcription adapter. */
 export interface WhisperModel {
+  cancel?(): void | Promise<void>;
+  close?(): void | Promise<void>;
   transcribe(
     audio: Float32Array,
     options: {
@@ -67,6 +65,8 @@ export interface WhisperModel {
 /** Validated finite policy for the explicit local `whisper-cli` adapter. */
 export class WhisperTranscriberConfiguration {
   public readonly model: string;
+  /** Enable the local whisper-cli GPU backend; false selects a reproducible CPU profile. */
+  public readonly useGpu: boolean;
   public readonly cpuThreads: number;
   public readonly numWorkers: number;
   public readonly language: string | undefined;
@@ -85,6 +85,7 @@ export class WhisperTranscriberConfiguration {
 
   public constructor(options: {
     readonly model?: string;
+    readonly useGpu?: boolean;
     readonly cpuThreads?: number;
     readonly numWorkers?: number;
     readonly language?: string;
@@ -101,6 +102,8 @@ export class WhisperTranscriberConfiguration {
     readonly whisperCliExecutable?: string;
   } = {}) {
     this.model = nonEmpty(options.model ?? 'models/ggml-base.bin', 'model');
+    this.useGpu = options.useGpu ?? false;
+    if (typeof this.useGpu !== 'boolean') throw new TypeError('useGpu must be boolean');
     this.cpuThreads = integer(options.cpuThreads ?? 4, 'cpuThreads', 1, 64);
     this.numWorkers = integer(options.numWorkers ?? 1, 'numWorkers', 1, 16);
     this.language = optionalAscii(options.language, 'language');
@@ -155,58 +158,6 @@ export type WhisperModelFactory = (
 ) => WhisperModel | Promise<WhisperModel>;
 
 export type AudioConverter = (window: AudioWindow) => Float32Array;
-
-/**
- * Real local Whisper model backed by the installed `whisper-cli` executable.
- *
- * The model path is explicit. This adapter never downloads a model or mutates
- * the application's model cache.
- */
-export class WhisperCliModel implements WhisperModel {
-  readonly #configuration: WhisperTranscriberConfiguration;
-
-  public constructor(configuration: WhisperTranscriberConfiguration) {
-    this.#configuration = configuration;
-  }
-
-  public async transcribe(
-    audio: Float32Array,
-    options: {
-      readonly beamSize: number;
-      readonly language: string | undefined;
-    },
-  ): Promise<WhisperResult> {
-    const directory = await mkdtemp(join(tmpdir(), 'pks-whisper-'));
-    const input = join(directory, 'input.wav');
-    const output = join(directory, 'transcript');
-    try {
-      await writeFile(input, pcm16Wave(audio, 16_000));
-      const argumentsList = [
-        '-m', this.#configuration.model,
-        '-f', input,
-        '-oj',
-        '-of', output,
-        '-np',
-        '-t', String(this.#configuration.cpuThreads),
-        '-p', String(this.#configuration.numWorkers),
-        '-bs', String(options.beamSize),
-        '-l', options.language ?? 'auto',
-      ];
-      await executeFile(this.#configuration.whisperCliExecutable, argumentsList, {
-        timeout: Math.round(this.#configuration.inferenceTimeoutS * 1_000),
-        maxBuffer: this.#configuration.maximumOutputBytes,
-      });
-      const encoded = await readUtf8WithLimit(
-        `${output}.json`,
-        this.#configuration.maximumOutputBytes,
-      );
-      const value = JSON.parse(encoded) as unknown;
-      return whisperCliResult(value);
-    } finally {
-      await rm(directory, { recursive: true, force: true });
-    }
-  }
-}
 
 /** Demo-owned source-aware local `whisper-cli` transcription integration. */
 export class WhisperTranscriber {
@@ -276,15 +227,40 @@ export class WhisperTranscriber {
     session: Session,
     streams: Iterable<Stem | SourceOutput | DerivedStream>,
   ): BusSubscription {
-    const instance = session.registerOperator(this.provider()).declare();
-    const input = instance.input('audio');
-    let attached = 0;
-    for (const stream of streams) {
-      stream.connect(input);
-      attached += 1;
+    const selected = [...streams];
+    if (selected.length === 0) throw new TypeError('transcription requires at least one input stream');
+    if (selected.length > this.configuration.maximumSources) throw new RangeError('maximum transcription sources exceeded');
+    const configuration = this.configuration;
+    const windowRegistration = session.registerOperator(OperatorProvider.withNode(new OperatorManifest({
+      operatorId: 'community.whisper.windows.v1',
+      inputs: this.manifest.inputs,
+      outputs: [PortSpec.output('window', WINDOW_SIGNAL)],
+      queueCapacitySignals: configuration.queueCapacitySignals,
+      drainQueued: false,
+    }), () => new WindowNode(configuration, this.#audioConverter)));
+    const windowsByStream = selected.map(() => windowRegistration.declare());
+    const inference = session.registerOperator(OperatorProvider.withNode(new OperatorManifest({
+      operatorId: 'community.whisper.inference.v1',
+      inputs: [PortSpec.input('window', WINDOW_SIGNAL, { multiplicity: Multiplicity.MANY })],
+      outputs: this.manifest.outputs,
+      queueCapacitySignals: 8,
+      processTimeoutMs: this.manifest.processTimeoutMs,
+      filesystemAllowed: true,
+      drainQueued: false,
+      terminalRoles: this.manifest.terminalRoles,
+    }), async () => new WindowInferenceNode(new WhisperTranscriberNode(
+      configuration, await this.#modelFactory(configuration), this.#audioConverter,
+    )), { deadlines: new OperatorDeadlines({
+      createMs: Math.round(configuration.createTimeoutS * 1_000),
+      processMs: Math.round((configuration.inferenceTimeoutS + 0.5) * 1_000),
+      closeMs: 5_000,
+    }) })).declare();
+    for (const [index, stream] of selected.entries()) {
+      const windows = windowsByStream[index]!;
+      stream.connect(windows.input('audio'));
+      windows.output('window').connect(inference.input('window'));
     }
-    if (attached === 0) throw new TypeError('transcription requires at least one input stream');
-    return session.subscribe(instance.output('transcript'), { signal: TRANSCRIPT_SIGNAL });
+    return session.subscribe(inference.output('transcript'), { signal: TRANSCRIPT_SIGNAL });
   }
 
   public transcribe(capture: Capture): AsyncGenerator<Transcript> {
@@ -303,6 +279,37 @@ async function* decodeTranscripts(
     }
     yield Transcript.fromJson(envelope.payload.text);
   }
+}
+
+class WindowNode implements AuthoredOperatorNode {
+  readonly #windows: AudioWindowBuffer;
+  readonly #convert: AudioConverter;
+  public constructor(configuration: WhisperTranscriberConfiguration, convert: AudioConverter) {
+    this.#windows = new AudioWindowBuffer(configuration);
+    this.#convert = convert;
+  }
+  public process(input: string, envelope: SignalEnvelope): readonly OperatorEmission[] {
+    if (input !== 'audio') throw new TypeError('unexpected window input');
+    return this.#emit(this.#windows.push(envelope));
+  }
+  public flush(): readonly OperatorEmission[] { return this.#emit(this.#windows.flush()); }
+  public cancel(): void { this.#windows.clear(); }
+  public close(): void { this.cancel(); }
+  #emit(windows: readonly AudioWindow[]): readonly OperatorEmission[] {
+    return windows.map((window) => OperatorEmission.bytes(encodeWindow(window, this.#convert(window)), { signal: WINDOW_SIGNAL }));
+  }
+}
+
+class WindowInferenceNode implements AuthoredOperatorNode {
+  readonly #node: WhisperTranscriberNode;
+  public constructor(node: WhisperTranscriberNode) { this.#node = node; }
+  public async process(input: string, envelope: SignalEnvelope): Promise<readonly OperatorEmission[]> {
+    if (input !== 'window' || envelope.payload.kind !== 'bytes') throw new TypeError('invalid inference window input');
+    const { window, audio, durationMs } = decodeWindow(envelope.payload.data);
+    return [await this.#node.transcribeWindow(window, audio, durationMs)];
+  }
+  public async cancel(): Promise<void> { await this.#node.cancel(); }
+  public async close(): Promise<void> { await this.#node.close(); }
 }
 
 class WhisperTranscriberNode implements AuthoredOperatorNode {
@@ -332,7 +339,7 @@ class WhisperTranscriberNode implements AuthoredOperatorNode {
   ): Promise<readonly OperatorEmission[]> {
     if (inputPort !== 'audio') throw new TypeError(`unexpected input port: ${inputPort}`);
     if (this.#cancelled) throw new Error('transcription Operator is cancelled');
-    return await Promise.all(this.#windows.push(envelope).map((window) => this.#transcribe(window)));
+    return await Promise.all(this.#windows.push(envelope).map((window) => this.transcribeWindow(window)));
   }
 
   public async flush(): Promise<readonly OperatorEmission[]> {
@@ -340,30 +347,38 @@ class WhisperTranscriberNode implements AuthoredOperatorNode {
       this.#windows.clear();
       return [];
     }
-    return await Promise.all(this.#windows.flush().map((window) => this.#transcribe(window)));
+    return await Promise.all(this.#windows.flush().map((window) => this.transcribeWindow(window)));
   }
 
-  public cancel(): void {
+  public async cancel(): Promise<void> {
     this.#cancelled = true;
     this.#windows.clear();
+    await this.#model.cancel?.();
   }
 
-  public close(): void {
-    this.cancel();
+  public async close(): Promise<void> {
+    await this.cancel();
+    await this.#model.close?.();
   }
 
-  async #transcribe(window: AudioWindow): Promise<OperatorEmission> {
+  public async transcribeWindow(window: AudioWindow, preparedAudio?: Float32Array, durationMs?: number): Promise<OperatorEmission> {
+    if (this.#cancelled) throw new Error('transcription Operator is cancelled');
     const started = process.hrtime.bigint();
-    const result = await this.#model.transcribe(this.#audioConverter(window), {
-      beamSize: this.#configuration.beamSize,
-      language: this.#configuration.language,
-    });
+    const duration = durationMs ?? Math.round(window.samples.length * 1_000 / (window.sampleRateHz * window.channelCount));
+    const tooShort = duration < Math.min(0.5, this.#configuration.windowSeconds) * 1_000;
+    const result = tooShort ? { segments: [], info: { language: this.#configuration.language ?? 'unknown', languageProbability: 0 } }
+      : await this.#model.transcribe(preparedAudio ?? this.#audioConverter(window), {
+        beamSize: this.#configuration.beamSize,
+        language: this.#configuration.language,
+      });
+    if (this.#cancelled) throw new Error('transcription Operator is cancelled');
     const transcript = {
+      processing_outcome: tooShort ? 'skipped-short-window' : 'transcribed',
       channel_count: window.channelCount,
       clock_id: window.clockId,
       discontinuity_epoch: decimalInteger(window.discontinuityEpoch),
       discontinuity_reasons: window.discontinuityReasons,
-      duration_ms: Math.round(
+      duration_ms: durationMs ?? Math.round(
         window.samples.length * 1_000 / (window.sampleRateHz * window.channelCount),
       ),
       inference_duration_ns: decimalInteger(process.hrtime.bigint() - started),
@@ -396,90 +411,6 @@ class WhisperTranscriberNode implements AuthoredOperatorNode {
     }
     return OperatorEmission.text(encoded, { signal: TRANSCRIPT_SIGNAL });
   }
-}
-
-export async function readUtf8WithLimit(path: string, maximumBytes: number): Promise<string> {
-  const file = await open(path, 'r');
-  try {
-    const metadata = await file.stat();
-    if (metadata.size > maximumBytes) {
-      throw new RangeError('whisper-cli transcript exceeds maximumOutputBytes');
-    }
-
-    const bytes = Buffer.allocUnsafe(maximumBytes + 1);
-    let offset = 0;
-    while (offset < bytes.length) {
-      const { bytesRead } = await file.read(bytes, offset, bytes.length - offset, offset);
-      if (bytesRead === 0) break;
-      offset += bytesRead;
-    }
-    if (offset > maximumBytes) {
-      throw new RangeError('whisper-cli transcript exceeds maximumOutputBytes');
-    }
-    return bytes.subarray(0, offset).toString('utf8');
-  } finally {
-    await file.close();
-  }
-}
-
-function pcm16Wave(samples: Float32Array, sampleRateHz: number): Uint8Array {
-  const bytes = new Uint8Array(44 + samples.length * 2);
-  const view = new DataView(bytes.buffer);
-  ascii(bytes, 0, 'RIFF');
-  view.setUint32(4, 36 + samples.length * 2, true);
-  ascii(bytes, 8, 'WAVE');
-  ascii(bytes, 12, 'fmt ');
-  view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true);
-  view.setUint16(22, 1, true);
-  view.setUint32(24, sampleRateHz, true);
-  view.setUint32(28, sampleRateHz * 2, true);
-  view.setUint16(32, 2, true);
-  view.setUint16(34, 16, true);
-  ascii(bytes, 36, 'data');
-  view.setUint32(40, samples.length * 2, true);
-  for (let index = 0; index < samples.length; index += 1) {
-    const sample = Math.max(-1, Math.min(1, samples[index] ?? 0));
-    view.setInt16(44 + index * 2, Math.round(sample * (sample < 0 ? 32_768 : 32_767)), true);
-  }
-  return bytes;
-}
-
-function ascii(bytes: Uint8Array, offset: number, value: string): void {
-  for (let index = 0; index < value.length; index += 1) bytes[offset + index] = value.charCodeAt(index);
-}
-
-function whisperCliResult(value: unknown): WhisperResult {
-  if (value === null || typeof value !== 'object') throw new TypeError('whisper-cli returned invalid JSON');
-  const record = value as Record<string, unknown>;
-  const transcription = record.transcription;
-  if (!Array.isArray(transcription)) throw new TypeError('whisper-cli JSON has no transcription array');
-  const segments = transcription.map((item): WhisperSegment => {
-    if (item === null || typeof item !== 'object') throw new TypeError('invalid whisper-cli segment');
-    const segment = item as Record<string, unknown>;
-    const offsets = segment.offsets;
-    const timing = offsets !== null && typeof offsets === 'object'
-      ? offsets as Record<string, unknown>
-      : {};
-    return {
-      start: finiteNumber(timing.from, 'segment offset from') / 1_000,
-      end: finiteNumber(timing.to, 'segment offset to') / 1_000,
-      text: typeof segment.text === 'string' ? segment.text : '',
-    };
-  });
-  const result = record.result;
-  const resultRecord = result !== null && typeof result === 'object'
-    ? result as Record<string, unknown>
-    : {};
-  return {
-    segments,
-    info: {
-      language: typeof resultRecord.language === 'string' ? resultRecord.language : 'unknown',
-      languageProbability: typeof resultRecord.language_probability === 'number'
-        ? resultRecord.language_probability
-        : 0,
-    },
-  };
 }
 
 function decimalInteger(value: bigint): string {
@@ -517,7 +448,3 @@ function finite(value: number, name: string, minimum: number, maximum: number): 
   return value;
 }
 
-function finiteNumber(value: unknown, name: string): number {
-  if (typeof value !== 'number' || !Number.isFinite(value)) throw new TypeError(`${name} must be finite`);
-  return value;
-}

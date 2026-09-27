@@ -1511,3 +1511,24 @@ expected to fail retention and the exact rebuilt Core8aa addon gate is pending.
 Python equivalent now passes the two-source final-tail/lineage regression.
 This step is SAFE-TO-TEST pending exact native rebuild, not a model-quality or
 physical-device claim. Scaffold inventory n/a; no mock production path added.
+
+
+## W21 bounded live model assembly and owned child shutdown — iteration129
+
+The default attach/attachMany path declares one window assembler per stem and
+one shared inference Operator. This prevents slow inference from blocking audio
+frame assembly. A finite mono16k PCM16 window boundary preserves source/time
+metadata; short fragments emit skipped-short-window duration rather than invoke
+the model. Typed Transcript exposes duration/outcome/inference timing. Five-second
+CPU windows are default; explicit --gpu opts in, --no-gpu states CPU selection.
+The CLI child is owned, killed and joined on close; temporary audio is removed
+only after child exit. The demo listens for owner renewal failure and aborts its
+owned capture. Low-level direct providers remain documented separately.
+
+Validation: typecheck, API update, docs, mocked CLI lifecycle, bounded codec and
+owned-child cancellation regressions pass. Per-stem native EOF/lineage proof
+awaits rebuilt Core8aa addon; Python same graph passes. Prior failed ordinary
+model and split diagnostics remain in iteration129 evidence. No semantic/latency
+or physical proof is inferred from these tests; exact installed real-model gates
+follow. New queue values remain bounded by existing Core edges and1MiB payloads.
+No provider code moves into Core; no production scaffold added. SAFE-TO-TEST.

@@ -78,10 +78,31 @@ try {
 }
 ```
 
-Application and microphone frames retain independent Source identity while one
-bounded Operator owns the model. Transcript identity and nanosecond timestamps
-use decimal strings on the JSON wire so JavaScript does not truncate 64-bit
-values; the typed `Transcript` converts them back to `bigint`.
+`attachMany` gives each selected stem its own window assembler and feeds their
+complete windows to one shared inference Operator. Inference never blocks frame
+assembly. Core's audio input edges hold eight frames; typed window edges hold
+eight windows per producer. `queueCapacitySignals` describes the authoring
+manifest, not a request to enlarge Core's compiled audio edges. If inference
+cannot keep up, window-route drops remain visible in Session metrics while
+recording and Relay continue independently.
+
+The private window boundary stores mono 16 kHz PCM16 plus original source and
+time metadata, bounded to 1 MiB per value (up to 30 seconds). PCM conversion is
+finite and clipped to [-1, 1]. Five-second CPU windows are the default; `useGpu`
+or the demo CLI `--gpu` opts into GPU execution, while `--no-gpu` explicitly
+selects CPU. Windows shorter than 500 ms (or a smaller configured window) emit
+`processing_outcome: "skipped-short-window"` without invoking the model. Their
+duration remains visible and must not be counted as transcribed coverage.
+
+Call `stop()` and keep draining the transcript subscription through EOF before
+closing it. Graceful completion flushes each stem's tail; abort discards queued
+model work. The CLI model owns and joins its child process on close, including
+cancellation. The low-level `provider()` remains a direct single-Operator adapter;
+use `attach`/`attachMany` for independently drained live stems.
+
+Transcript identity and nanosecond timestamps use decimal strings on the JSON
+wire so JavaScript does not truncate 64-bit values. Typed `Transcript` also exposes
+optional `processingOutcome`, `durationMs`, and `inferenceDurationNs` fields.
 
 ## Verify the integration
 

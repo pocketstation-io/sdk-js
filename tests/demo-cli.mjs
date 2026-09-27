@@ -10,6 +10,11 @@ const help = run('--help');
 assert.equal(help.status, 0, help.stderr);
 assert.match(help.stdout, /Usage: pocketstation-demo/);
 assert.match(help.stdout, /--microphone/);
+assert.match(help.stdout, /--no-gpu/);
+assert.match(help.stdout, /--gpu/);
+const conflictingBackend = run('--gpu', '--no-gpu');
+assert.equal(conflictingBackend.status, 1);
+assert.match(conflictingBackend.stderr, /--gpu and --no-gpu conflict/);
 assert.match(help.stdout, /--relay/);
 assert.match(help.stdout, /--show-links\s+print credential-bearing/);
 assert.match(help.stdout, /--show-private-links\s+deprecated alias/);
@@ -74,7 +79,7 @@ try {
     const result = spawnSync(process.execPath, [
       '--experimental-loader', './tests/fixtures/demo-cli/loader.mjs',
       'bin/pocketstation-demo.mjs', 'Test App', '--model', model,
-      '--whisper-cli', process.execPath, '--microphone', '--relay', '--frames', '4',
+      '--whisper-cli', process.execPath, '--no-gpu', '--microphone', '--relay', '--frames', '4',
       ...(mode === 'exposed' ? ['--show-links'] : []),
       ...(mode === 'legacy-exposed' ? ['--show-private-links'] : []),
     ], {

@@ -229,6 +229,9 @@ export function resample(samples: Float32Array, sourceRateHz: number, targetRate
 // @public
 export class Transcript {
     constructor(options: {
+        readonly processingOutcome?: string;
+        readonly durationMs?: number;
+        readonly inferenceDurationNs?: bigint;
         readonly sourceId: bigint;
         readonly text: string;
         readonly language: string;
@@ -239,9 +242,14 @@ export class Transcript {
     // (undocumented)
     readonly discontinuityReasons: readonly string[];
     // (undocumented)
+    readonly durationMs: number | undefined;
+    // (undocumented)
     static fromJson(payload: string): Transcript;
     // (undocumented)
+    readonly inferenceDurationNs: bigint | undefined;
+    // (undocumented)
     readonly language: string;
+    readonly processingOutcome: string | undefined;
     // (undocumented)
     readonly sourceId: bigint;
     // (undocumented)
@@ -272,6 +280,10 @@ export class TranscriptProgress {
 export class WhisperCliModel implements WhisperModel {
     constructor(configuration: WhisperTranscriberConfiguration);
     // (undocumented)
+    cancel(): void;
+    // (undocumented)
+    close(): Promise<void>;
+    // (undocumented)
     transcribe(audio: Float32Array, options: {
         readonly beamSize: number;
         readonly language: string | undefined;
@@ -288,6 +300,10 @@ export interface WhisperInfo {
 
 // @public
 export interface WhisperModel {
+    // (undocumented)
+    cancel?(): void | Promise<void>;
+    // (undocumented)
+    close?(): void | Promise<void>;
     // (undocumented)
     transcribe(audio: Float32Array, options: {
         readonly beamSize: number;
@@ -351,6 +367,7 @@ export class WhisperTranscriber {
 export class WhisperTranscriberConfiguration {
     constructor(options?: {
         readonly model?: string;
+        readonly useGpu?: boolean;
         readonly cpuThreads?: number;
         readonly numWorkers?: number;
         readonly language?: string;
@@ -391,6 +408,7 @@ export class WhisperTranscriberConfiguration {
     readonly numWorkers: number;
     // (undocumented)
     readonly queueCapacitySignals: number;
+    readonly useGpu: boolean;
     // (undocumented)
     readonly whisperCliExecutable: string;
     // (undocumented)
