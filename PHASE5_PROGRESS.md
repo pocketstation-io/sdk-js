@@ -1345,3 +1345,24 @@ No new scaffold, mock or provider; no release, deployment or hardware claim.
 Pre-commit validation: all 58 focused control/browser assertions, TypeScript,
 public API reports, 24-document check and both example compilation gates pass.
 Full native-backed suite and installed memory proof remain acceptance gates.
+
+## 2026-09-27: Candidate 124 live demo integration repair
+
+The packaged demo used a 10 ms Capture with a 20 ms Whisper input declaration,
+printed a SecretUrl through redacted conversion, issued only one invitation,
+and waited for a receiver before draining its bounded audio stream. It now
+uses 480 samples per 48 kHz frame, drains during activation, counts its requested
+frames after receiver activation, and issues private application/microphone
+invitations separately. Links remain redacted unless --show-private-links is
+explicitly requested. Early audio termination and unsuccessful finalization
+exit nonzero; remote cleanup runs even if capture close fails.
+
+Validation: existing CLI argument checks plus six explicit MOCKED lifecycle
+regressions exercise these branches, including receiver failure and capture
+close failure. Real capture/browser/model evidence belongs to the parallel
+Candidate 124 Lab run and remains pending. Package exports pass. Initial packed
+consumer invocation lacked native-dist in the new worktree; staging the exact
+unchanged accepted production binary is the prerequisite for its rerun.
+Packed consumer rerun and the 24-document check pass.
+No version, native/Core code, provider, dependency, hot path or live scaffold
+change. This remains SAFE-TO-TEST until the real-path Lab proof is accepted.

@@ -28,6 +28,7 @@ Options:
   --microphone           capture and transcribe the default microphone
   --record-to <path>     write independent application and microphone WAV Stems
   --relay                publish each Stem to a named Relay AudioBus
+  --show-private-links   print private receiver links for sharing (keep output private)
   --frames <count>       stop after this many local frames (default: ${DEFAULT_FRAME_LIMIT})
   --help                 show this help
 
@@ -74,7 +75,9 @@ async function main() {
     frameDurationMs: 10,
   });
   const transcription = new WhisperTranscriber(
-    new WhisperTranscriberConfiguration({ model, whisperCliExecutable }),
+    new WhisperTranscriberConfiguration({
+      model, whisperCliExecutable, inputFrameSamplesPerChannel: 480,
+    }),
   );
   // The Operator and its routes must be declared before Session.start().
   const transcriptSubscription = transcription.attachMany(live.session, live.stems);
@@ -114,19 +117,37 @@ async function main() {
       (error) => ({ operation: 'transcription', status: 'failed', error }),
     );
 
-    if (remote !== undefined) {
-      const invitation = await remote.waitForPublisherAndInvitation({
-        timeoutMs: 30_000,
-        signal: abort.signal,
-      });
-      console.log(`Listen live: ${invitation.joinUrl}`);
-      await remote.waitForReceiver({ timeoutMs: 30_000, signal: abort.signal });
-    }
-
-    const frameResult = countFrames(live, arguments_.frames, abort.signal).then(
+    // Drain immediately while control-plane activation is pending. The frame
+    // limit starts after a receiver joins, so setup cannot consume the demo.
+    let receiverReady = remote === undefined;
+    const frameResult = countFrames(
+      live, arguments_.frames, abort.signal, () => receiverReady,
+    ).then(
       (sourceFrames) => ({ operation: 'frames', status: 'complete', sourceFrames }),
       (error) => ({ operation: 'frames', status: 'failed', error }),
     );
+    if (remote !== undefined) {
+      const activation = (async () => {
+        await remote.waitForPublisher({ timeoutMs: 30_000, signal: abort.signal });
+        for (const busId of live.microphone === undefined
+          ? ['application'] : ['application', 'microphone']) {
+          const invitation = await remote.createReceiverInvitation({
+            busId, visibility: 'private', signal: abort.signal,
+          });
+          console.log(arguments_.showPrivateLinks
+            ? `Listen live (${busId}): ${invitation.exposeShareUrl()}`
+            : `Receiver (${busId}): ${invitation.shareAlias} [private link redacted; use --show-private-links]`);
+        }
+        await remote.waitForReceiver({ timeoutMs: 30_000, signal: abort.signal });
+        receiverReady = true;
+        return { operation: 'activation' };
+      })();
+      const setup = await Promise.race([activation, frameResult, transcriptResult]);
+      if (setup.operation !== 'activation') {
+        if (setup.status === 'failed') throw setup.error;
+        throw new Error(`${setup.operation} ended before receiver activation`);
+      }
+    }
     const firstResult = await Promise.race([frameResult, transcriptResult]);
     if (firstResult.operation === 'transcription') {
       if (firstResult.status === 'failed') throw firstResult.error;
@@ -140,6 +161,9 @@ async function main() {
       throw transcriptOutcome.error;
     }
     console.log({ application, sourceFrames: Object.fromEntries(sourceFrames), outcome });
+    if (!outcome.success && !interrupted) {
+      throw new Error('capture finalization failed; inspect the Session outcome');
+    }
     if (interrupted) process.exitCode = 130;
   } catch (error) {
     if (live.isRunning) await live.cancel();
@@ -151,8 +175,11 @@ async function main() {
   } finally {
     abort.abort();
     process.removeListener('SIGINT', interrupt);
-    await live.close();
-    await remote?.close();
+    try {
+      await live.close();
+    } finally {
+      await remote?.close();
+    }
   }
 }
 
@@ -166,15 +193,17 @@ async function printTranscripts(live, subscription, signal) {
   }
 }
 
-async function countFrames(live, frameLimit, signal) {
+async function countFrames(live, frameLimit, signal, receiverReady) {
   const sourceFrames = new Map();
   let frames = 0;
   for await (const frame of live.audioBatches({ signal })) {
+    if (!receiverReady()) continue;
     const source = frame.sourceId.toString();
     sourceFrames.set(source, (sourceFrames.get(source) ?? 0) + 1);
     frames += 1;
     if (frames >= frameLimit) break;
   }
+  if (frames < frameLimit) throw new Error('audio stream ended before the capture frame limit');
   return sourceFrames;
 }
 
@@ -184,6 +213,7 @@ function parseArguments(values) {
     microphone: false,
     recordTo: undefined,
     relay: false,
+    showPrivateLinks: false,
     frames: DEFAULT_FRAME_LIMIT,
     model: undefined,
     whisperCli: undefined,
@@ -194,6 +224,8 @@ function parseArguments(values) {
       result.microphone = true;
     } else if (value === '--relay') {
       result.relay = true;
+    } else if (value === '--show-private-links') {
+      result.showPrivateLinks = true;
     } else if (value === '--record-to') {
       result.recordTo = requiredValue(values, ++index, value);
     } else if (value === '--model') {
