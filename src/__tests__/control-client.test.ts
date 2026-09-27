@@ -426,7 +426,7 @@ describe('ControlClient', () => {
     );
     expect(httpError).toBeInstanceOf(ControlPlaneError);
     expect(httpError.message).not.toContain('must-not-leak');
-    expect(httpError.message).toContain('[redacted]');
+    expect(httpError.message).toBe('control-plane returned HTTP 401');
     expect((httpError as ControlPlaneError).statusCode).toBe(401);
 
     const transportClient = new ControlClient('https://control.example', {
@@ -438,7 +438,7 @@ describe('ControlClient', () => {
       transportClient.deleteSession('session_123', token),
     );
     expect(transportError.message).not.toContain('must-not-leak');
-    expect(transportError.message).toContain('[redacted]');
+    expect(transportError.message).toBe('control-plane request failed');
 
     const streamClient = new ControlClient('https://control.example', {
       fetch: async () =>
@@ -455,8 +455,31 @@ describe('ControlClient', () => {
       streamClient.deleteSession('session_123', token),
     );
     expect(streamError.message).not.toContain('must-not-leak');
-    expect(streamError.message).toContain('[redacted]');
+    expect(streamError.message).toBe('control-plane response body failed');
   });
+
+  test.each(['HTTP', 'transport', 'stream'])(
+    'given unknown credentials in %s failure when reporting then no untrusted details escape',
+    async (scenario) => {
+      const unknownCredential = 'NEWLY_ISSUED_CREDENTIAL';
+      const client = new ControlClient('https://control.example', {
+        fetch: async () => {
+          if (scenario === 'transport') throw new Error(unknownCredential);
+          if (scenario === 'HTTP') return jsonResponse(500, { subscriber_token: unknownCredential });
+          return new Response(new ReadableStream({ start(controller) {
+            controller.error(new Error(unknownCredential));
+          } }), { status: 201 });
+        },
+      });
+      const error = await rejected(client.createSession());
+      expect(error).toBeInstanceOf(ControlPlaneError);
+      expect(inspect(error)).not.toContain(unknownCredential);
+      expect(error.cause).toBeUndefined();
+      if (scenario === 'HTTP') expect(error).toMatchObject({statusCode: 500, code: 'control.http_status'});
+      else expect(error).toMatchObject({code: 'control.request'});
+      client.close();
+    },
+  );
 
   test.each(['', '../escape', 'with/slash', 'café'])(
     'rejects unsafe Session identifier %p',
@@ -545,6 +568,34 @@ describe('ControlClient', () => {
     });
     await expect(client.createSession()).rejects.toMatchObject({ code });
   });
+
+  test.each(['known authorization', 'newly issued credential'])(
+    'given malformed JSON containing %s when decoding then diagnostics omit response bytes',
+    async (scenario) => {
+      const sensitive = scenario === 'known authorization' ? 'secret123' : 'fresh-key';
+      const creating = scenario === 'newly issued credential';
+      const client = new ControlClient('https://control.example', {
+        fetch: async () => new Response(sensitive, { status: creating ? 201 : 200 }),
+      });
+      try {
+        await (creating
+          ? client.createSession()
+          : client.session('session_123', new SecretToken(sensitive)));
+        throw new Error('malformed response must fail');
+      } catch (error) {
+        expect(error).toBeInstanceOf(ControlPlaneError);
+        expect(error).toMatchObject({
+          code: 'control.response_decode',
+          message: 'control-plane response could not be decoded',
+        });
+        expect(inspect(error)).not.toContain(sensitive);
+        expect(String(error)).not.toContain(sensitive);
+        expect((error as Error).cause).toBeUndefined();
+      } finally {
+        client.close();
+      }
+    },
+  );
 
   test('rejects malformed credentials, ICE servers, buses, and subscriptions', async () => {
     const malformed = [

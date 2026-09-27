@@ -343,18 +343,16 @@ export class ControlClient {
       }
 
       if (response.status !== parameters.expectedStatus) {
-        const bytes = await readBounded(
+        await readBounded(
           response,
           MAX_ERROR_BODY_BYTES,
           operation.signal,
           timeoutMs,
           redactedValues,
         );
-        let detail = new TextDecoder().decode(bytes);
-        detail = redact(detail, redactedValues);
         throw new ControlPlaneError(
           'control.http_status',
-          `control-plane returned HTTP ${response.status}: ${detail}`,
+          `control-plane returned HTTP ${response.status}`,
           { statusCode: response.status },
         );
       }
@@ -375,10 +373,12 @@ export class ControlClient {
       try {
         const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
         decoded = JSON.parse(text) as unknown;
-      } catch (error) {
+      } catch {
+        // Parser diagnostics can quote response bytes, including newly issued
+        // capabilities that were not present in this request's redaction set.
         throw new ControlPlaneError(
           'control.response_decode',
-          `control-plane response could not be decoded: ${safeErrorMessage(error)}`,
+          'control-plane response could not be decoded',
         );
       }
       if (!isJsonObject(decoded)) {
@@ -459,8 +459,8 @@ function createOperation(
 function requestFailure(
   signal: AbortSignal,
   timeoutMs: number,
-  error: unknown,
-  redactedValues: readonly string[] = [],
+  _error: unknown,
+  _redactedValues: readonly string[] = [],
 ): ControlPlaneError {
   if (signal.aborted) {
     if (signal.reason === 'timeout') {
@@ -482,10 +482,7 @@ function requestFailure(
   }
   return new ControlPlaneError(
     'control.request',
-    `control-plane request failed: ${redact(
-      safeErrorMessage(error),
-      redactedValues,
-    )}`,
+    'control-plane request failed',
   );
 }
 
@@ -517,10 +514,7 @@ async function readBounded(
     }
     throw new ControlPlaneError(
       'control.request',
-      `control-plane response body failed: ${redact(
-        safeErrorMessage(error),
-        redactedValues,
-      )}`,
+      'control-plane response body failed',
     );
   } finally {
     if (total > limitBytes) await reader.cancel().catch(() => undefined);
@@ -543,13 +537,6 @@ async function readBounded(
 
 function safeErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-function redact(value: string, secrets: readonly string[] = []): string {
-  return secrets.reduce(
-    (redacted, secret) => redacted.replaceAll(secret, '[redacted]'),
-    value,
-  );
 }
 
 function responseDecode(message: string): ControlPlaneError {

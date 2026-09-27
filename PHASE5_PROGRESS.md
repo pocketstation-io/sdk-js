@@ -1406,3 +1406,16 @@ existing exact-bus browser joining, no new authorization model or capture path.
 Unit HTTP fixtures are MOCKED and make no new real-media claim. No live scaffold
 introduced; inventory n/a. CODE_PROTOCOL whitespace/type/test gates passed.
 Decision: SAFE-TO-TEST pending exact packaged live integration. No release.
+
+## 2026-09-27 — Malformed response diagnostics preserve credentials
+
+The successful-response JSON/UTF-8 decoder now emits a fixed diagnostic. Node
+parser messages can quote response bytes, including an unknown newly issued
+capability; redacting only request credentials is insufficient. The error
+retains its existing control.response_decode classification and no raw cause.
+HTTP status, transport and body-read failures also retain only typed failure
+classification/status, never arbitrary response bytes or exception messages.
+Regressions cover known authorization and newly issued credentials. Scope is
+control-client failure reporting; no API, native, capture, dependency or live
+scaffold change. Focused control suite, typecheck and TypeScript build pass.
+Final packaged Lab qualification is separate from predecessor e1ebf37 evidence.
