@@ -1494,3 +1494,20 @@ before packing. No new dependency/native/version/live scaffold; inventory n/a.
 CODE_PROTOCOL and whitespace review PASS. SAFE-TO-TEST pending installed final
 C128 Lab service qualification; no broad parity, physical/model-quality or WAN
 claim follows from mocked HTTP fixtures.
+
+
+## W21 accepted signal drain on Session finalization — iteration129
+
+A real finite-source model regression found final flush signals were accepted
+by Core but discarded by native BusSubscription endpoint finalization. Keep the
+existing bounded receipt alive after producer shutdown so consumers can drain
+through natural EOF. Explicit subscription close and preparation cancellation
+retain their immediate-discard behavior. No additional queue, worker, hot-path
+change or public API is introduced.
+
+New real-native regressions check queued process/flush output after stop and
+explicit close. Typecheck and Rust formatting pass; current old-addon run is
+expected to fail retention and the exact rebuilt Core8aa addon gate is pending.
+Python equivalent now passes the two-source final-tail/lineage regression.
+This step is SAFE-TO-TEST pending exact native rebuild, not a model-quality or
+physical-device claim. Scaffold inventory n/a; no mock production path added.
