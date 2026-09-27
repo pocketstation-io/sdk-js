@@ -374,11 +374,6 @@ export class SignalStream
     this.close();
   }
 
-  /** @internal */
-  public _finish(): void {
-    this.#closed = true;
-  }
-
   #claim(mode: 'signal_read' | 'signals'): () => void {
     if (this.#readerMode !== undefined && this.#readerMode !== mode) {
       throw new StreamModeError(this.#readerMode, mode);
