@@ -1460,3 +1460,10 @@ responses are component proof only; installed real-service Lab evidence is
 separate. No new scaffold/dependency/native/version change, inventory n/a.
 CODE_PROTOCOL/whitespace gates pass. SAFE-TO-TEST pending exact C127 installed
 service matrix; no broader parity or model-quality claim.
+
+
+C127 follow-up: the demo's primary reveal flag is `--show-links`, with neutral
+credential-bearing-link copy for both name formats. `--show-private-links`
+remains a deprecated, tested alias. Seven focused mocked CLI lifecycle cases
+and TypeScript pass. No control/native code changed after the full suite;
+package provenance is refreshed for this exact copy/flag change.

@@ -11,6 +11,8 @@ assert.equal(help.status, 0, help.stderr);
 assert.match(help.stdout, /Usage: pocketstation-demo/);
 assert.match(help.stdout, /--microphone/);
 assert.match(help.stdout, /--relay/);
+assert.match(help.stdout, /--show-links\s+print credential-bearing/);
+assert.match(help.stdout, /--show-private-links\s+deprecated alias/);
 assert.match(help.stdout, /--model <path>/);
 assert.match(help.stdout, /--whisper-cli <path>/);
 assert.match(help.stdout, /PKS_WHISPER_MODEL/);
@@ -65,7 +67,7 @@ try {
   assert.doesNotMatch(missingExecutable.stderr, /\n\s+at /);
 
   // Deterministic lifecycle regression, explicitly mocked: real media is a Lab gate.
-  for (const mode of ['redacted', 'exposed', 'early-stream', 'failed-outcome',
+  for (const mode of ['redacted', 'exposed', 'legacy-exposed', 'early-stream', 'failed-outcome',
     'close-failure', 'receiver-failure']) {
     const trace = join(temporaryDirectory, `${mode}.txt`);
     writeFileSync(trace, '');
@@ -73,23 +75,24 @@ try {
       '--experimental-loader', './tests/fixtures/demo-cli/loader.mjs',
       'bin/pocketstation-demo.mjs', 'Test App', '--model', model,
       '--whisper-cli', process.execPath, '--microphone', '--relay', '--frames', '4',
-      ...(mode === 'exposed' ? ['--show-private-links'] : []),
+      ...(mode === 'exposed' ? ['--show-links'] : []),
+      ...(mode === 'legacy-exposed' ? ['--show-private-links'] : []),
     ], {
       cwd: root, encoding: 'utf8', timeout: 5_000,
       env: { ...process.env, PKS_DEMO_TEST_MODE: mode, PKS_DEMO_TEST_TRACE: trace },
     });
     assert.equal(result.error, undefined, `${mode}: ${result.error}`);
-    assert.equal(result.status, ['redacted', 'exposed'].includes(mode) ? 0 : 1,
+    assert.equal(result.status, ['redacted', 'exposed', 'legacy-exposed'].includes(mode) ? 0 : 1,
       `${mode}: ${result.stderr}`);
     const events = readFileSync(trace, 'utf8');
-    if (['redacted', 'exposed', 'failed-outcome'].includes(mode)) {
+    if (['redacted', 'exposed', 'legacy-exposed', 'failed-outcome'].includes(mode)) {
       assert.match(result.stdout, /Model input 1: 2 dropped frames, 1 discontinuities/);
     }
     assert.match(events, /capture-close\nremote-close/);
     if (mode !== 'early-stream') {
       assert.match(events, /invite:application\ninvite:microphone/);
     }
-    if (mode === 'exposed') {
+    if (['exposed', 'legacy-exposed'].includes(mode)) {
       assert.match(result.stdout, /Listen live \(application\): https:.*application-words#private-secret/);
       assert.match(result.stdout, /Listen live \(microphone\): https:.*microphone-words#private-secret/);
     } else {
