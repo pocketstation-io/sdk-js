@@ -120,7 +120,7 @@ async function run(options) {
   try {
     await page.goto(origin, { waitUntil: 'domcontentloaded' });
     const result = await page.evaluate(async (configuration) => {
-      const { RelayPublisher } = await import('/dist/browser/index.js');
+      const { RelayPublisher, SecretToken } = await import('/dist/browser/index.js');
       const audioContext = new AudioContext({ sampleRate: 48_000 });
       const oscillator = new OscillatorNode(audioContext, {
         frequency: 997,
@@ -138,8 +138,15 @@ async function run(options) {
           signalUrl: configuration.relayUrl,
           sessionId: configuration.sessionId,
           busId: configuration.busId,
-          publisherToken: configuration.publisherToken,
-          iceServers: configuration.iceServers,
+          publisherToken: new SecretToken(configuration.publisherToken),
+          iceServers: configuration.iceServers.map((server) => ({
+            urls: typeof server.urls === 'string' ? [server.urls] : server.urls,
+            username: server.username ?? null,
+            credential:
+              typeof server.credential === 'string'
+                ? new SecretToken(server.credential)
+                : null,
+          })),
         },
         {
           connectTimeoutMs: 15_000,

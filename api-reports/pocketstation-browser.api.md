@@ -5,6 +5,26 @@
 ```ts
 
 // @public
+export interface IceServer {
+    // (undocumented)
+    readonly credential: SecretToken | null;
+    // (undocumented)
+    readonly urls: readonly string[];
+    // (undocumented)
+    readonly username: string | null;
+}
+
+// Warning: (ae-forgotten-export) The symbol "ControlPlaneError" needs to be exported by the entry point index.d.ts
+//
+// @public
+export class InvitationUnavailableError extends ControlPlaneError {
+    constructor();
+}
+
+// @public
+export function parseRelayInvitationLocation(location: string | URL): RelayInvitation;
+
+// @public
 export class PocketStationError extends Error {
     constructor(code: string, message: string, options?: {
         cause?: unknown;
@@ -35,8 +55,16 @@ export interface RelayConnectOptions {
 
 // @public
 export interface RelayInvitation {
-    readonly controlUrl: string;
-    readonly joinCode: string;
+    readonly locator: string;
+    readonly secret: SecretToken | null;
+}
+
+// @public
+export interface RelayInvitationResolutionOptions extends RelayConnectOptions {
+    // (undocumented)
+    readonly controlPlaneUrl: string;
+    // (undocumented)
+    readonly timeoutMs?: number;
 }
 
 // @public
@@ -111,8 +139,8 @@ export class RelayPublisher {
 // @public
 export interface RelayPublisherAccess {
     readonly busId: string;
-    readonly iceServers?: readonly RTCIceServer[];
-    readonly publisherToken: string;
+    readonly iceServers?: readonly IceServer[];
+    readonly publisherToken: SecretToken;
     readonly sessionId: string;
     readonly signalUrl: string;
 }
@@ -188,15 +216,16 @@ export class RelayReceiver {
 // @public
 export interface RelayReceiverAccess {
     readonly busId: string;
-    readonly iceServers?: readonly RTCIceServer[];
+    readonly iceServers?: readonly IceServer[];
     readonly sessionId: string;
     readonly signalUrl: string;
-    readonly subscriberToken: string;
+    readonly subscriberToken: SecretToken;
 }
 
 // @public
 export interface RelayReceiverOptions {
     readonly connectTimeoutMs?: number;
+    readonly controlPlaneUrl?: string;
     readonly disconnectTimeoutMs?: number;
     readonly onError?: (error: Error) => void;
     readonly onSessionState?: (state: RelaySessionState) => void;
@@ -221,9 +250,16 @@ export interface RelaySessionState {
 }
 
 // @public
-export function resolveRelayInvitation(invitation: RelayInvitation, options?: {
-    readonly signal?: AbortSignal;
-    readonly timeoutMs?: number;
-}): Promise<RelayReceiverAccess>;
+export function resolveRelayInvitation(invitation: RelayInvitation, options: RelayInvitationResolutionOptions): Promise<RelayReceiverAccess>;
+
+// @public
+export class SecretToken {
+    constructor(value: string);
+    exposeSecret(): string;
+    // (undocumented)
+    toJSON(): string;
+    // (undocumented)
+    toString(): string;
+}
 
 ```

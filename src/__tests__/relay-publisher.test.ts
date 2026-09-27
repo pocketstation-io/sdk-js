@@ -1,14 +1,19 @@
 import { jest } from '@jest/globals';
 
 import { PocketStationError } from '../errors.js';
+import { SecretToken } from '../control/types.js';
 import { RelayPublisher } from '../browser/relay-publisher.js';
 
 const access = {
   signalUrl: 'ws://127.0.0.1:4800/v1/signal',
   sessionId: 'session-001',
   busId: 'user-microphone',
-  publisherToken: 'publisher-token',
-  iceServers: [{ urls: ['stun:relay.example:3478'] }],
+  publisherToken: new SecretToken('publisher-token'),
+  iceServers: [{
+    urls: ['stun:relay.example:3478'],
+    username: null,
+    credential: null,
+  }],
 } as const;
 
 class FakeTrack extends EventTarget {
@@ -230,7 +235,7 @@ describe('RelayPublisher', () => {
       type: 'PUBLISH',
       session_id: access.sessionId,
       bus_id: access.busId,
-      token: access.publisherToken,
+      token: access.publisherToken.exposeSecret(),
       sdp_offer: 'v=0\r\n',
     });
     await expect(publisher.observe()).resolves.toMatchObject({
@@ -263,7 +268,7 @@ describe('RelayPublisher', () => {
         type: 'PUBLISH',
         session_id: access.sessionId,
         bus_id: access.busId,
-        token: access.publisherToken,
+        token: access.publisherToken.exposeSecret(),
         sdp_offer: 'v=0\r\n',
       },
       { type: 'ICE', candidate: 'candidate:early-publisher' },
@@ -437,7 +442,7 @@ describe('RelayPublisher', () => {
       sessionId: access.sessionId,
       busId: access.busId,
       publisherToken: access.publisherToken,
-      iceServers: [{ urls }],
+      iceServers: [{ urls, username: null, credential: null }],
     };
     const mutableOptions = {
       connectTimeoutMs: 2_000,
@@ -449,7 +454,7 @@ describe('RelayPublisher', () => {
     mutableAccess.signalUrl = 'ws://attacker.invalid/v1/signal';
     mutableAccess.sessionId = 'attacker-session';
     mutableAccess.busId = 'attacker-bus';
-    mutableAccess.publisherToken = 'attacker-token';
+    mutableAccess.publisherToken = new SecretToken('attacker-token');
     urls[0] = 'stun:attacker.invalid:3478';
     mutableOptions.connectTimeoutMs = 0;
     mutableOptions.onStateChange = (state: string) => replacementStates.push(state);
@@ -461,7 +466,7 @@ describe('RelayPublisher', () => {
       expect.objectContaining({
         session_id: access.sessionId,
         bus_id: access.busId,
-        token: access.publisherToken,
+        token: access.publisherToken.exposeSecret(),
       }),
     );
     expect(FakePeerConnection.instances[0]?.configuration).toEqual({

@@ -63,6 +63,44 @@ export class SecretToken {
   }
 }
 
+/** A URL that can contain a private invitation fragment and stays redacted by default. */
+export class SecretUrl {
+  readonly #value: string;
+
+  public constructor(value: string) {
+    let parsed: URL;
+    try {
+      parsed = new URL(value);
+    } catch {
+      throw new TypeError('secret URL must be an absolute HTTP or HTTPS URL');
+    }
+    if (
+      !['http:', 'https:'].includes(parsed.protocol) ||
+      parsed.username.length > 0 ||
+      parsed.password.length > 0
+    ) {
+      throw new TypeError(
+        'secret URL must use HTTP or HTTPS and must not contain URL credentials',
+      );
+    }
+    this.#value = parsed.href;
+    Object.freeze(this);
+  }
+
+  /** Explicitly reveal the complete URL, including any private fragment secret. */
+  public exposeSecret(): string {
+    return this.#value;
+  }
+
+  public toString(): string {
+    return "SecretUrl('[redacted]')";
+  }
+
+  public toJSON(): string {
+    return '[redacted]';
+  }
+}
+
 /** One ICE server returned with Session credentials. */
 export interface IceServer {
   readonly urls: readonly string[];
@@ -108,12 +146,36 @@ export interface SessionSnapshot {
   readonly codec: string;
 }
 
-/** One time-limited receiver invitation. */
+/** Whether an invitation needs a separate private fragment secret. */
+export type InvitationVisibility = 'public' | 'private';
+
+/** One time-limited exact-AudioBus receiver invitation. */
 export interface Invitation {
   readonly sessionId: SessionId;
+  readonly busId: string;
   readonly joinCode: string;
-  readonly joinUrl: string;
+  readonly joinUrl: SecretUrl | null;
+  readonly shareAlias: string;
+  readonly shareUrl: SecretUrl | null;
+  readonly visibility: InvitationVisibility;
   readonly expiresAt: string;
+}
+
+/** Safe, non-consuming invitation metadata containing no capability or secret URL. */
+export interface InvitationMetadata {
+  readonly shareAlias: string;
+  readonly visibility: InvitationVisibility;
+  readonly expiresAt: string;
+}
+
+/** Subscriber authority returned by one successful invitation redemption. */
+export interface RedeemedInvitation {
+  readonly sessionId: SessionId;
+  readonly busId: string;
+  readonly subscriberToken: SecretToken;
+  readonly signalUrl: string;
+  readonly whepUrl: string | null;
+  readonly iceServers: readonly IceServer[];
 }
 
 /** Capability scoped to one receiver and one AudioBus. */
@@ -146,6 +208,17 @@ export interface CreateSessionOptions extends ControlRequestOptions {
 /** Options for a single-AudioBus credential or invitation operation. */
 export interface BusCredentialOptions extends ControlRequestOptions {
   readonly busId?: string;
+}
+
+/** Options for creating one exact-AudioBus public or private invitation. */
+export interface CreateInvitationOptions extends ControlRequestOptions {
+  readonly busId: string;
+  readonly visibility?: InvitationVisibility;
+}
+
+/** Options for redeeming one invitation after an explicit user action. */
+export interface RedeemInvitationOptions extends ControlRequestOptions {
+  readonly secret?: SecretToken;
 }
 
 /** Options for issuing one exact AudioBus publisher capability. */

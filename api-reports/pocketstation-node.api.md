@@ -1216,11 +1216,14 @@ export class ControlClient {
     close(): void;
     // (undocumented)
     readonly controlPlaneUrl: string;
-    createInvitation(sessionId: string | SessionId, sourceToken: SecretToken, options?: BusCredentialOptions): Promise<Invitation>;
+    // Warning: (ae-forgotten-export) The symbol "CreateInvitationOptions" needs to be exported by the entry point index.d.ts
+    createInvitation(sessionId: string | SessionId, sourceToken: SecretToken, options: CreateInvitationOptions): Promise<Invitation>;
     createSession(options?: CreateSessionOptions): Promise<SessionCredentials>;
     deleteSession(sessionId: string | SessionId, sourceToken: SecretToken, options?: ControlRequestOptions): Promise<void>;
+    inspectInvitation(locator: string, options?: ControlRequestOptions): Promise<InvitationMetadata>;
     issuePublisherCredentials(sessionId: string | SessionId, sourceToken: SecretToken, options: PublisherCredentialOptions): Promise<PublisherCredentials>;
     issueSubscriberCredentials(sessionId: string | SessionId, sourceToken: SecretToken, options?: BusCredentialOptions): Promise<SubscriberCredentials>;
+    redeemInvitation(locator: string, options?: RedeemInvitationOptions): Promise<RedeemedInvitation>;
     session(sessionId: string | SessionId, sourceToken: SecretToken, options?: ControlRequestOptions): Promise<SessionSnapshot>;
 }
 
@@ -2055,14 +2058,40 @@ export class GraphError extends PocketStationError {
 // @public
 export interface Invitation {
     // (undocumented)
+    readonly busId: string;
+    // (undocumented)
     readonly expiresAt: string;
     // (undocumented)
     readonly joinCode: string;
     // (undocumented)
-    readonly joinUrl: string;
+    readonly joinUrl: SecretUrl | null;
     // (undocumented)
     readonly sessionId: SessionId;
+    // (undocumented)
+    readonly shareAlias: string;
+    // (undocumented)
+    readonly shareUrl: SecretUrl | null;
+    // (undocumented)
+    readonly visibility: InvitationVisibility;
 }
+
+// @public
+export interface InvitationMetadata {
+    // (undocumented)
+    readonly expiresAt: string;
+    // (undocumented)
+    readonly shareAlias: string;
+    // (undocumented)
+    readonly visibility: InvitationVisibility;
+}
+
+// @public
+export class InvitationUnavailableError extends ControlPlaneError {
+    constructor();
+}
+
+// @public
+export type InvitationVisibility = 'public' | 'private';
 
 // @public
 export interface LatencyHistogram {
@@ -2751,23 +2780,36 @@ export class ReceiverActivation {
 
 // @public
 export class ReceiverInvitation {
-    constructor(sessionId: SessionId, joinCode: string, url: string);
+    constructor(invitation: Invitation);
+    // (undocumented)
+    readonly busId: string;
+    // (undocumented)
+    readonly expiresAt: string;
+    exposeShareUrl(): string;
     // (undocumented)
     readonly joinCode: string;
     // (undocumented)
-    get joinUrl(): string;
+    readonly joinUrl: SecretUrl | null;
     // (undocumented)
     readonly sessionId: SessionId;
     // (undocumented)
-    readonly url: string;
+    readonly shareAlias: string;
+    // (undocumented)
+    readonly shareUrl: SecretUrl | null;
+    // (undocumented)
+    toString(): string;
+    // (undocumented)
+    readonly visibility: InvitationVisibility;
 }
 
 // @public
 export interface ReceiverInvitationOptions {
     // (undocumented)
-    readonly busId?: string;
+    readonly busId: string;
     // (undocumented)
     readonly signal?: AbortSignal;
+    // (undocumented)
+    readonly visibility?: InvitationVisibility;
 }
 
 // @public
@@ -2859,6 +2901,28 @@ export interface RecordingStemOutcome {
     readonly staleFramesTotal: bigint;
     // (undocumented)
     readonly stemName: string;
+}
+
+// @public
+export interface RedeemedInvitation {
+    // (undocumented)
+    readonly busId: string;
+    // (undocumented)
+    readonly iceServers: readonly ControlIceServer[];
+    // (undocumented)
+    readonly sessionId: SessionId;
+    // (undocumented)
+    readonly signalUrl: string;
+    // (undocumented)
+    readonly subscriberToken: SecretToken;
+    // (undocumented)
+    readonly whepUrl: string | null;
+}
+
+// @public
+export interface RedeemInvitationOptions extends ControlRequestOptions {
+    // (undocumented)
+    readonly secret?: SecretToken;
 }
 
 // @public
@@ -2987,7 +3051,7 @@ export class RelaySession {
         readonly deleteRemoteSession?: boolean;
     }): Promise<void>;
     static create(options: RelaySessionOptions): Promise<RelaySession>;
-    createReceiverInvitation(options?: ReceiverInvitationOptions): Promise<ReceiverInvitation>;
+    createReceiverInvitation(options: ReceiverInvitationOptions): Promise<ReceiverInvitation>;
     // (undocumented)
     readonly credentials: SessionCredentials;
     // (undocumented)
@@ -3004,7 +3068,7 @@ export class RelaySession {
     // (undocumented)
     toString(): string;
     waitForPublisher(options?: RelayActivationOptions): Promise<PublisherActivation>;
-    waitForPublisherAndInvitation(options?: RelayActivationOptions & ReceiverInvitationOptions): Promise<ReceiverInvitation>;
+    waitForPublisherAndInvitation(options: RelayActivationOptions & ReceiverInvitationOptions): Promise<ReceiverInvitation>;
     waitForReceiver(options?: RelayActivationOptions): Promise<ReceiverActivation>;
 }
 
@@ -3303,6 +3367,16 @@ export function secret(value: string): SecretValue;
 
 // @public
 export class SecretToken {
+    constructor(value: string);
+    exposeSecret(): string;
+    // (undocumented)
+    toJSON(): string;
+    // (undocumented)
+    toString(): string;
+}
+
+// @public
+export class SecretUrl {
     constructor(value: string);
     exposeSecret(): string;
     // (undocumented)

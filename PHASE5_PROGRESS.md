@@ -1303,3 +1303,45 @@ platform/performance/OSS gates are still pending.
   changes. No new scaffold; verifier fixtures are explicit synthetic unit inputs.
   Checks: Python/Node syntax, YAML parsing, adversarial tests, real local consumer
   and whitespace. SAFE-TO-TEST; hosted qualification and release gates pending.
+
+## 2026-09-26: readable exact-bus receiver invitations
+
+- Status: `SAFE-TO-TEST`. `ControlClient` creates public or private
+  invitations only for a caller-selected AudioBus, exposes non-consuming
+  inspection, and consumes authority only through
+  `POST /v1/invitations/{locator}/redeem`. Expired, revoked, invalid, and
+  replayed invitations share one `InvitationUnavailableError` so clients do
+  not gain a state oracle.
+- Private receiver URLs, fragment secrets, subscriber tokens, and TURN
+  credentials require explicit exposure. Ordinary string conversion, JSON,
+  object inspection, and failure messages retain redaction. Browser invitation
+  locations carry only the locator and fragment secret; a separately trusted
+  `controlPlaneUrl` selects the redemption authority.
+- The browser and Node Relay surfaces snapshot exact authority and ICE values,
+  retain W3C `type` and `kind` field names, redeem with POST, and preserve the
+  selected AudioBus returned by the control plane. Receiver close continues to
+  stop owned remote tracks; publisher close continues to leave caller-owned
+  source tracks alone.
+- TypeScript, public API extraction, package export resolution, 69 focused
+  invitation/browser/Node assertions, and the complete suite pass: 37 suites,
+  463 tests passed, and one opt-in real-model test was skipped. The existing
+  isolated packed-consumer gate passes against a clean npm tarball.
+- This adds no media queue, provider, scaffold, mock, loopback product path,
+  deployment, publication, or release. The Lab-installed client run against
+  the real control-plane and Relay product code remains the acceptance owner
+  for cross-language, single-use, exact-bus evidence.
+
+## 2026-09-27: current-package readable invitation integration — Candidate 123
+
+The real installed Lab memory proof failed importing InvitationUnavailableError
+from pocketstation/browser. Commit 95760df existed on a separate historical
+branch and had never entered the current 9bdd144 package line. This candidate
+integrates that preserved implementation while retaining the split native
+packages, generated ESM/CJS wrappers and Core 1.1.12 dependency. Only progress
+had a merge conflict; both histories are retained. No SDK version or native code
+changes. Full SDK gates and a fresh installed real-memory/Relay proof are required.
+No new scaffold, mock or provider; no release, deployment or hardware claim.
+
+Pre-commit validation: all 58 focused control/browser assertions, TypeScript,
+public API reports, 24-document check and both example compilation gates pass.
+Full native-backed suite and installed memory proof remain acceptance gates.

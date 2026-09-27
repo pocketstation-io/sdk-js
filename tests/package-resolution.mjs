@@ -60,6 +60,8 @@ assert.equal(typeof node.SidecarStream, 'function');
 assert.equal(typeof node.PublisherActivation, 'function');
 assert.equal(typeof node.ReceiverActivation, 'function');
 assert.equal(typeof node.ReceiverInvitation, 'function');
+assert.equal(typeof node.InvitationUnavailableError, 'function');
+assert.equal(typeof node.SecretUrl, 'function');
 assert.equal(typeof node.RelayError, 'function');
 assert.equal(typeof node.RelayRoute, 'function');
 assert.equal(typeof node.RelaySession, 'function');
@@ -85,24 +87,34 @@ const browser = await import('pocketstation/browser');
 assert.equal(typeof browser.RelayPublisher, 'function');
 assert.equal(typeof browser.RelayReceiver, 'function');
 assert.equal(typeof browser.resolveRelayInvitation, 'function');
+assert.equal(typeof browser.parseRelayInvitationLocation, 'function');
+assert.equal(typeof browser.InvitationUnavailableError, 'function');
+assert.equal(typeof browser.SecretToken, 'function');
 assert.equal(typeof browser.PocketStationError, 'function');
 assert.deepEqual(Object.keys(browser).sort(), [
+  'InvitationUnavailableError',
   'PocketStationError',
   'RelayPublisher',
   'RelayReceiver',
+  'SecretToken',
+  'parseRelayInvitationLocation',
   'resolveRelayInvitation',
 ]);
 
 const control = await import('pocketstation/control');
 assert.equal(typeof control.ControlClient, 'function');
 assert.equal(typeof control.ControlPlaneError, 'function');
+assert.equal(typeof control.InvitationUnavailableError, 'function');
 assert.equal(typeof control.SecretToken, 'function');
+assert.equal(typeof control.SecretUrl, 'function');
 assert.equal(typeof control.SessionId, 'function');
 assert.deepEqual(Object.keys(control).sort(), [
   'ControlClient',
   'ControlPlaneError',
+  'InvitationUnavailableError',
   'PocketStationError',
   'SecretToken',
+  'SecretUrl',
   'SessionId',
 ]);
 const redacted = new control.SecretToken('package-resolution-secret');

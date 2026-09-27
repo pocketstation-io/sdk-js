@@ -1,17 +1,23 @@
 import { PocketStationError } from '../errors.js';
 import {
   SecretToken,
+  SecretUrl,
   SessionId,
   type BusCredentialOptions,
   type BusState,
   type ControlClientOptions,
   type ControlFetch,
   type ControlRequestOptions,
+  type CreateInvitationOptions,
   type CreateSessionOptions,
   type IceServer,
   type Invitation,
+  type InvitationMetadata,
+  type InvitationVisibility,
   type PublisherCredentialOptions,
   type PublisherCredentials,
+  type RedeemedInvitation,
+  type RedeemInvitationOptions,
   type SessionCredentials,
   type SessionSnapshot,
   type SubscriberCredentials,
@@ -43,6 +49,18 @@ export class ControlPlaneError extends PocketStationError {
   }
 }
 
+/** An invitation is invalid, expired, revoked, or already redeemed. */
+export class InvitationUnavailableError extends ControlPlaneError {
+  public constructor() {
+    super(
+      'control.invitation_unavailable',
+      'invitation is unavailable',
+      { statusCode: 404 },
+    );
+    this.name = 'InvitationUnavailableError';
+  }
+}
+
 interface ActiveOperation {
   readonly signal: AbortSignal;
   readonly abort: (reason: 'closed') => void;
@@ -55,6 +73,7 @@ interface RequestParameters {
   readonly jsonBody?: JsonObject;
   readonly expectJson: boolean;
   readonly options?: ControlRequestOptions;
+  readonly redactedValues?: readonly string[];
 }
 
 /** Reusable, bounded asynchronous client for Session lifecycle operations. */
@@ -162,10 +181,11 @@ export class ControlClient {
   public async createInvitation(
     sessionId: string | SessionId,
     sourceToken: SecretToken,
-    options: BusCredentialOptions = {},
+    options: CreateInvitationOptions,
   ): Promise<Invitation> {
     const identifier = sessionIdentifier(sessionId);
-    const requestedBus = busId(options.busId ?? 'mix', 'busId');
+    const requestedBus = busId(options.busId, 'busId');
+    const visibility = invitationVisibility(options.visibility ?? 'private');
     const payload = await this.#request(
       'POST',
       `v1/sessions/${encodeURIComponent(identifier.toString())}/invitations`,
@@ -174,10 +194,61 @@ export class ControlClient {
         expectJson: true,
         authorization: sourceToken,
         options,
-        jsonBody: { bus_id: requestedBus },
+        jsonBody: { bus_id: requestedBus, visibility },
       },
     );
-    return invitation(payload, identifier);
+    return invitation(payload, identifier, requestedBus);
+  }
+
+  /** Inspect safe invitation metadata without consuming the invitation. */
+  public async inspectInvitation(
+    locator: string,
+    options: ControlRequestOptions = {},
+  ): Promise<InvitationMetadata> {
+    const normalizedLocator = invitationLocator(locator);
+    let payload: JsonObject;
+    try {
+      payload = await this.#request(
+        'GET',
+        `v1/invitations/${encodeURIComponent(normalizedLocator)}`,
+        { expectedStatus: 200, expectJson: true, options },
+      );
+    } catch (error) {
+      if (error instanceof ControlPlaneError && error.statusCode === 404) {
+        throw new InvitationUnavailableError();
+      }
+      throw error;
+    }
+    return invitationMetadata(payload);
+  }
+
+  /** Redeem one invitation exactly once through the consuming POST boundary. */
+  public async redeemInvitation(
+    locator: string,
+    options: RedeemInvitationOptions = {},
+  ): Promise<RedeemedInvitation> {
+    const normalizedLocator = invitationLocator(locator);
+    const secret = options.secret?.exposeSecret();
+    let payload: JsonObject;
+    try {
+      payload = await this.#request(
+        'POST',
+        `v1/invitations/${encodeURIComponent(normalizedLocator)}/redeem`,
+        {
+          expectedStatus: 200,
+          expectJson: true,
+          options,
+          jsonBody: secret === undefined ? {} : { secret },
+          redactedValues: secret === undefined ? [] : [secret],
+        },
+      );
+    } catch (error) {
+      if (error instanceof ControlPlaneError && error.statusCode === 404) {
+        throw new InvitationUnavailableError();
+      }
+      throw error;
+    }
+    return redeemedInvitation(payload);
   }
 
   /** Delete one Session. */
@@ -224,9 +295,11 @@ export class ControlClient {
     this.#activeOperations.add(operation);
     const headers = new Headers();
     let exposedAuthorization: string | undefined;
+    const redactedValues = [...(parameters.redactedValues ?? [])];
     let body: string | undefined;
     if (parameters.authorization !== undefined) {
       exposedAuthorization = parameters.authorization.exposeSecret();
+      redactedValues.push(exposedAuthorization);
       headers.set('authorization', `Bearer ${exposedAuthorization}`);
     }
     if (parameters.jsonBody !== undefined) {
@@ -242,7 +315,7 @@ export class ControlClient {
             operation.signal,
             timeoutMs,
             new DOMException('aborted', 'AbortError'),
-            exposedAuthorization,
+            redactedValues,
           );
         }
         response = await this.#fetch(new URL(path, this.controlPlaneUrl), {
@@ -256,7 +329,7 @@ export class ControlClient {
           operation.signal,
           timeoutMs,
           error,
-          exposedAuthorization,
+          redactedValues,
         );
       }
 
@@ -266,12 +339,10 @@ export class ControlClient {
           MAX_ERROR_BODY_BYTES,
           operation.signal,
           timeoutMs,
-          exposedAuthorization,
+          redactedValues,
         );
         let detail = new TextDecoder().decode(bytes);
-        if (exposedAuthorization !== undefined) {
-          detail = detail.replaceAll(exposedAuthorization, '[redacted]');
-        }
+        detail = redact(detail, redactedValues);
         throw new ControlPlaneError(
           'control.http_status',
           `control-plane returned HTTP ${response.status}: ${detail}`,
@@ -289,7 +360,7 @@ export class ControlClient {
         MAX_JSON_BODY_BYTES,
         operation.signal,
         timeoutMs,
-        exposedAuthorization,
+        redactedValues,
       );
       let decoded: unknown;
       try {
@@ -380,7 +451,7 @@ function requestFailure(
   signal: AbortSignal,
   timeoutMs: number,
   error: unknown,
-  redactedValue?: string,
+  redactedValues: readonly string[] = [],
 ): ControlPlaneError {
   if (signal.aborted) {
     if (signal.reason === 'timeout') {
@@ -404,7 +475,7 @@ function requestFailure(
     'control.request',
     `control-plane request failed: ${redact(
       safeErrorMessage(error),
-      redactedValue,
+      redactedValues,
     )}`,
   );
 }
@@ -414,7 +485,7 @@ async function readBounded(
   limitBytes: number,
   signal: AbortSignal,
   timeoutMs: number,
-  redactedValue?: string,
+  redactedValues: readonly string[] = [],
 ): Promise<Uint8Array> {
   if (response.body === null) return new Uint8Array();
   const reader = response.body.getReader();
@@ -433,13 +504,13 @@ async function readBounded(
     }
   } catch (error) {
     if (signal.aborted) {
-      throw requestFailure(signal, timeoutMs, error, redactedValue);
+      throw requestFailure(signal, timeoutMs, error, redactedValues);
     }
     throw new ControlPlaneError(
       'control.request',
       `control-plane response body failed: ${redact(
         safeErrorMessage(error),
-        redactedValue,
+        redactedValues,
       )}`,
     );
   } finally {
@@ -465,8 +536,11 @@ function safeErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function redact(value: string, secret?: string): string {
-  return secret === undefined ? value : value.replaceAll(secret, '[redacted]');
+function redact(value: string, secrets: readonly string[] = []): string {
+  return secrets.reduce(
+    (redacted, secret) => redacted.replaceAll(secret, '[redacted]'),
+    value,
+  );
 }
 
 function responseDecode(message: string): ControlPlaneError {
@@ -748,11 +822,222 @@ function publisherCredentials(payload: JsonObject): PublisherCredentials {
   });
 }
 
-function invitation(payload: JsonObject, sessionId: SessionId): Invitation {
+function invitation(
+  payload: JsonObject,
+  sessionId: SessionId,
+  requestedBus: string,
+): Invitation {
+  const visibility = decodedInvitationVisibility(payload);
+  const joinCode = decodedInvitationLocator(payload, 'join_code');
+  const shareAlias = invitationAlias(
+    requiredString(payload, 'share_alias'),
+    visibility,
+  );
+  const joinUrl = invitationUrl(payload, 'join_url', `/join/${joinCode}`, visibility);
+  const shareUrl = invitationUrl(payload, 'share_url', `/${shareAlias}`, visibility);
+  const joinSecret = invitationUrlSecret(joinUrl, visibility);
+  const shareSecret = invitationUrlSecret(shareUrl, visibility);
+  if (
+    joinSecret !== null &&
+    shareSecret !== null &&
+    joinSecret !== shareSecret
+  ) {
+    throw responseDecode('control-plane invitation URLs contain different secrets');
+  }
   return Object.freeze({
     sessionId,
-    joinCode: requiredString(payload, 'join_code'),
-    joinUrl: requiredString(payload, 'join_url'),
-    expiresAt: requiredString(payload, 'expires_at'),
+    busId: requestedBus,
+    joinCode,
+    joinUrl,
+    shareAlias,
+    shareUrl,
+    visibility,
+    expiresAt: requiredExpiry(payload),
   });
+}
+
+function invitationMetadata(payload: JsonObject): InvitationMetadata {
+  const visibility = decodedInvitationVisibility(payload);
+  return Object.freeze({
+    shareAlias: invitationAlias(
+      requiredString(payload, 'share_alias'),
+      visibility,
+    ),
+    visibility,
+    expiresAt: requiredExpiry(payload),
+  });
+}
+
+function redeemedInvitation(payload: JsonObject): RedeemedInvitation {
+  const signalUrl = transportUrl(payload, 'signal_url', ['ws:', 'wss:']);
+  const whepValue = optionalString(payload, 'whep_url');
+  return Object.freeze({
+    sessionId: decodedSessionId(payload),
+    busId: requiredIdentifier(payload, 'bus_id', 64),
+    subscriberToken: decodedSecret(payload, 'subscriber_token'),
+    signalUrl,
+    whepUrl:
+      whepValue === null
+        ? null
+        : validatedTransportUrl(whepValue, 'whep_url', ['http:', 'https:']),
+    iceServers: iceServers(payload),
+  });
+}
+
+function invitationVisibility(value: unknown): InvitationVisibility {
+  if (value !== 'public' && value !== 'private') {
+    throw new RangeError("visibility must be 'public' or 'private'");
+  }
+  return value;
+}
+
+function decodedInvitationVisibility(payload: JsonObject): InvitationVisibility {
+  try {
+    return invitationVisibility(payload.visibility);
+  } catch (error) {
+    throw responseDecode(safeErrorMessage(error));
+  }
+}
+
+function invitationLocator(value: string): string {
+  const locator = value.trim();
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(locator)) {
+    return locator;
+  }
+  if (/^[a-z]{4,24}-[a-z]{4,24}(?:-[a-z]{4,24})?$/.test(locator)) {
+    return locator;
+  }
+  throw new RangeError('invitation locator must be an opaque code or a two- or three-word alias');
+}
+
+function invitationAlias(
+  value: string,
+  visibility: InvitationVisibility,
+): string {
+  let alias: string;
+  try {
+    alias = invitationLocator(value);
+  } catch (error) {
+    throw responseDecode(safeErrorMessage(error));
+  }
+  const wordCount = alias.split('-').length;
+  const expectedWords = visibility === 'public' ? 2 : 3;
+  if (wordCount !== expectedWords) {
+    throw responseDecode(
+      `${visibility} invitation share_alias must contain ${expectedWords} words`,
+    );
+  }
+  return alias;
+}
+
+function decodedInvitationLocator(payload: JsonObject, key: string): string {
+  try {
+    return invitationLocator(requiredString(payload, key));
+  } catch (error) {
+    if (error instanceof ControlPlaneError) throw error;
+    throw responseDecode(safeErrorMessage(error));
+  }
+}
+
+function requiredExpiry(payload: JsonObject): string {
+  const value = requiredString(payload, 'expires_at');
+  if (
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value) ||
+    !Number.isFinite(Date.parse(value))
+  ) {
+    throw responseDecode('control-plane expires_at must be an RFC 3339 timestamp');
+  }
+  return value;
+}
+
+function invitationUrl(
+  payload: JsonObject,
+  field: 'join_url' | 'share_url',
+  expectedPath: string,
+  visibility: InvitationVisibility,
+): SecretUrl | null {
+  const value = optionalString(payload, field);
+  if (value === null || value.length === 0) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw responseDecode(`control-plane ${field} must be an absolute URL`);
+  }
+  if (
+    !['http:', 'https:'].includes(parsed.protocol) ||
+    parsed.username.length > 0 ||
+    parsed.password.length > 0 ||
+    parsed.pathname !== expectedPath ||
+    parsed.search.length > 0
+  ) {
+    throw responseDecode(`control-plane ${field} has an invalid receiver URL`);
+  }
+  const secret = parsed.hash.length === 0
+    ? null
+    : privateFragmentSecret(parsed.hash);
+  if (visibility === 'private' && secret === null) {
+    throw responseDecode(`control-plane private ${field} is missing its fragment secret`);
+  }
+  if (visibility === 'public' && secret !== null) {
+    throw responseDecode(`control-plane public ${field} must not contain a secret`);
+  }
+  try {
+    return new SecretUrl(parsed.href);
+  } catch (error) {
+    throw responseDecode(safeErrorMessage(error));
+  }
+}
+
+function invitationUrlSecret(
+  value: SecretUrl | null,
+  visibility: InvitationVisibility,
+): string | null {
+  if (value === null || visibility === 'public') return null;
+  return privateFragmentSecret(new URL(value.exposeSecret()).hash);
+}
+
+function privateFragmentSecret(hash: string): string {
+  const parameters = new URLSearchParams(hash.slice(1));
+  const keys: string[] = [];
+  parameters.forEach((_value, key) => keys.push(key));
+  const secrets = parameters.getAll('secret');
+  if (
+    keys.some((key) => key !== 'secret') ||
+    secrets.length !== 1 ||
+    !/^[A-Za-z0-9_-]{22}$/.test(secrets[0] ?? '')
+  ) {
+    throw responseDecode('control-plane invitation fragment is invalid');
+  }
+  return secrets[0] as string;
+}
+
+function transportUrl(
+  payload: JsonObject,
+  field: string,
+  protocols: readonly string[],
+): string {
+  return validatedTransportUrl(requiredString(payload, field), field, protocols);
+}
+
+function validatedTransportUrl(
+  value: string,
+  field: string,
+  protocols: readonly string[],
+): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw responseDecode(`control-plane ${field} must be an absolute URL`);
+  }
+  if (
+    !protocols.includes(parsed.protocol) ||
+    parsed.username.length > 0 ||
+    parsed.password.length > 0 ||
+    parsed.hash.length > 0
+  ) {
+    throw responseDecode(`control-plane ${field} is invalid`);
+  }
+  return parsed.href;
 }
