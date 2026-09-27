@@ -141,3 +141,11 @@ redacts that token from HTTP, transport, and response-stream error messages.
 These safeguards do not make source-owner credentials safe to ship to an
 untrusted client. Issue the exact-bus publisher or subscriber capability needed
 by that client instead.
+
+
+Set `wordCount` to an integer from 2 through 15 for an explicit name length;
+omit it to use the Relay service allocation policy. Returned `wordCount` is the
+actual validated name length. Never infer a longer name's length from deprecated
+`visibility`: its `private` compatibility label covers all counts of three or
+more. Supplying both options, null, fractions or counts outside 2–15 is rejected.
+Legacy responses without `word_count` are supported only for two/three words.

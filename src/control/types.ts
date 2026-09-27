@@ -157,6 +157,9 @@ export interface Invitation {
   readonly joinUrl: SecretUrl | null;
   readonly shareAlias: string;
   readonly shareUrl: SecretUrl | null;
+  /** Actual decoded name length, including legacy two/three-word responses. */
+  readonly wordCount: number;
+  /** @deprecated Compatibility label; use wordCount for the actual length. */
   readonly visibility: InvitationVisibility;
   readonly expiresAt: string;
 }
@@ -164,6 +167,9 @@ export interface Invitation {
 /** Safe, non-consuming invitation metadata containing no capability or secret URL. */
 export interface InvitationMetadata {
   readonly shareAlias: string;
+  /** Actual decoded name length, including legacy two/three-word responses. */
+  readonly wordCount: number;
+  /** @deprecated Compatibility label; use wordCount for the actual length. */
   readonly visibility: InvitationVisibility;
   readonly expiresAt: string;
 }
@@ -213,8 +219,8 @@ export interface BusCredentialOptions extends ControlRequestOptions {
 /** Options for one exact-AudioBus invitation; Relay chooses the default name length. */
 export interface CreateInvitationOptions extends ControlRequestOptions {
   readonly busId: string;
-  /** Choose a fixed name length; omit to use Relay allocation policy. */
-  readonly wordCount?: 2 | 3;
+  /** Choose an integer name length from 2 to 15; omit to use Relay allocation policy. */
+  readonly wordCount?: number;
   /** @deprecated Formatting only; cannot be combined with wordCount. */
   readonly visibility?: InvitationVisibility;
 }

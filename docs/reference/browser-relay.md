@@ -73,8 +73,7 @@ The SDK does not implement authentication UI or agent authorization policy.
 
 ## Join with an invitation
 
-Readable words navigate to the existing single-use join flow. Both two-word
-and three-word links carry the same kind of opaque credential in `#join=…`;
+Readable words navigate to the existing single-use join flow. All supported 2–15-word links carry the same kind of opaque credential in `#join=…`;
 words alone cannot authorize a receiver. The deprecated `visibility` setting
 only chooses word formatting. Treat every complete link as sensitive.
 
@@ -212,3 +211,7 @@ Existing receiver evidence proves the same-host workflow. It does not prove a
 physical phone, WAN or TURN connectivity, mobile backgrounding, network
 handoff, Windows or Linux packages, physical loudspeaker output, or that a
 person heard the audio.
+
+Readable paths are capped at 134 ASCII bytes. The browser SDK validates syntax,
+not the Relay vocabulary or phrase rules; long names require exactly the same
+opaque join credential, request-body handoff and explicit user action.

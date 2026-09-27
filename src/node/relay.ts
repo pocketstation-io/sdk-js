@@ -66,6 +66,8 @@ export class ReceiverInvitation {
   public readonly joinUrl: SecretUrl | null;
   public readonly shareAlias: string;
   public readonly shareUrl: SecretUrl | null;
+  public readonly wordCount: number;
+  /** @deprecated Compatibility label; use wordCount for the actual length. */
   public readonly visibility: InvitationVisibility;
   public readonly expiresAt: string;
 
@@ -76,6 +78,7 @@ export class ReceiverInvitation {
     this.joinUrl = invitation.joinUrl;
     this.shareAlias = invitation.shareAlias;
     this.shareUrl = invitation.shareUrl;
+    this.wordCount = invitation.wordCount;
     this.visibility = invitation.visibility;
     this.expiresAt = invitation.expiresAt;
     Object.freeze(this);
@@ -122,8 +125,8 @@ export interface RelayActivationOptions {
 /** Options for creating one receiver invitation. */
 export interface ReceiverInvitationOptions {
   readonly busId: string;
-  /** Choose a fixed name length; omit to use Relay allocation policy. */
-  readonly wordCount?: 2 | 3;
+  /** Choose an integer name length from 2 to 15; omit to use Relay allocation policy. */
+  readonly wordCount?: number;
   /** @deprecated Formatting only; cannot be combined with wordCount. */
   readonly visibility?: InvitationVisibility;
   readonly signal?: AbortSignal;

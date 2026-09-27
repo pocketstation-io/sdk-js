@@ -2071,8 +2071,9 @@ export interface Invitation {
     readonly shareAlias: string;
     // (undocumented)
     readonly shareUrl: SecretUrl | null;
-    // (undocumented)
+    // @deprecated (undocumented)
     readonly visibility: InvitationVisibility;
+    readonly wordCount: number;
 }
 
 // @public
@@ -2081,8 +2082,9 @@ export interface InvitationMetadata {
     readonly expiresAt: string;
     // (undocumented)
     readonly shareAlias: string;
-    // (undocumented)
+    // @deprecated (undocumented)
     readonly visibility: InvitationVisibility;
+    readonly wordCount: number;
 }
 
 // @public
@@ -2798,8 +2800,10 @@ export class ReceiverInvitation {
     readonly shareUrl: SecretUrl | null;
     // (undocumented)
     toString(): string;
-    // (undocumented)
+    // @deprecated (undocumented)
     readonly visibility: InvitationVisibility;
+    // (undocumented)
+    readonly wordCount: number;
 }
 
 // @public
@@ -2810,7 +2814,7 @@ export interface ReceiverInvitationOptions {
     readonly signal?: AbortSignal;
     // @deprecated (undocumented)
     readonly visibility?: InvitationVisibility;
-    readonly wordCount?: 2 | 3;
+    readonly wordCount?: number;
 }
 
 // @public

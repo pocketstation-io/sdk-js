@@ -557,8 +557,14 @@ the complete generated share URL. Clients accept the retained legacy compound
 syntax without duplicating Relay's vocabulary or exposing a grammar prefix.
 
 Readable receiver names follow Relay's configured allocation policy by default.
-Pass `wordCount: 2` or `wordCount: 3` to `createInvitation` or
+Pass integer `wordCount: 2` through `wordCount: 15` to `createInvitation` or
 `createReceiverInvitation` only when a fixed length is needed. Deprecated
 `visibility` still selects formatting; it cannot be combined with `wordCount`
 and never changes authorization. Names do not carry authority: both formats
 require the same opaque join credential, and links remain redacted by default.
+
+Invitation and preview results expose the actual `wordCount`. Explicit response
+counts must match the name; old responses without a count remain accepted only
+for their original two/three-word formats. All readable locators have at most
+134 ASCII bytes, 2–15 words and 3–24 letters per word (the latter preserves old
+compound names). Vocabulary and phrase generation remain owned by Relay.

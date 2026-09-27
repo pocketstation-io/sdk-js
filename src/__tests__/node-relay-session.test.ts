@@ -341,3 +341,28 @@ function snapshot(ready: boolean, subscriptionCount: number): object {
     codec: 'opus',
   };
 }
+
+test('RelaySession forwards a fifteen-word preference and preserves returned count without exposing authority', async () => {
+  const words = Array(15).fill('mountain').join('-');
+  let requestBody: unknown;
+  const remote = await remoteWithFetch(async (input, init) => {
+    const request = new Request(input, init);
+    const path = new URL(request.url).pathname;
+    if (path === '/v1/sessions' && request.method === 'POST') return json(201, createResponse);
+    if (request.method === 'GET') return json(200, snapshot(true, 0));
+    if (path.endsWith('/invitations')) {
+      requestBody = await request.json();
+      return json(201, { ...privateInvitationResponse, word_count: 15, share_alias: words,
+        share_url: `https://receiver.example/${words}#join=${privateInvitationResponse.join_code}` });
+    }
+    return new Response(null, { status: 204 });
+  });
+  try {
+    await remote.waitForPublisher({ timeoutMs: 100, pollIntervalMs: 1 });
+    const item = await remote.createReceiverInvitation({ busId: 'application', wordCount: 15 });
+    expect(requestBody).toEqual({ bus_id: 'application', word_count: 15 });
+    expect(item.wordCount).toBe(15);
+    expect(item.shareAlias).toBe(words);
+    expect(inspect(item)).not.toContain(privateInvitationResponse.join_code);
+  } finally { await remote.close(); }
+});
