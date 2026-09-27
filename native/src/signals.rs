@@ -255,12 +255,13 @@ impl RunningEndpointDriver for RunningSubscription {
     }
 
     fn request_stop(&mut self) -> std::result::Result<(), EndpointFailure> {
-        self.receipt.close();
+        // Producers are joined before endpoint finalization. Preserve this bounded
+        // receipt until the consumer drains the final flush and observes EOF.
+        // Only explicit subscription close discards already accepted signals.
         Ok(())
     }
 
     fn join_and_finalize(self: Box<Self>) -> EndpointDriverFinalization {
-        self.receipt.close();
         EndpointDriverFinalization {
             observations: self.receipt.observations(),
             result: Ok(()),
