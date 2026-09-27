@@ -28,7 +28,8 @@ Options:
   --microphone           capture and transcribe the default microphone
   --record-to <path>     write independent application and microphone WAV Stems
   --relay                publish each Stem to a named Relay AudioBus
-  --show-private-links   print private receiver links for sharing (keep output private)
+  --show-links           print credential-bearing receiver links (keep output private)
+  --show-private-links   deprecated alias of --show-links
   --frames <count>       stop after this many local frames (default: ${DEFAULT_FRAME_LIMIT})
   --help                 show this help
 
@@ -134,9 +135,9 @@ async function main() {
           const invitation = await remote.createReceiverInvitation({
             busId, signal: abort.signal,
           });
-          console.log(arguments_.showPrivateLinks
+          console.log(arguments_.showLinks
             ? `Listen live (${busId}): ${invitation.exposeShareUrl()}`
-            : `Receiver (${busId}): ${invitation.shareAlias} [private link redacted; use --show-private-links]`);
+            : `Receiver (${busId}): ${invitation.shareAlias} [link redacted; use --show-links]`);
         }
         await remote.waitForReceiver({ timeoutMs: 30_000, signal: abort.signal });
         receiverReady = true;
@@ -219,7 +220,7 @@ function parseArguments(values) {
     microphone: false,
     recordTo: undefined,
     relay: false,
-    showPrivateLinks: false,
+    showLinks: false,
     frames: DEFAULT_FRAME_LIMIT,
     model: undefined,
     whisperCli: undefined,
@@ -230,8 +231,8 @@ function parseArguments(values) {
       result.microphone = true;
     } else if (value === '--relay') {
       result.relay = true;
-    } else if (value === '--show-private-links') {
-      result.showPrivateLinks = true;
+    } else if (value === '--show-links' || value === '--show-private-links') {
+      result.showLinks = true;
     } else if (value === '--record-to') {
       result.recordTo = requiredValue(values, ++index, value);
     } else if (value === '--model') {
