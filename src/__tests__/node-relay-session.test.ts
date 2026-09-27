@@ -1,4 +1,6 @@
-import { ControlClient } from '../control/index.js';
+import { inspect } from 'node:util';
+
+import { ControlClient, SecretUrl } from '../control/index.js';
 import {
   RelayError,
   RelaySession,
@@ -16,9 +18,25 @@ const createResponse = {
   ice_servers: [],
 };
 
+const privateInvitationResponse = {
+  join_code: '4a54c6b9-fdc2-4e0c-a740-715efdcf03de',
+  join_url:
+    'https://receiver.example/join/4a54c6b9-fdc2-4e0c-a740-715efdcf03de#secret=abcdefghijklmnopqrstuv',
+  share_alias: 'quiet-willow-river',
+  share_url:
+    'https://receiver.example/quiet-willow-river#secret=abcdefghijklmnopqrstuv',
+  visibility: 'private',
+  expires_at: '2026-09-21T18:00:00Z',
+};
+
 describe('Node RelaySession composition', () => {
   it('composes Core routes, readiness, a safe invitation, and idempotent close', async () => {
-    const requests: Array<{ method: string; path: string; authorization: string | null }> = [];
+    const requests: Array<{
+      method: string;
+      path: string;
+      authorization: string | null;
+      body: unknown;
+    }> = [];
     const snapshots = [snapshot(true, 0), snapshot(true, 1)];
     const control = new ControlClient('https://control.example', {
       fetch: async (input, init) => {
@@ -27,6 +45,7 @@ describe('Node RelaySession composition', () => {
           method: request.method,
           path: new URL(request.url).pathname,
           authorization: request.headers.get('authorization'),
+          body: request.method === 'POST' ? await request.json() : null,
         });
         const path = new URL(request.url).pathname;
         if (request.method === 'POST' && path === '/v1/sessions') {
@@ -34,11 +53,7 @@ describe('Node RelaySession composition', () => {
         }
         if (request.method === 'GET') return json(200, snapshots.shift());
         if (request.method === 'POST' && path.endsWith('/invitations')) {
-          return json(201, {
-            join_code: 'opaque-code',
-            join_url: 'https://receiver.example/?join=opaque-code',
-            expires_at: '2026-09-21T18:00:00Z',
-          });
+          return json(201, privateInvitationResponse);
         }
         return new Response(null, { status: 204 });
       },
@@ -54,14 +69,17 @@ describe('Node RelaySession composition', () => {
     const applicationRoute = application.publish(publisher, 'application');
     const microphoneRoute = microphone.publish(publisher, 'microphone');
 
-    await expect(remote.createReceiverInvitation()).rejects.toMatchObject({
+    await expect(remote.createReceiverInvitation({ busId: 'application' })).rejects.toMatchObject({
       code: 'relay.publisher_not_active',
     });
     const publisherActivation = await remote.waitForPublisher({
       timeoutMs: 100,
       pollIntervalMs: 1,
     });
-    const invitation = await remote.createReceiverInvitation();
+    const invitation = await remote.createReceiverInvitation({
+      busId: 'application',
+      visibility: 'private',
+    });
     const receiverActivation = await remote.waitForReceiver({
       timeoutMs: 100,
       pollIntervalMs: 1,
@@ -73,9 +91,17 @@ describe('Node RelaySession composition', () => {
     expect(publisherActivation.snapshot.ready).toBe(true);
     expect(receiverActivation.snapshot.subscriptionCount).toBe(1);
     expect(invitation).toMatchObject({
-      joinCode: 'opaque-code',
-      joinUrl: 'https://receiver.example/?join=opaque-code',
+      busId: 'application',
+      joinCode: '4a54c6b9-fdc2-4e0c-a740-715efdcf03de',
+      shareAlias: 'quiet-willow-river',
+      visibility: 'private',
     });
+    expect(invitation.joinUrl).toBeInstanceOf(SecretUrl);
+    expect(invitation.shareUrl).toBeInstanceOf(SecretUrl);
+    expect(invitation.exposeShareUrl()).toBe(privateInvitationResponse.share_url);
+    expect(JSON.stringify(invitation)).not.toContain('abcdefghijklmnopqrstuv');
+    expect(String(invitation)).not.toContain('abcdefghijklmnopqrstuv');
+    expect(inspect(invitation)).not.toContain('abcdefghijklmnopqrstuv');
     expect(invitation.sessionId.toString()).toBe('session_123');
     expect(remote.relayUrl).toBe('https://relay.example');
     expect(remote.toString()).not.toContain('source-secret');
@@ -93,6 +119,10 @@ describe('Node RelaySession composition', () => {
     expect(requests.slice(1).every(({ authorization }) => (
       authorization === 'Bearer source-secret'
     ))).toBe(true);
+    expect(requests[2]?.body).toEqual({
+      bus_id: 'application',
+      visibility: 'private',
+    });
   });
 
   it('uses one bounded publisher deadline', async () => {
@@ -189,11 +219,27 @@ describe('Node RelaySession composition', () => {
   });
 
   it.each([
-    'https://receiver.example/?join=wrong-code',
-    'https://receiver.example/?join=opaque-code&token=subscriber-secret',
-    'https://receiver.example/?join=opaque-code&session_id=session_123',
-    'https://receiver.example/?join=opaque-code#session_123',
-  ])('rejects an unsafe or mismatched invitation: %s', async (joinUrl) => {
+    [
+      'wrong opaque-link path',
+      { join_url: 'https://receiver.example/join/00000000-0000-4000-8000-000000000000#secret=abcdefghijklmnopqrstuv' },
+    ],
+    [
+      'query-bearing readable link',
+      { share_url: 'https://receiver.example/quiet-willow-river?token=leak#secret=abcdefghijklmnopqrstuv' },
+    ],
+    [
+      'different private secrets',
+      { share_url: 'https://receiver.example/quiet-willow-river#secret=zyxwvutsrqponmlkjihgfe' },
+    ],
+    [
+      'public visibility with a three-word alias',
+      {
+        visibility: 'public',
+        join_url: 'https://receiver.example/join/4a54c6b9-fdc2-4e0c-a740-715efdcf03de',
+        share_url: 'https://receiver.example/quiet-willow-river',
+      },
+    ],
+  ])('rejects an unsafe or mismatched invitation: %s', async (_name, delta) => {
     const remote = await remoteWithFetch(async (input, init) => {
       const request = new Request(input, init);
       const path = new URL(request.url).pathname;
@@ -202,17 +248,14 @@ describe('Node RelaySession composition', () => {
       }
       if (request.method === 'GET') return json(200, snapshot(true, 0));
       if (request.method === 'POST' && path.endsWith('/invitations')) {
-        return json(201, {
-          join_code: 'opaque-code',
-          join_url: joinUrl,
-          expires_at: '2026-09-21T18:00:00Z',
-        });
+        return json(201, { ...privateInvitationResponse, ...delta });
       }
       return new Response(null, { status: 204 });
     });
     await remote.waitForPublisher({ timeoutMs: 100, pollIntervalMs: 1 });
 
-    await expect(remote.createReceiverInvitation()).rejects.toBeInstanceOf(RelayError);
+    await expect(remote.createReceiverInvitation({ busId: 'application' }))
+      .rejects.toMatchObject({ code: 'control.response_decode' });
     await remote.close();
   });
 

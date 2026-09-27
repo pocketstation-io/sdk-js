@@ -1,8 +1,12 @@
 import { jest } from '@jest/globals';
+import { inspect } from 'node:util';
 
 import { PocketStationError } from '../errors.js';
+import { InvitationUnavailableError } from '../control/control-client.js';
+import { SecretToken } from '../control/types.js';
 import {
   RelayReceiver,
+  parseRelayInvitationLocation,
   resolveRelayInvitation,
 } from '../browser/relay-session.js';
 
@@ -14,7 +18,7 @@ const resolution = {
   ice_servers: [
     { urls: ['stun:relay.example:3478'] },
     {
-      urls: 'turn:relay.example:3478',
+      urls: ['turn:relay.example:3478'],
       username: 'user',
       credential: 'secret',
     },
@@ -37,47 +41,82 @@ afterEach(() => {
 });
 
 describe('Relay invitation resolution', () => {
-  it('maps current Session, AudioBus, subscriber, signal, and ICE fields', async () => {
+  it('parses location without trusting its origin and redeems through POST', async () => {
     const fetch = mockFetch(resolution);
+    const invitation = parseRelayInvitationLocation(
+      'https://untrusted.example/quiet-willow-river#secret=abcdefghijklmnopqrstuv',
+    );
 
-    await expect(
-      resolveRelayInvitation({
-        controlUrl: 'https://control.example.com',
-        joinCode: 'one-time-code',
-      }),
-    ).resolves.toEqual({
-      signalUrl: resolution.signal_url,
-      sessionId: resolution.session_id,
-      busId: resolution.bus_id,
-      subscriberToken: resolution.subscriber_token,
-      iceServers: resolution.ice_servers,
+    const access = await resolveRelayInvitation(invitation, {
+      controlPlaneUrl: 'https://control.example.com',
     });
 
+    expect(access.signalUrl).toBe(resolution.signal_url);
+    expect(access.sessionId).toBe(resolution.session_id);
+    expect(access.busId).toBe(resolution.bus_id);
+    expect(access.subscriberToken.exposeSecret()).toBe(resolution.subscriber_token);
+    expect(access.iceServers?.[1]?.credential?.exposeSecret()).toBe('secret');
+    expect(JSON.stringify(access)).not.toContain(resolution.subscriber_token);
+    expect(JSON.stringify(access)).not.toContain('secret');
+
     expect(fetch).toHaveBeenCalledWith(
-      new URL('https://control.example.com/v1/invitations/one-time-code'),
+      new URL(
+        'https://control.example.com/v1/invitations/quiet-willow-river/redeem',
+      ),
       expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ secret: 'abcdefghijklmnopqrstuv' }),
         cache: 'no-store',
         credentials: 'omit',
+        referrerPolicy: 'no-referrer',
         signal: expect.any(AbortSignal),
       }),
     );
+  });
+
+  it('rejects an arbitrary control origin carried in the invitation location', () => {
+    expect(() =>
+      parseRelayInvitationLocation(
+        'https://receiver.example/quiet-willow?control=https%3A%2F%2Fevil.example',
+      ),
+    ).toThrow(PocketStationError);
+  });
+
+  it('does not retain a private fragment secret in transport errors', async () => {
+    const privateSecret = 'abcdefghijklmnopqrstuv';
+    globalThis.fetch = jest.fn(async () => {
+      throw new Error(`transport reflected ${privateSecret}`);
+    });
+
+    const failure = await resolveRelayInvitation(
+      {
+        locator: 'quiet-willow-river',
+        secret: new SecretToken(privateSecret),
+      },
+      { controlPlaneUrl: 'https://control.example.com' },
+    ).catch((error: unknown) => error);
+
+    expect(failure).toMatchObject({ code: 'relay.invitation_request_failed' });
+    expect(String(failure)).not.toContain(privateSecret);
+    expect(JSON.stringify(failure)).not.toContain(privateSecret);
+    expect(inspect(failure)).not.toContain(privateSecret);
   });
 
   it('keeps HTTP rejection distinct from malformed response data', async () => {
     mockFetch({ error: 'invitation_not_found' }, 404);
     await expect(
       resolveRelayInvitation({
-        controlUrl: 'https://control.example.com',
-        joinCode: 'expired',
-      }),
-    ).rejects.toMatchObject({ code: 'relay.invitation_rejected' });
+        locator: 'quiet-willow',
+        secret: null,
+      }, { controlPlaneUrl: 'https://control.example.com' }),
+    ).rejects.toBeInstanceOf(InvitationUnavailableError);
 
     mockFetch({ session_id: 'session-001' });
     await expect(
       resolveRelayInvitation({
-        controlUrl: 'https://control.example.com',
-        joinCode: 'invalid',
-      }),
+        locator: 'quiet-willow',
+        secret: null,
+      }, { controlPlaneUrl: 'https://control.example.com' }),
     ).rejects.toMatchObject({ code: 'relay.invalid_invitation_response' });
   });
 
@@ -85,9 +124,9 @@ describe('Relay invitation resolution', () => {
     mockFetch({ value: 'x'.repeat(17_000) });
     await expect(
       resolveRelayInvitation({
-        controlUrl: 'https://control.example.com',
-        joinCode: 'large',
-      }),
+        locator: 'quiet-willow',
+        secret: null,
+      }, { controlPlaneUrl: 'https://control.example.com' }),
     ).rejects.toMatchObject({ code: 'relay.invitation_response_too_large' });
   });
 });
@@ -98,7 +137,7 @@ describe('RelayReceiver before connection', () => {
       signalUrl: resolution.signal_url,
       sessionId: resolution.session_id,
       busId: resolution.bus_id,
-      subscriberToken: resolution.subscriber_token,
+      subscriberToken: new SecretToken(resolution.subscriber_token),
     });
 
     expect(receiver.state).toBe('idle');
@@ -111,13 +150,17 @@ describe('RelayReceiver before connection', () => {
   it('rejects invalid origins and unbounded deadlines during construction', () => {
     expect(
       () =>
-        new RelayReceiver({ controlUrl: 'file:///tmp/control', joinCode: 'code' }),
+        new RelayReceiver(
+          { locator: 'quiet-willow', secret: null },
+          { controlPlaneUrl: 'file:///tmp/control' },
+        ),
     ).toThrow(PocketStationError);
     expect(
       () =>
         new RelayReceiver(
-          { controlUrl: 'https://control.example.com', joinCode: 'code' },
+          { locator: 'quiet-willow', secret: null },
           {
+            controlPlaneUrl: 'https://control.example.com',
             connectTimeoutMs: 0,
           },
         ),
@@ -298,7 +341,7 @@ describe('RelayReceiver connected protocol', () => {
       signalUrl: resolution.signal_url,
       sessionId: resolution.session_id,
       busId: resolution.bus_id,
-      subscriberToken: resolution.subscriber_token,
+      subscriberToken: new SecretToken(resolution.subscriber_token),
     });
     await receiver.connect();
     const socket = FakeWebSocket.instances[0];
@@ -323,7 +366,7 @@ describe('RelayReceiver connected protocol', () => {
       signalUrl: resolution.signal_url,
       sessionId: resolution.session_id,
       busId: resolution.bus_id,
-      subscriberToken: resolution.subscriber_token,
+      subscriberToken: new SecretToken(resolution.subscriber_token),
     });
 
     await receiver.connect();
@@ -346,7 +389,7 @@ describe('RelayReceiver connected protocol', () => {
       signalUrl: resolution.signal_url,
       sessionId: resolution.session_id,
       busId: resolution.bus_id,
-      subscriberToken: resolution.subscriber_token,
+      subscriberToken: new SecretToken(resolution.subscriber_token),
     });
     await receiver.connect();
     const socket = FakeWebSocket.instances[0];
@@ -379,8 +422,8 @@ describe('RelayReceiver connected protocol', () => {
       signalUrl: resolution.signal_url,
       sessionId: resolution.session_id,
       busId: resolution.bus_id,
-      subscriberToken: resolution.subscriber_token,
-      iceServers: [{ urls }],
+      subscriberToken: new SecretToken(resolution.subscriber_token),
+      iceServers: [{ urls, username: null, credential: null }],
     };
     const mutableOptions = {
       connectTimeoutMs: 2_000,
@@ -392,7 +435,7 @@ describe('RelayReceiver connected protocol', () => {
     mutableAccess.signalUrl = 'ws://attacker.invalid/v1/signal';
     mutableAccess.sessionId = 'attacker-session';
     mutableAccess.busId = 'attacker-bus';
-    mutableAccess.subscriberToken = 'attacker-token';
+    mutableAccess.subscriberToken = new SecretToken('attacker-token');
     urls[0] = 'stun:attacker.invalid:3478';
     mutableOptions.connectTimeoutMs = 0;
     mutableOptions.onStateChange = (state: string) => replacementStates.push(state);
@@ -414,7 +457,7 @@ describe('RelayReceiver connected protocol', () => {
       signalUrl: resolution.signal_url,
       sessionId: resolution.session_id,
       busId: resolution.bus_id,
-      subscriberToken: resolution.subscriber_token,
+      subscriberToken: new SecretToken(resolution.subscriber_token),
     });
     expect(Object.isFrozen(receiver.access)).toBe(true);
     expect(Object.isFrozen(receiver.access?.iceServers)).toBe(true);
@@ -433,19 +476,22 @@ describe('RelayReceiver connected protocol', () => {
 
   it('snapshots an invitation before its asynchronous redemption', async () => {
     const invitation = {
-      controlUrl: 'https://control.example.com',
-      joinCode: 'original-code',
+      locator: 'quiet-willow',
+      secret: null,
     };
     const fetch = mockFetch(resolution);
-    const receiver = new RelayReceiver(invitation);
-    invitation.controlUrl = 'https://attacker.invalid';
-    invitation.joinCode = 'attacker-code';
+    const receiver = new RelayReceiver(invitation, {
+      controlPlaneUrl: 'https://control.example.com',
+    });
+    invitation.locator = 'attacker-code';
 
     await receiver.connect();
 
     expect(fetch).toHaveBeenCalledWith(
-      new URL('https://control.example.com/v1/invitations/original-code'),
-      expect.any(Object),
+      new URL(
+        'https://control.example.com/v1/invitations/quiet-willow/redeem',
+      ),
+      expect.objectContaining({ method: 'POST' }),
     );
     await receiver.disconnect();
   });
@@ -457,7 +503,7 @@ describe('RelayReceiver connected protocol', () => {
         signalUrl: resolution.signal_url,
         sessionId: resolution.session_id,
         busId: resolution.bus_id,
-        subscriberToken: resolution.subscriber_token,
+        subscriberToken: new SecretToken(resolution.subscriber_token),
       },
       {
         onStateChange: () => {

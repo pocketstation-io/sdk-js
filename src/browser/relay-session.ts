@@ -1,4 +1,6 @@
 import { PocketStationError } from '../errors.js';
+import { InvitationUnavailableError } from '../control/control-client.js';
+import { SecretToken, type IceServer } from '../control/types.js';
 import { operationSignal } from './operation-signal.js';
 import { latencyReportPayload } from './latency-report.js';
 import { SignalingTransport } from './signaling.js';
@@ -17,49 +19,128 @@ const DEFAULT_CONNECT_TIMEOUT_MS = 20_000;
 const DEFAULT_DISCONNECT_TIMEOUT_MS = 2_000;
 const MAX_CONTROL_RESPONSE_BYTES = 16 * 1024;
 const MAX_PENDING_ICE_CANDIDATES = 64;
+const MAX_ICE_SERVERS = 32;
+const MAX_ICE_URLS = 16;
 
 /** Per-operation cancellation for browser Relay receiving. */
 export interface RelayConnectOptions {
   readonly signal?: AbortSignal;
 }
 
-/** Resolve a one-time receiver invitation through the PocketStation control plane. */
+/** Trusted control-plane settings for explicit invitation redemption. */
+export interface RelayInvitationResolutionOptions extends RelayConnectOptions {
+  readonly controlPlaneUrl: string;
+  readonly timeoutMs?: number;
+}
+
+/** Parse only invitation locator and fragment authority from a receiver URL. */
+export function parseRelayInvitationLocation(
+  location: string | URL,
+): RelayInvitation {
+  let parsed: URL;
+  try {
+    parsed = location instanceof URL ? new URL(location.href) : new URL(location);
+  } catch (cause) {
+    throw new PocketStationError(
+      'relay.invalid_invitation_location',
+      'Invitation location must be an absolute HTTP or HTTPS URL',
+      { cause },
+    );
+  }
+  if (
+    !['http:', 'https:'].includes(parsed.protocol) ||
+    parsed.username.length > 0 ||
+    parsed.password.length > 0
+  ) {
+    throw new PocketStationError(
+      'relay.invalid_invitation_location',
+      'Invitation location must use HTTP or HTTPS without URL credentials',
+    );
+  }
+  const queryKeys: string[] = [];
+  parsed.searchParams.forEach((_value, key) => queryKeys.push(key));
+  if (queryKeys.some((key) => key !== 'join')) {
+    throw new PocketStationError(
+      'relay.invalid_invitation_location',
+      'Invitation location contains an unsupported query parameter',
+    );
+  }
+  const queryLocators = parsed.searchParams.getAll('join');
+  if (queryLocators.length > 1) {
+    throw new PocketStationError(
+      'relay.invalid_invitation_location',
+      'Invitation location contains multiple join locators',
+    );
+  }
+  const pathLocator = invitationPathLocator(parsed.pathname);
+  const queryLocator = queryLocators[0] ?? '';
+  if (pathLocator !== '' && queryLocator !== '' && pathLocator !== queryLocator) {
+    throw new PocketStationError(
+      'relay.invalid_invitation_location',
+      'Invitation location contains conflicting locators',
+    );
+  }
+  const locator = validatedInvitationLocator(pathLocator || queryLocator);
+  const secret = invitationFragmentSecret(parsed.hash);
+  return Object.freeze({ locator, secret });
+}
+
+/** Redeem a one-time receiver invitation through one trusted control-plane origin. */
 export async function resolveRelayInvitation(
   invitation: RelayInvitation,
-  options: { readonly signal?: AbortSignal; readonly timeoutMs?: number } = {},
+  options: RelayInvitationResolutionOptions,
 ): Promise<RelayReceiverAccess> {
   const timeoutMs = finiteTimeout(
     options.timeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS,
     'invitation timeoutMs',
   );
-  const control = parseControlUrl(invitation.controlUrl);
-  const joinCode = requiredText(invitation.joinCode, 'invitation joinCode');
+  const control = parseControlUrl(options.controlPlaneUrl);
+  const locator = validatedInvitationLocator(invitation.locator);
+  const secret = invitation.secret;
+  if (secret !== null && !(secret instanceof SecretToken)) {
+    throw new TypeError('invitation secret must be a SecretToken or null');
+  }
   const operation = operationSignal(timeoutMs, options.signal);
   try {
     let response: Response;
     try {
       response = await fetch(
-        new URL(`/v1/invitations/${encodeURIComponent(joinCode)}`, control),
-        { cache: 'no-store', credentials: 'omit', signal: operation.signal },
+        new URL(`/v1/invitations/${encodeURIComponent(locator)}/redeem`, control),
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(
+            secret === null ? {} : { secret: secret.exposeSecret() },
+          ),
+          cache: 'no-store',
+          credentials: 'omit',
+          referrerPolicy: 'no-referrer',
+          signal: operation.signal,
+        },
       );
-    } catch (cause) {
-      throw requestFailure(
+    } catch {
+      throw invitationFailure(
         'relay.invitation_request_failed',
         'Invitation could not be resolved',
-        cause,
       );
     }
     let body: string;
     try {
       body = await readLimitedText(response, MAX_CONTROL_RESPONSE_BYTES);
     } catch (cause) {
-      throw requestFailure(
+      if (
+        cause instanceof PocketStationError &&
+        cause.code === 'relay.invitation_response_too_large'
+      ) {
+        throw cause;
+      }
+      throw invitationFailure(
         'relay.invitation_response_failed',
         'Invitation response could not be read',
-        cause,
       );
     }
     if (!response.ok) {
+      if (response.status === 404) throw new InvitationUnavailableError();
       throw new PocketStationError(
         'relay.invitation_rejected',
         `PocketStation control plane rejected the invitation with HTTP ${response.status}`,
@@ -120,16 +201,28 @@ export class RelayReceiver {
     this.#options = Object.freeze({
       connectTimeoutMs,
       disconnectTimeoutMs,
+      controlPlaneUrl:
+        options.controlPlaneUrl === undefined
+          ? undefined
+          : parseControlUrl(options.controlPlaneUrl).href,
       onStateChange: options.onStateChange,
       onSessionState: options.onSessionState,
       onError: options.onError,
     });
     if (isInvitation(access)) {
-      parseControlUrl(access.controlUrl);
-      requiredText(access.joinCode, 'invitation joinCode');
+      if (this.#options.controlPlaneUrl === undefined) {
+        throw new PocketStationError(
+          'relay.invalid_control_url',
+          'RelayReceiver invitation requires a separately configured controlPlaneUrl',
+        );
+      }
+      const locator = validatedInvitationLocator(access.locator);
+      if (access.secret !== null && !(access.secret instanceof SecretToken)) {
+        throw new TypeError('invitation secret must be a SecretToken or null');
+      }
       this.#requestedAccess = Object.freeze({
-        controlUrl: access.controlUrl,
-        joinCode: access.joinCode,
+        locator,
+        secret: access.secret,
       });
     } else {
       validateAccess(access);
@@ -309,7 +402,15 @@ export class RelayReceiver {
         );
       }
       this.#setState('resolving-invitation');
+      const controlPlaneUrl = this.#options.controlPlaneUrl;
+      if (controlPlaneUrl === undefined) {
+        throw new PocketStationError(
+          'relay.invalid_control_url',
+          'RelayReceiver invitation requires a separately configured controlPlaneUrl',
+        );
+      }
       this.#access = await resolveRelayInvitation(requestedAccess, {
+        controlPlaneUrl,
         signal,
         timeoutMs: this.#options.connectTimeoutMs,
       });
@@ -325,7 +426,8 @@ export class RelayReceiver {
     this.#setState('signaling');
 
     const connection = new RTCPeerConnection({
-      iceServers: access.iceServers === undefined ? [] : [...access.iceServers],
+      iceServers:
+        access.iceServers === undefined ? [] : access.iceServers.map(rtcIceServer),
     });
     this.#connection = connection;
     this.#stream = new MediaStream();
@@ -424,7 +526,7 @@ export class RelayReceiver {
       type: 'SUBSCRIBE',
       session_id: access.sessionId,
       bus_id: access.busId,
-      token: access.subscriberToken,
+      token: access.subscriberToken.exposeSecret(),
       sdp_offer: offer.sdp,
     });
     this.#subscribeSent = true;
@@ -673,7 +775,7 @@ function waitWithSignal<T>(operation: Promise<T>, signal: AbortSignal): Promise<
 function isInvitation(
   access: RelayReceiverAccess | RelayInvitation,
 ): access is RelayInvitation {
-  return 'joinCode' in access;
+  return 'locator' in access;
 }
 
 function validateAccess(access: RelayReceiverAccess): void {
@@ -695,7 +797,9 @@ function validateAccess(access: RelayReceiverAccess): void {
   }
   requiredText(access.sessionId, 'sessionId');
   requiredText(access.busId, 'busId');
-  requiredText(access.subscriberToken, 'subscriberToken');
+  if (!(access.subscriberToken instanceof SecretToken)) {
+    throw new TypeError('subscriberToken must be a SecretToken');
+  }
   for (const server of access.iceServers ?? []) validateIceServer(server);
 }
 
@@ -712,14 +816,11 @@ function snapshotAccess(access: RelayReceiverAccess): RelayReceiverAccess {
   });
 }
 
-function snapshotIceServer(server: RTCIceServer): RTCIceServer {
-  const urls: string | string[] =
-    typeof server.urls === 'string' ? server.urls : [...server.urls];
-  if (Array.isArray(urls)) Object.freeze(urls);
+function snapshotIceServer(server: IceServer): IceServer {
   return Object.freeze({
-    urls,
-    ...(server.username === undefined ? {} : { username: server.username }),
-    ...(server.credential === undefined ? {} : { credential: server.credential }),
+    urls: Object.freeze([...server.urls]),
+    username: server.username,
+    credential: server.credential,
   });
 }
 
@@ -727,50 +828,154 @@ function invitationAccess(value: unknown): RelayReceiverAccess {
   if (!isRecord(value)) {
     throw invalidInvitation('Invitation response must be a JSON object');
   }
-  const access: RelayReceiverAccess = {
-    signalUrl: recordText(value, 'signal_url'),
-    sessionId: recordText(value, 'session_id'),
-    busId: recordText(value, 'bus_id'),
-    subscriberToken: recordText(value, 'subscriber_token'),
-    iceServers:
-      value.ice_servers === undefined
-        ? undefined
-        : invitationIceServers(value.ice_servers),
-  };
-  validateAccess(access);
-  return snapshotAccess(access);
+  try {
+    const access: RelayReceiverAccess = {
+      signalUrl: recordText(value, 'signal_url'),
+      sessionId: responseIdentifier(value, 'session_id', 128),
+      busId: responseIdentifier(value, 'bus_id', 64),
+      subscriberToken: new SecretToken(recordText(value, 'subscriber_token')),
+      iceServers:
+        value.ice_servers === undefined
+          ? undefined
+          : invitationIceServers(value.ice_servers),
+    };
+    validateAccess(access);
+    return snapshotAccess(access);
+  } catch (cause) {
+    if (
+      cause instanceof PocketStationError &&
+      cause.code === 'relay.invalid_invitation_response'
+    ) {
+      throw cause;
+    }
+    throw invalidInvitation('Invitation response contains invalid receiver access');
+  }
 }
 
-function invitationIceServers(value: unknown): RTCIceServer[] {
-  if (!Array.isArray(value) || value.length > 16) {
+function invitationIceServers(value: unknown): IceServer[] {
+  if (!Array.isArray(value) || value.length > MAX_ICE_SERVERS) {
     throw invalidInvitation('Invitation response has an invalid ICE server list');
   }
   return value.map((server) => {
     if (!isRecord(server)) throw invalidInvitation('Invitation contains an invalid ICE server');
     const urls = server.urls;
-    const result: RTCIceServer = {
-      urls:
-        typeof urls === 'string'
-          ? urls
-          : Array.isArray(urls) && urls.every((url) => typeof url === 'string')
-            ? urls
-            : (() => {
-                throw invalidInvitation('Invitation ICE server is missing urls');
-              })(),
-      username: typeof server.username === 'string' ? server.username : undefined,
-      credential:
-        typeof server.credential === 'string' ? server.credential : undefined,
+    if (
+      !Array.isArray(urls) ||
+      !urls.every((url) => typeof url === 'string')
+    ) {
+      throw invalidInvitation('Invitation ICE server is missing urls');
+    }
+    if (
+      server.username !== undefined &&
+      server.username !== null &&
+      typeof server.username !== 'string'
+    ) {
+      throw invalidInvitation('Invitation ICE server has an invalid username');
+    }
+    if (
+      server.credential !== undefined &&
+      server.credential !== null &&
+      typeof server.credential !== 'string'
+    ) {
+      throw invalidInvitation('Invitation ICE server has an invalid credential');
+    }
+    const result: IceServer = {
+      urls: Object.freeze([...urls]) as readonly string[],
+      username: typeof server.username === 'string' ? server.username : null,
+      credential: typeof server.credential === 'string'
+        ? new SecretToken(server.credential)
+        : null,
     };
     validateIceServer(result);
     return result;
   });
 }
 
-function validateIceServer(server: RTCIceServer): void {
-  const urls = typeof server.urls === 'string' ? [server.urls] : server.urls;
-  if (urls.length === 0 || urls.length > 8 || urls.some((url) => url.length === 0)) {
-    throw invalidInvitation('ICE server URLs must contain between one and eight values');
+function validateIceServer(server: IceServer): void {
+  const urls = server.urls;
+  if (
+    urls.length === 0 ||
+    urls.length > MAX_ICE_URLS ||
+    urls.some((url) => url.length === 0)
+  ) {
+    throw invalidInvitation(
+      `ICE server URLs must contain between one and ${MAX_ICE_URLS} values`,
+    );
   }
+  if (server.credential !== null && !(server.credential instanceof SecretToken)) {
+    throw invalidInvitation('ICE server credential must be a SecretToken or null');
+  }
+}
+
+function rtcIceServer(server: IceServer): RTCIceServer {
+  return {
+    urls: [...server.urls],
+    ...(server.username === null ? {} : { username: server.username }),
+    ...(server.credential === null
+      ? {}
+      : { credential: server.credential.exposeSecret() }),
+  };
+}
+
+function invitationPathLocator(pathname: string): string {
+  const segments = pathname.split('/').filter((segment) => segment.length > 0);
+  if (segments.length === 0 || (segments.length === 1 && segments[0] === 'join')) {
+    return '';
+  }
+  if (segments.length === 1) return decodedInvitationSegment(segments[0] as string);
+  if (segments.length === 2 && segments[0] === 'join') {
+    return decodedInvitationSegment(segments[1] as string);
+  }
+  throw new PocketStationError(
+    'relay.invalid_invitation_location',
+    'Invitation location path is not a supported receiver route',
+  );
+}
+
+function decodedInvitationSegment(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch (cause) {
+    throw new PocketStationError(
+      'relay.invalid_invitation_location',
+      'Invitation location contains an invalid path segment',
+      { cause },
+    );
+  }
+}
+
+function validatedInvitationLocator(value: string): string {
+  const locator = requiredText(value, 'invitation locator').trim();
+  if (
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(locator) ||
+    /^[a-z]{4,24}-[a-z]{4,24}(?:-[a-z]{4,24})?$/.test(locator)
+  ) {
+    return locator;
+  }
+  throw new PocketStationError(
+    'relay.invalid_invitation_location',
+    'Invitation locator must be an opaque code or a two- or three-word alias',
+  );
+}
+
+function invitationFragmentSecret(hash: string): SecretToken | null {
+  if (hash.length === 0) return null;
+  const parameters = new URLSearchParams(hash.slice(1));
+  const keys: string[] = [];
+  parameters.forEach((_value, key) => keys.push(key));
+  const secrets = parameters.getAll('secret');
+  const value = secrets[0] ?? '';
+  if (
+    keys.some((key) => key !== 'secret') ||
+    secrets.length !== 1 ||
+    !/^[A-Za-z0-9_-]{22}$/.test(value)
+  ) {
+    throw new PocketStationError(
+      'relay.invalid_invitation_location',
+      'Invitation fragment must contain exactly one valid private secret',
+    );
+  }
+  return new SecretToken(value);
 }
 
 function parseControlUrl(value: string): URL {
@@ -780,7 +985,7 @@ function parseControlUrl(value: string): URL {
   } catch (cause) {
     throw new PocketStationError(
       'relay.invalid_control_url',
-      'Control URL must be an absolute HTTP or HTTPS origin',
+      'controlPlaneUrl must be an absolute HTTP or HTTPS origin',
       { cause },
     );
   }
@@ -794,7 +999,7 @@ function parseControlUrl(value: string): URL {
   ) {
     throw new PocketStationError(
       'relay.invalid_control_url',
-      'Control URL must be an HTTP or HTTPS origin without credentials or a path',
+      'controlPlaneUrl must be an HTTP or HTTPS origin without credentials or a path',
     );
   }
   return url;
@@ -842,6 +1047,18 @@ function recordText(value: Record<string, unknown>, name: string): string {
   return field;
 }
 
+function responseIdentifier(
+  value: Record<string, unknown>,
+  name: string,
+  maximum: number,
+): string {
+  const field = recordText(value, name);
+  if (field.length > maximum || !/^[A-Za-z0-9._-]+$/.test(field)) {
+    throw invalidInvitation(`Invitation response contains an invalid ${name}`);
+  }
+  return field;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -850,9 +1067,11 @@ function invalidInvitation(message: string): PocketStationError {
   return new PocketStationError('relay.invalid_invitation_response', message);
 }
 
-function requestFailure(code: string, message: string, cause: unknown): PocketStationError {
-  if (cause instanceof PocketStationError) return cause;
-  return new PocketStationError(code, message, { cause });
+function invitationFailure(code: string, message: string): PocketStationError {
+  // Invitation request bodies can contain a fragment secret. Do not retain an
+  // arbitrary transport/stream error as a cause because normal error logging
+  // could otherwise reveal that authority.
+  return new PocketStationError(code, message);
 }
 
 function receiverFailure(cause: unknown, signal?: AbortSignal): PocketStationError {

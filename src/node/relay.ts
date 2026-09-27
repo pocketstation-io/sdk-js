@@ -2,8 +2,10 @@ import { PocketStationError } from '../errors.js';
 import {
   ControlClient,
   ControlPlaneError,
+  SecretUrl,
   SessionId,
   type Invitation,
+  type InvitationVisibility,
   type SessionCredentials,
   type SessionSnapshot,
 } from '../control/index.js';
@@ -55,21 +57,43 @@ export class ReceiverActivation {
   }
 }
 
-/** Opaque receiver invitation containing no media capability. */
+/** Exact-bus receiver invitation whose private URLs stay redacted by default. */
 export class ReceiverInvitation {
   public readonly sessionId: SessionId;
+  public readonly busId: string;
   public readonly joinCode: string;
-  public readonly url: string;
+  public readonly joinUrl: SecretUrl | null;
+  public readonly shareAlias: string;
+  public readonly shareUrl: SecretUrl | null;
+  public readonly visibility: InvitationVisibility;
+  public readonly expiresAt: string;
 
-  public constructor(sessionId: SessionId, joinCode: string, url: string) {
-    this.sessionId = sessionId;
-    this.joinCode = joinCode;
-    this.url = url;
+  public constructor(invitation: Invitation) {
+    this.sessionId = invitation.sessionId;
+    this.busId = invitation.busId;
+    this.joinCode = invitation.joinCode;
+    this.joinUrl = invitation.joinUrl;
+    this.shareAlias = invitation.shareAlias;
+    this.shareUrl = invitation.shareUrl;
+    this.visibility = invitation.visibility;
+    this.expiresAt = invitation.expiresAt;
     Object.freeze(this);
   }
 
-  public get joinUrl(): string {
-    return this.url;
+  /** Prefer the readable link, falling back to the opaque compatibility link. */
+  public exposeShareUrl(): string {
+    const selected = this.shareUrl ?? this.joinUrl;
+    if (selected === null) {
+      throw new RelayError(
+        'relay.invitation_url_unavailable',
+        'Control plane did not return a receiver URL',
+      );
+    }
+    return selected.exposeSecret();
+  }
+
+  public toString(): string {
+    return `ReceiverInvitation(alias=${this.shareAlias}, busId=${this.busId}, url=[redacted])`;
   }
 }
 
@@ -96,7 +120,8 @@ export interface RelayActivationOptions {
 
 /** Options for creating one receiver invitation. */
 export interface ReceiverInvitationOptions {
-  readonly busId?: string;
+  readonly busId: string;
+  readonly visibility?: InvitationVisibility;
   readonly signal?: AbortSignal;
 }
 
@@ -229,7 +254,7 @@ export class RelaySession {
 
   /** Create a scoped receiver invitation after the publisher is active. */
   public async createReceiverInvitation(
-    options: ReceiverInvitationOptions = {},
+    options: ReceiverInvitationOptions,
   ): Promise<ReceiverInvitation> {
     this.#requireOpen();
     if (this.#publisherActivation === null) {
@@ -242,7 +267,8 @@ export class RelaySession {
       this.credentials.sessionId,
       this.credentials.sourceToken,
       {
-        busId: options.busId ?? 'mix',
+        busId: options.busId,
+        visibility: options.visibility,
         timeoutMs: this.#requestTimeoutMs,
         signal: options.signal,
       },
@@ -254,7 +280,7 @@ export class RelaySession {
 
   /** Wait for publishing and then create one receiver invitation. */
   public async waitForPublisherAndInvitation(
-    options: RelayActivationOptions & ReceiverInvitationOptions = {},
+    options: RelayActivationOptions & ReceiverInvitationOptions,
   ): Promise<ReceiverInvitation> {
     await this.waitForPublisher(options);
     return this.createReceiverInvitation(options);
@@ -488,47 +514,13 @@ function receiverInvitation(
       'Control-plane invitation belongs to a different Session',
     );
   }
-  let parsed: URL;
-  try {
-    parsed = new URL(created.joinUrl);
-  } catch (cause) {
-    throw new RelayError(
-      'relay.response_decode',
-      'Relay invitation URL must be absolute HTTP or HTTPS',
-      { cause },
-    );
-  }
-  if (!['http:', 'https:'].includes(parsed.protocol)) {
-    throw new RelayError(
-      'relay.response_decode',
-      'Relay invitation URL must be absolute HTTP or HTTPS',
-    );
-  }
-  const unsafeKeys = [
-    'session',
-    'session_id',
-    'source_token',
-    'subscriber_token',
-    'token',
-  ];
-  if (
-    unsafeKeys.some((key) => parsed.searchParams.has(key)) ||
-    parsed.hash.length > 0 ||
-    created.joinUrl.includes(expected)
-  ) {
-    throw new RelayError(
-      'relay.unsafe_invitation',
-      'Relay invitation URL exposes a credential or Session identifier',
-    );
-  }
-  const joinValues = parsed.searchParams.getAll('join');
-  if (joinValues.length !== 1 || joinValues[0] !== created.joinCode) {
+  if (created.busId.length === 0) {
     throw new RelayError(
       'relay.response_identity',
-      'Relay invitation URL does not contain its opaque join code',
+      'Control-plane invitation is missing its exact AudioBus identity',
     );
   }
-  return new ReceiverInvitation(expectedSessionId, created.joinCode, created.joinUrl);
+  return new ReceiverInvitation(created);
 }
 
 function finiteTimeout(value: number, name: string): number {

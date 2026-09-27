@@ -1,3 +1,5 @@
+import { SecretToken, type IceServer } from '../control/types.js';
+
 /** Direct receiver access issued for one RelaySession AudioBus. */
 export interface RelayReceiverAccess {
   /** Relay WebSocket endpoint, normally ending in `/v1/signal`. */
@@ -7,9 +9,9 @@ export interface RelayReceiverAccess {
   /** AudioBus selected for this receiver. */
   readonly busId: string;
   /** Subscriber credential scoped to the selected AudioBus. */
-  readonly subscriberToken: string;
+  readonly subscriberToken: SecretToken;
   /** STUN or TURN servers issued for this RelaySession. */
-  readonly iceServers?: readonly RTCIceServer[];
+  readonly iceServers?: readonly IceServer[];
 }
 
 /** Direct publisher access issued for one RelaySession AudioBus. */
@@ -21,21 +23,23 @@ export interface RelayPublisherAccess {
   /** AudioBus selected for this publisher. */
   readonly busId: string;
   /** Media-only publisher credential scoped to the selected AudioBus. */
-  readonly publisherToken: string;
+  readonly publisherToken: SecretToken;
   /** STUN or TURN servers issued for this RelaySession. */
-  readonly iceServers?: readonly RTCIceServer[];
+  readonly iceServers?: readonly IceServer[];
 }
 
 /** A one-time invitation issued by the PocketStation control plane. */
 export interface RelayInvitation {
-  /** PocketStation control-plane HTTP or HTTPS origin. */
-  readonly controlUrl: string;
-  /** Opaque one-time join code. */
-  readonly joinCode: string;
+  /** Opaque join code or two- or three-word share alias. */
+  readonly locator: string;
+  /** Private URL-fragment secret, absent for public invitations. */
+  readonly secret: SecretToken | null;
 }
 
 /** Receiver startup and shutdown settings. */
 export interface RelayReceiverOptions {
+  /** Trusted control-plane origin used only for invitation inspection and redemption. */
+  readonly controlPlaneUrl?: string;
   /** Complete invitation, signaling, SDP, ICE, and track deadline. Defaults to 20 seconds. */
   readonly connectTimeoutMs?: number;
   /** WebSocket close deadline. Defaults to two seconds. */

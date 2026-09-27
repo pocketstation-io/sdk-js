@@ -1,7 +1,11 @@
+import { inspect } from 'node:util';
+
 import {
   ControlClient,
   ControlPlaneError,
+  InvitationUnavailableError,
   SecretToken,
+  SecretUrl,
   SessionId,
   type ControlFetch,
 } from '../control/index.js';
@@ -94,10 +98,14 @@ describe('ControlClient', () => {
       }
       if (url.pathname.endsWith('/invitations')) {
         return jsonResponse(201, {
-          join_code: 'opaque-code',
+          join_code: '4a54c6b9-fdc2-4e0c-a740-715efdcf03de',
           join_url:
-            'https://receiver.example/?join=opaque-code&control=https%3A%2F%2Fcontrol.example',
-          expires_at: '2026-08-21T18:00:00Z',
+            'https://receiver.example/join/4a54c6b9-fdc2-4e0c-a740-715efdcf03de#secret=abcdefghijklmnopqrstuv',
+          share_alias: 'quiet-willow-river',
+          share_url:
+            'https://receiver.example/quiet-willow-river#secret=abcdefghijklmnopqrstuv',
+          visibility: 'private',
+          expires_at: '2026-09-26T18:00:00Z',
         });
       }
       return new Response(null, { status: 204 });
@@ -124,6 +132,7 @@ describe('ControlClient', () => {
     const invitation = await client.createInvitation(
       credentials.sessionId,
       credentials.sourceToken,
+      { busId: 'application', visibility: 'private' },
     );
     await client.deleteSession(credentials.sessionId, credentials.sourceToken);
     client.close();
@@ -158,8 +167,13 @@ describe('ControlClient', () => {
       'publisher-only-secret',
     );
     expect(JSON.stringify(publisher)).not.toContain('publisher-only-secret');
-    expect(invitation.joinCode).toBe('opaque-code');
+    expect(invitation.joinCode).toBe('4a54c6b9-fdc2-4e0c-a740-715efdcf03de');
     expect(invitation.sessionId).toBe(credentials.sessionId);
+    expect(invitation.busId).toBe('application');
+    expect(invitation.shareAlias).toBe('quiet-willow-river');
+    expect(invitation.joinUrl).toBeInstanceOf(SecretUrl);
+    expect(invitation.shareUrl).toBeInstanceOf(SecretUrl);
+    expect(JSON.stringify(invitation)).not.toContain('abcdefghijklmnopqrstuv');
     expect(requests).toEqual([
       {
         method: 'POST',
@@ -189,7 +203,7 @@ describe('ControlClient', () => {
         method: 'POST',
         path: '/base/v1/sessions/session_123/invitations',
         authorization: 'Bearer source-secret',
-        body: { bus_id: 'mix' },
+        body: { bus_id: 'application', visibility: 'private' },
       },
       {
         method: 'DELETE',
@@ -220,6 +234,170 @@ describe('ControlClient', () => {
     expect(observedBody).toEqual({ required_buses: ['meeting.remote'] });
     expect(credentials.requiredBuses).toEqual(['meeting.remote']);
   });
+
+  test('creates, inspects, and explicitly redeems exact-bus invitations without leaking secrets', async () => {
+    const privateSecret = 'abcdefghijklmnopqrstuv';
+    const requests: Array<{ method: string; path: string; body: unknown }> = [];
+    const fetch: ControlFetch = async (input, init = {}) => {
+      const url = new URL(input.toString());
+      const method = init.method ?? 'GET';
+      const body = typeof init.body === 'string'
+        ? (JSON.parse(init.body) as unknown)
+        : undefined;
+      requests.push({ method, path: url.pathname, body });
+      if (url.pathname.endsWith('/invitations')) {
+        return jsonResponse(201, {
+          join_code: '4a54c6b9-fdc2-4e0c-a740-715efdcf03de',
+          join_url:
+            `https://receiver.example/join/4a54c6b9-fdc2-4e0c-a740-715efdcf03de#secret=${privateSecret}`,
+          share_alias: 'quiet-willow-river',
+          share_url:
+            `https://receiver.example/quiet-willow-river#secret=${privateSecret}`,
+          visibility: 'private',
+          expires_at: '2026-09-26T18:00:00Z',
+        });
+      }
+      if (method === 'GET') {
+        return jsonResponse(200, {
+          share_alias: 'quiet-willow-river',
+          visibility: 'private',
+          expires_at: '2026-09-26T18:00:00Z',
+        });
+      }
+      return jsonResponse(200, {
+        session_id: 'session_123',
+        bus_id: 'application',
+        subscriber_token: 'subscriber-capability',
+        signal_url: 'wss://relay.example/v1/signal',
+        whep_url: 'https://relay.example/v1/sessions/session_123/whep',
+        ice_servers: [{
+          urls: ['turn:turn.example:3478'],
+          username: 'session_123',
+          credential: 'turn-capability',
+        }],
+      });
+    };
+    const client = new ControlClient('https://control.example', { fetch });
+    const source = new SecretToken('source-secret');
+    const created = await client.createInvitation('session_123', source, {
+      busId: 'application',
+      visibility: 'private',
+    });
+    const metadata = await client.inspectInvitation(created.shareAlias);
+    const redeemed = await client.redeemInvitation(created.shareAlias, {
+      secret: new SecretToken(privateSecret),
+    });
+
+    expect(metadata).toEqual({
+      shareAlias: 'quiet-willow-river',
+      visibility: 'private',
+      expiresAt: '2026-09-26T18:00:00Z',
+    });
+    expect(redeemed.busId).toBe('application');
+    expect(redeemed.subscriberToken.exposeSecret()).toBe('subscriber-capability');
+    expect(redeemed.iceServers[0]?.credential?.exposeSecret()).toBe('turn-capability');
+    for (const ordinary of [
+      String(created.joinUrl),
+      String(created.shareUrl),
+      JSON.stringify(created),
+      inspect(created),
+      JSON.stringify(redeemed),
+      inspect(redeemed),
+    ]) {
+      expect(ordinary).not.toContain(privateSecret);
+      expect(ordinary).not.toContain('subscriber-capability');
+      expect(ordinary).not.toContain('turn-capability');
+    }
+    expect(created.shareUrl?.exposeSecret()).toContain(privateSecret);
+    expect(requests).toEqual([
+      {
+        method: 'POST',
+        path: '/v1/sessions/session_123/invitations',
+        body: { bus_id: 'application', visibility: 'private' },
+      },
+      {
+        method: 'GET',
+        path: '/v1/invitations/quiet-willow-river',
+        body: undefined,
+      },
+      {
+        method: 'POST',
+        path: '/v1/invitations/quiet-willow-river/redeem',
+        body: { secret: privateSecret },
+      },
+    ]);
+  });
+
+  test('creates a public two-word invitation without private fragment authority', async () => {
+    let requestBody: unknown;
+    const client = new ControlClient('https://control.example', {
+      fetch: async (_input, init) => {
+        requestBody = JSON.parse(init?.body as string) as unknown;
+        return jsonResponse(201, {
+          join_code: '4a54c6b9-fdc2-4e0c-a740-715efdcf03de',
+          join_url:
+            'https://receiver.example/join/4a54c6b9-fdc2-4e0c-a740-715efdcf03de',
+          share_alias: 'quiet-willow',
+          share_url: 'https://receiver.example/quiet-willow',
+          visibility: 'public',
+          expires_at: '2026-09-26T18:00:00Z',
+        });
+      },
+    });
+
+    const invitation = await client.createInvitation(
+      'session_123',
+      new SecretToken('source-secret'),
+      { busId: 'microphone', visibility: 'public' },
+    );
+
+    expect(requestBody).toEqual({ bus_id: 'microphone', visibility: 'public' });
+    expect(invitation.busId).toBe('microphone');
+    expect(invitation.shareAlias).toBe('quiet-willow');
+    expect(invitation.shareUrl?.exposeSecret()).toBe(
+      'https://receiver.example/quiet-willow',
+    );
+  });
+
+  test.each(['inspect', 'redeem'] as const)(
+    'maps unavailable invitation %s to one non-oracular typed error',
+    async (operation) => {
+      const privateSecret = 'abcdefghijklmnopqrstuv';
+      const client = new ControlClient('https://control.example', {
+        fetch: async () => jsonResponse(404, {
+          error: 'invitation_not_found',
+          reflected_secret: privateSecret,
+        }),
+      });
+
+      const pending = operation === 'inspect'
+        ? client.inspectInvitation('quiet-willow-river')
+        : client.redeemInvitation('quiet-willow-river', {
+            secret: new SecretToken(privateSecret),
+          });
+      let failure: unknown;
+      try {
+        await pending;
+      } catch (error) {
+        failure = error;
+      }
+
+      expect(failure).toBeInstanceOf(InvitationUnavailableError);
+      expect(failure).toMatchObject({
+        code: 'control.invitation_unavailable',
+        message: 'invitation is unavailable',
+        statusCode: 404,
+      });
+      for (const ordinary of [
+        String(failure),
+        JSON.stringify(failure),
+        inspect(failure),
+      ]) {
+        expect(ordinary).not.toContain(privateSecret);
+        expect(ordinary).not.toContain('invitation_not_found');
+      }
+    },
+  );
 
   test('bounds successful and error response bodies', async () => {
     const successClient = new ControlClient('https://control.example', {

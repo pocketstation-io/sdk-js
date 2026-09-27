@@ -1,4 +1,5 @@
 import { PocketStationError } from '../errors.js';
+import { SecretToken, type IceServer } from '../control/types.js';
 import { operationSignal } from './operation-signal.js';
 import { latencyReportPayload } from './latency-report.js';
 import { SignalingTransport } from './signaling.js';
@@ -270,7 +271,7 @@ export class RelayPublisher {
 
     const connection = new RTCPeerConnection({
       iceServers:
-        access.iceServers === undefined ? [] : [...access.iceServers],
+        access.iceServers === undefined ? [] : access.iceServers.map(rtcIceServer),
     });
     this.#connection = connection;
     connection.addTransceiver(track, {
@@ -361,7 +362,7 @@ export class RelayPublisher {
       type: 'PUBLISH',
       session_id: access.sessionId,
       bus_id: access.busId,
-      token: access.publisherToken,
+      token: access.publisherToken.exposeSecret(),
       sdp_offer: offer.sdp,
     });
     this.#publishSent = true;
@@ -591,7 +592,9 @@ function validateAccess(access: RelayPublisherAccess): void {
   parseSignalUrl(access.signalUrl);
   requiredText(access.sessionId, 'sessionId');
   portableIdentifier(access.busId, 'busId');
-  requiredText(access.publisherToken, 'publisherToken');
+  if (!(access.publisherToken instanceof SecretToken)) {
+    throw new TypeError('publisherToken must be a SecretToken');
+  }
   for (const server of access.iceServers ?? []) validateIceServer(server);
 }
 
@@ -608,22 +611,32 @@ function snapshotAccess(access: RelayPublisherAccess): RelayPublisherAccess {
   });
 }
 
-function snapshotIceServer(server: RTCIceServer): RTCIceServer {
-  const urls: string | string[] =
-    typeof server.urls === 'string' ? server.urls : [...server.urls];
-  if (Array.isArray(urls)) Object.freeze(urls);
+function snapshotIceServer(server: IceServer): IceServer {
   return Object.freeze({
-    urls,
-    ...(server.username === undefined ? {} : { username: server.username }),
-    ...(server.credential === undefined ? {} : { credential: server.credential }),
+    urls: Object.freeze([...server.urls]),
+    username: server.username,
+    credential: server.credential,
   });
 }
 
-function validateIceServer(server: RTCIceServer): void {
-  const urls = typeof server.urls === 'string' ? [server.urls] : server.urls;
+function validateIceServer(server: IceServer): void {
+  const urls = server.urls;
   if (urls.length === 0 || urls.length > 8 || urls.some((url) => url.length === 0)) {
     throw new RangeError('ICE server URLs must contain between one and eight values');
   }
+  if (server.credential !== null && !(server.credential instanceof SecretToken)) {
+    throw new TypeError('ICE server credential must be a SecretToken or null');
+  }
+}
+
+function rtcIceServer(server: IceServer): RTCIceServer {
+  return {
+    urls: [...server.urls],
+    ...(server.username === null ? {} : { username: server.username }),
+    ...(server.credential === null
+      ? {}
+      : { credential: server.credential.exposeSecret() }),
+  };
 }
 
 function parseSignalUrl(value: string): URL {

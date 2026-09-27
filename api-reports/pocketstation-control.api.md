@@ -30,11 +30,13 @@ export class ControlClient {
     close(): void;
     // (undocumented)
     readonly controlPlaneUrl: string;
-    createInvitation(sessionId: string | SessionId, sourceToken: SecretToken, options?: BusCredentialOptions): Promise<Invitation>;
+    createInvitation(sessionId: string | SessionId, sourceToken: SecretToken, options: CreateInvitationOptions): Promise<Invitation>;
     createSession(options?: CreateSessionOptions): Promise<SessionCredentials>;
     deleteSession(sessionId: string | SessionId, sourceToken: SecretToken, options?: ControlRequestOptions): Promise<void>;
+    inspectInvitation(locator: string, options?: ControlRequestOptions): Promise<InvitationMetadata>;
     issuePublisherCredentials(sessionId: string | SessionId, sourceToken: SecretToken, options: PublisherCredentialOptions): Promise<PublisherCredentials>;
     issueSubscriberCredentials(sessionId: string | SessionId, sourceToken: SecretToken, options?: BusCredentialOptions): Promise<SubscriberCredentials>;
+    redeemInvitation(locator: string, options?: RedeemInvitationOptions): Promise<RedeemedInvitation>;
     session(sessionId: string | SessionId, sourceToken: SecretToken, options?: ControlRequestOptions): Promise<SessionSnapshot>;
 }
 
@@ -67,6 +69,14 @@ export interface ControlRequestOptions {
 }
 
 // @public
+export interface CreateInvitationOptions extends ControlRequestOptions {
+    // (undocumented)
+    readonly busId: string;
+    // (undocumented)
+    readonly visibility?: InvitationVisibility;
+}
+
+// @public
 export interface CreateSessionOptions extends ControlRequestOptions {
     // (undocumented)
     readonly requiredBuses?: readonly string[];
@@ -85,14 +95,40 @@ export interface IceServer {
 // @public
 export interface Invitation {
     // (undocumented)
+    readonly busId: string;
+    // (undocumented)
     readonly expiresAt: string;
     // (undocumented)
     readonly joinCode: string;
     // (undocumented)
-    readonly joinUrl: string;
+    readonly joinUrl: SecretUrl | null;
     // (undocumented)
     readonly sessionId: SessionId;
+    // (undocumented)
+    readonly shareAlias: string;
+    // (undocumented)
+    readonly shareUrl: SecretUrl | null;
+    // (undocumented)
+    readonly visibility: InvitationVisibility;
 }
+
+// @public
+export interface InvitationMetadata {
+    // (undocumented)
+    readonly expiresAt: string;
+    // (undocumented)
+    readonly shareAlias: string;
+    // (undocumented)
+    readonly visibility: InvitationVisibility;
+}
+
+// @public
+export class InvitationUnavailableError extends ControlPlaneError {
+    constructor();
+}
+
+// @public
+export type InvitationVisibility = 'public' | 'private';
 
 // @public
 export class PocketStationError extends Error {
@@ -124,7 +160,39 @@ export interface PublisherCredentials {
 }
 
 // @public
+export interface RedeemedInvitation {
+    // (undocumented)
+    readonly busId: string;
+    // (undocumented)
+    readonly iceServers: readonly IceServer[];
+    // (undocumented)
+    readonly sessionId: SessionId;
+    // (undocumented)
+    readonly signalUrl: string;
+    // (undocumented)
+    readonly subscriberToken: SecretToken;
+    // (undocumented)
+    readonly whepUrl: string | null;
+}
+
+// @public
+export interface RedeemInvitationOptions extends ControlRequestOptions {
+    // (undocumented)
+    readonly secret?: SecretToken;
+}
+
+// @public
 export class SecretToken {
+    constructor(value: string);
+    exposeSecret(): string;
+    // (undocumented)
+    toJSON(): string;
+    // (undocumented)
+    toString(): string;
+}
+
+// @public
+export class SecretUrl {
     constructor(value: string);
     exposeSecret(): string;
     // (undocumented)
