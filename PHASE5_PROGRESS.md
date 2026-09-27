@@ -1532,3 +1532,33 @@ model and split diagnostics remain in iteration129 evidence. No semantic/latency
 or physical proof is inferred from these tests; exact installed real-model gates
 follow. New queue values remain bounded by existing Core edges and1MiB payloads.
 No provider code moves into Core; no production scaffold added. SAFE-TO-TEST.
+## W21 bounded automatic Session ownership — 2026-09-27
+
+RelaySession now bootstraps and serially renews its owner capability before
+expiry. Public ControlClient.renewSession and SessionOwner.maintain provide the
+same lifecycle to direct control callers. Scheduling uses half the authoritative
+remaining lifetime (maximum five-minute wait), at most three transient attempts,
+and bounded request deadlines. Current credentials are immutable snapshots;
+close stops timers, joins the bounded in-flight renewal, then deletes with its
+newest capability. Invalid bootstrap responses trigger RelaySession cleanup.
+Terminal failures are sanitized and observable through renewalFailureSignal and
+renewalFailure; cleanup cannot turn a renewal failure into false success.
+
+The native publisher still admits once and treats signaling loss as terminal;
+management renewal does not implement media reattachment. Documentation describes
+that boundary and the required owner-before-ControlClient disposal order.
+
+Validation: 59 focused control/owner/Relay tests PASS; full39 suites/540 tests PASS
+with one optional real-whisper fixture skipped. Prior qualified Core1.1.12
+conformance addon99f248d82754222923ed201b34c6132709809716ea3f792db61c026511627d36
+was mounted through an owned dependency projection without modifying archived
+packages. NewCore5de native qualification and physical proof are separately
+owned; this result qualifies the JavaScript lifecycle delta only. API reports and
+API check/TypeScript build,24 documentation files and package exports PASS.
+Initial host-pressure timeout and production-addon conformance-unavailable run
+are retained in evidence rather than discarded. New tests cover repeated expiry
+cycles, transient/permanent failure, redaction, invalid bootstrap, and close racing
+a successful renewal. No new dependency, native edit, release, or live scaffold.
+Scaffold inventory n/a. CODE_PROTOCOL/whitespace review PASS. SAFE-TO-TEST pending
+root's integrated current-native Lab qualification. Evidence:
+/private/tmp/pks-renewal-129-evidence/js.

@@ -108,6 +108,7 @@ assert.equal(typeof control.InvitationUnavailableError, 'function');
 assert.equal(typeof control.SecretToken, 'function');
 assert.equal(typeof control.SecretUrl, 'function');
 assert.equal(typeof control.SessionId, 'function');
+assert.equal(typeof control.SessionOwner, 'function');
 assert.deepEqual(Object.keys(control).sort(), [
   'ControlClient',
   'ControlPlaneError',
@@ -116,6 +117,7 @@ assert.deepEqual(Object.keys(control).sort(), [
   'SecretToken',
   'SecretUrl',
   'SessionId',
+  'SessionOwner',
 ]);
 const redacted = new control.SecretToken('package-resolution-secret');
 assert.equal(String(redacted), "SecretToken('[redacted]')");

@@ -30,6 +30,20 @@ const privateInvitationResponse = {
 };
 
 describe('Node RelaySession composition', () => {
+  it('deletes the bootstrap Session when renewal returns an expired owner capability', async () => {
+    const requests: string[] = [];
+    const control = new ControlClient('https://control.example', { fetch: async (input, init) => {
+      const request = new Request(input, init);
+      requests.push(`${request.method}:${new URL(request.url).pathname}:${request.headers.get('authorization') ?? ''}`);
+      if (request.method === 'DELETE') return new Response(null, { status: 204 });
+      if (request.url.endsWith('/renew')) return json(200, { source_token: 'replacement-secret', expires_at: '2020-01-01T00:00:00Z' });
+      return json(201, createResponse);
+    }});
+    await expect(RelaySession.create({ controlPlaneUrl: 'https://control.example', controlClient: control })).rejects.toThrow();
+    expect(requests).toEqual(['POST:/v1/sessions:', 'POST:/v1/sessions/session_123/renew:Bearer source-secret', 'DELETE:/v1/sessions/session_123:Bearer source-secret']);
+    control.close();
+  });
+
   it('composes Core routes, readiness, a safe invitation, and idempotent close', async () => {
     const requests: Array<{
       method: string;
@@ -45,9 +59,10 @@ describe('Node RelaySession composition', () => {
           method: request.method,
           path: new URL(request.url).pathname,
           authorization: request.headers.get('authorization'),
-          body: request.method === 'POST' ? await request.json() : null,
+          body: request.method === 'POST' && request.body !== null ? await request.json() : null,
         });
         const path = new URL(request.url).pathname;
+        if (path.endsWith('/renew')) return json(200, { source_token: 'source-secret', expires_at: new Date(Date.now()+60_000).toISOString() });
         if (request.method === 'POST' && path === '/v1/sessions') {
           return json(201, createResponse);
         }
@@ -111,6 +126,7 @@ describe('Node RelaySession composition', () => {
 
     expect(requests.map(({ method, path }) => [method, path])).toEqual([
       ['POST', '/v1/sessions'],
+      ['POST', '/v1/sessions/session_123/renew'],
       ['GET', '/v1/sessions/session_123'],
       ['POST', '/v1/sessions/session_123/invitations'],
       ['GET', '/v1/sessions/session_123'],
@@ -119,7 +135,7 @@ describe('Node RelaySession composition', () => {
     expect(requests.slice(1).every(({ authorization }) => (
       authorization === 'Bearer source-secret'
     ))).toBe(true);
-    expect(requests[2]?.body).toEqual({
+    expect(requests[3]?.body).toEqual({
       bus_id: 'application',
       visibility: 'private',
     });
@@ -304,7 +320,10 @@ describe('Node RelaySession composition', () => {
 });
 
 async function remoteWithFetch(fetch: typeof globalThis.fetch): Promise<RelaySession> {
-  const control = new ControlClient('https://control.example', { fetch });
+  const control = new ControlClient('https://control.example', { fetch: async (input, init) => {
+    if (new URL(new Request(input, init).url).pathname.endsWith('/renew')) return json(200, { source_token: 'source-secret', expires_at: new Date(Date.now()+60_000).toISOString() });
+    return fetch(input, init);
+  } });
   return RelaySession.create({
     controlPlaneUrl: 'https://control.example',
     relayUrl: 'https://relay.example',

@@ -118,6 +118,12 @@ export interface SessionCredentials {
   readonly iceServers: readonly IceServer[];
 }
 
+/** Replacement owner capability and its authoritative expiration. */
+export interface OwnerCredentials {
+  readonly sourceToken: SecretToken;
+  readonly expiresAt: string;
+}
+
 /** Current state of one named AudioBus. */
 export interface BusState {
   readonly busId: string;

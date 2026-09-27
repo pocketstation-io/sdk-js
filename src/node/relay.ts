@@ -2,6 +2,7 @@ import { PocketStationError } from '../errors.js';
 import {
   ControlClient,
   ControlPlaneError,
+  SessionOwner,
   SecretUrl,
   type SecretToken,
   SessionId,
@@ -135,7 +136,7 @@ export interface ReceiverInvitationOptions {
 /** Owns one remote Relay Session and composes it with a native Core Session. */
 export class RelaySession {
   public readonly relayUrl: string;
-  public readonly credentials: SessionCredentials;
+  readonly #owner: SessionOwner;
   readonly #control: ControlClient;
   readonly #ownsControl: boolean;
   readonly #requestTimeoutMs: number;
@@ -148,14 +149,14 @@ export class RelaySession {
 
   private constructor(options: {
     relayUrl: string;
-    credentials: SessionCredentials;
+    owner: SessionOwner;
     control: ControlClient;
     ownsControl: boolean;
     requestTimeoutMs: number;
     iceServers: readonly RelayIceServer[];
   }) {
     this.relayUrl = options.relayUrl;
-    this.credentials = options.credentials;
+    this.#owner = options.owner;
     this.#control = options.control;
     this.#ownsControl = options.ownsControl;
     this.#requestTimeoutMs = options.requestTimeoutMs;
@@ -185,9 +186,10 @@ export class RelaySession {
       });
       const relayUrl = resolveRelayOrigin(credentials, requestedRelayUrl);
       const iceServers = relayPublisherIceServers(credentials);
+      const owner = await SessionOwner.maintain(control, credentials, { timeoutMs: requestTimeoutMs, signal: options.signal });
       return new RelaySession({
         relayUrl,
-        credentials,
+        owner,
         control,
         ownsControl,
         requestTimeoutMs,
@@ -214,6 +216,15 @@ export class RelaySession {
       throw error;
     }
   }
+
+  /** Latest owner capability, replaced after every successful renewal. */
+  public get credentials(): SessionCredentials { return this.#owner.credentials; }
+
+  /** Retained background renewal failure; management operations also throw it. */
+  public get renewalFailure(): ControlPlaneError | null { return this.#owner.failure; }
+
+  /** Aborts on terminal renewal failure so applications can stop owned capture. */
+  public get renewalFailureSignal(): AbortSignal { return this.#owner.failureSignal; }
 
   public get sessionId(): SessionId {
     return this.credentials.sessionId;
@@ -324,13 +335,7 @@ export class RelaySession {
     this.#closed = true;
     this.#closeOperation = (async () => {
       try {
-        if (options.deleteRemoteSession ?? true) {
-          await this.#control.deleteSession(
-            this.credentials.sessionId,
-            this.credentials.sourceToken,
-            { timeoutMs: this.#requestTimeoutMs },
-          );
-        }
+        await this.#owner.close(options);
       } finally {
         if (this.#ownsControl) this.#control.close();
       }
@@ -393,6 +398,7 @@ export class RelaySession {
     if (this.#closed) {
       throw new RelayError('relay.closed', 'RelaySession has closed');
     }
+    this.#owner.assertActive();
   }
 }
 

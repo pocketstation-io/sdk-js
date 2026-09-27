@@ -1224,6 +1224,8 @@ export class ControlClient {
     issuePublisherCredentials(sessionId: string | SessionId, sourceToken: SecretToken, options: PublisherCredentialOptions): Promise<PublisherCredentials>;
     issueSubscriberCredentials(sessionId: string | SessionId, sourceToken: SecretToken, options?: BusCredentialOptions): Promise<SubscriberCredentials>;
     redeemInvitation(locator: string | SecretToken, options?: RedeemInvitationOptions): Promise<RedeemedInvitation>;
+    // Warning: (ae-forgotten-export) The symbol "OwnerCredentials" needs to be exported by the entry point index.d.ts
+    renewSession(sessionId: string | SessionId, sourceToken: SecretToken, options?: ControlRequestOptions): Promise<OwnerCredentials>;
     session(sessionId: string | SessionId, sourceToken: SecretToken, options?: ControlRequestOptions): Promise<SessionSnapshot>;
 }
 
@@ -3058,8 +3060,7 @@ export class RelaySession {
     }): Promise<void>;
     static create(options: RelaySessionOptions): Promise<RelaySession>;
     createReceiverInvitation(options: ReceiverInvitationOptions): Promise<ReceiverInvitation>;
-    // (undocumented)
-    readonly credentials: SessionCredentials;
+    get credentials(): SessionCredentials;
     // (undocumented)
     get invitation(): ReceiverInvitation | null;
     publisher(session: Session): RelayPublisher;
@@ -3069,6 +3070,8 @@ export class RelaySession {
     get receiverActivation(): ReceiverActivation | null;
     // (undocumented)
     readonly relayUrl: string;
+    get renewalFailure(): ControlPlaneError | null;
+    get renewalFailureSignal(): AbortSignal;
     // (undocumented)
     get sessionId(): SessionId;
     // (undocumented)
