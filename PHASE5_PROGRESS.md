@@ -1378,3 +1378,12 @@ own channel count. Its declaration now defaults inputChannels to 'any'; explicit
 Mono and stereo two-source tests exercise real native routing and the real
 converter with a mock model. A first test attempted mixed AudioInput layouts,
 which Core correctly rejects; physical app/mic mixing remains the Lab gate.
+
+The full updated SDK suite passes: 37 suites, all 467 assertions including the
+real whisper-cli/model opt-in case. Physical Lab evidence at 4f3da5b confirms
+mixed stereo app/mono mic compile and live transcript/browser media. It also
+observes explicit model-input backpressure (shared Python/Core route behavior),
+while recording and Relay delivery remain separate. The CLI now prints exact
+model input dropped-frame/discontinuity totals instead of hiding them inside
+collapsed metrics objects. The six lifecycle regressions verify this output.
+This does not claim lossless transcription or change any queue capacity.

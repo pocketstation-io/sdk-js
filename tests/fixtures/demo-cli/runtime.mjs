@@ -29,7 +29,13 @@ export class Capture {
       yield { sourceId: BigInt(drained % 2 + 1) };
     }
   }
-  async stop() { running = false; return { success: mode !== 'failed-outcome' }; }
+  async stop() {
+    running = false;
+    return { success: mode !== 'failed-outcome', metrics: { operators: [{
+      operatorInstanceId: 1n,
+      inputDelivery: { framesDroppedTotal: 2n, discontinuitiesTotal: 1n },
+    }] } };
+  }
   async cancel() { running = false; record('cancel'); return { success: false }; }
   async close() {
     running = false;

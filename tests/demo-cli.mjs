@@ -82,6 +82,9 @@ try {
     assert.equal(result.status, ['redacted', 'exposed'].includes(mode) ? 0 : 1,
       `${mode}: ${result.stderr}`);
     const events = readFileSync(trace, 'utf8');
+    if (['redacted', 'exposed', 'failed-outcome'].includes(mode)) {
+      assert.match(result.stdout, /Model input 1: 2 dropped frames, 1 discontinuities/);
+    }
     assert.match(events, /capture-close\nremote-close/);
     if (mode !== 'early-stream') {
       assert.match(events, /invite:application\ninvite:microphone/);
