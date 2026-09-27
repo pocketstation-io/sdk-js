@@ -44,7 +44,7 @@ describe('Relay invitation resolution', () => {
   it('parses location without trusting its origin and redeems through POST', async () => {
     const fetch = mockFetch(resolution);
     const invitation = parseRelayInvitationLocation(
-      'https://untrusted.example/quiet-willow-river#secret=abcdefghijklmnopqrstuv',
+      'https://untrusted.example/quiet-willow-river#join=4a54c6b9-fdc2-4e0c-a740-715efdcf03de',
     );
 
     const access = await resolveRelayInvitation(invitation, {
@@ -61,11 +61,11 @@ describe('Relay invitation resolution', () => {
 
     expect(fetch).toHaveBeenCalledWith(
       new URL(
-        'https://control.example.com/v1/invitations/quiet-willow-river/redeem',
+        'https://control.example.com/v1/join/quiet-willow-river',
       ),
       expect.objectContaining({
         method: 'POST',
-        body: JSON.stringify({ secret: 'abcdefghijklmnopqrstuv' }),
+        body: JSON.stringify({ join_code: '4a54c6b9-fdc2-4e0c-a740-715efdcf03de' }),
         cache: 'no-store',
         credentials: 'omit',
         referrerPolicy: 'no-referrer',
@@ -83,7 +83,7 @@ describe('Relay invitation resolution', () => {
   });
 
   it('does not retain a private fragment secret in transport errors', async () => {
-    const privateSecret = 'abcdefghijklmnopqrstuv';
+    const privateSecret = '4a54c6b9-fdc2-4e0c-a740-715efdcf03de';
     globalThis.fetch = jest.fn(async () => {
       throw new Error(`transport reflected ${privateSecret}`);
     });
@@ -91,7 +91,7 @@ describe('Relay invitation resolution', () => {
     const failure = await resolveRelayInvitation(
       {
         locator: 'quiet-willow-river',
-        secret: new SecretToken(privateSecret),
+        joinCode: new SecretToken(privateSecret),
       },
       { controlPlaneUrl: 'https://control.example.com' },
     ).catch((error: unknown) => error);
@@ -107,7 +107,7 @@ describe('Relay invitation resolution', () => {
     await expect(
       resolveRelayInvitation({
         locator: 'quiet-willow',
-        secret: null,
+        joinCode: new SecretToken('4a54c6b9-fdc2-4e0c-a740-715efdcf03de'),
       }, { controlPlaneUrl: 'https://control.example.com' }),
     ).rejects.toBeInstanceOf(InvitationUnavailableError);
 
@@ -115,7 +115,7 @@ describe('Relay invitation resolution', () => {
     await expect(
       resolveRelayInvitation({
         locator: 'quiet-willow',
-        secret: null,
+        joinCode: new SecretToken('4a54c6b9-fdc2-4e0c-a740-715efdcf03de'),
       }, { controlPlaneUrl: 'https://control.example.com' }),
     ).rejects.toMatchObject({ code: 'relay.invalid_invitation_response' });
   });
@@ -125,7 +125,7 @@ describe('Relay invitation resolution', () => {
     await expect(
       resolveRelayInvitation({
         locator: 'quiet-willow',
-        secret: null,
+        joinCode: new SecretToken('4a54c6b9-fdc2-4e0c-a740-715efdcf03de'),
       }, { controlPlaneUrl: 'https://control.example.com' }),
     ).rejects.toMatchObject({ code: 'relay.invitation_response_too_large' });
   });
@@ -151,14 +151,14 @@ describe('RelayReceiver before connection', () => {
     expect(
       () =>
         new RelayReceiver(
-          { locator: 'quiet-willow', secret: null },
+          { locator: 'quiet-willow', joinCode: new SecretToken('4a54c6b9-fdc2-4e0c-a740-715efdcf03de') },
           { controlPlaneUrl: 'file:///tmp/control' },
         ),
     ).toThrow(PocketStationError);
     expect(
       () =>
         new RelayReceiver(
-          { locator: 'quiet-willow', secret: null },
+          { locator: 'quiet-willow', joinCode: new SecretToken('4a54c6b9-fdc2-4e0c-a740-715efdcf03de') },
           {
             controlPlaneUrl: 'https://control.example.com',
             connectTimeoutMs: 0,
@@ -477,7 +477,7 @@ describe('RelayReceiver connected protocol', () => {
   it('snapshots an invitation before its asynchronous redemption', async () => {
     const invitation = {
       locator: 'quiet-willow',
-      secret: null,
+      joinCode: new SecretToken('4a54c6b9-fdc2-4e0c-a740-715efdcf03de'),
     };
     const fetch = mockFetch(resolution);
     const receiver = new RelayReceiver(invitation, {
@@ -489,7 +489,7 @@ describe('RelayReceiver connected protocol', () => {
 
     expect(fetch).toHaveBeenCalledWith(
       new URL(
-        'https://control.example.com/v1/invitations/quiet-willow/redeem',
+        'https://control.example.com/v1/join/quiet-willow',
       ),
       expect.objectContaining({ method: 'POST' }),
     );

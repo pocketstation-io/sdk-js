@@ -100,10 +100,10 @@ describe('ControlClient', () => {
         return jsonResponse(201, {
           join_code: '4a54c6b9-fdc2-4e0c-a740-715efdcf03de',
           join_url:
-            'https://receiver.example/join/4a54c6b9-fdc2-4e0c-a740-715efdcf03de#secret=abcdefghijklmnopqrstuv',
+            'https://receiver.example/join#join=4a54c6b9-fdc2-4e0c-a740-715efdcf03de',
           share_alias: 'quiet-willow-river',
           share_url:
-            'https://receiver.example/quiet-willow-river#secret=abcdefghijklmnopqrstuv',
+            'https://receiver.example/quiet-willow-river#join=4a54c6b9-fdc2-4e0c-a740-715efdcf03de',
           visibility: 'private',
           expires_at: '2026-09-26T18:00:00Z',
         });
@@ -167,13 +167,13 @@ describe('ControlClient', () => {
       'publisher-only-secret',
     );
     expect(JSON.stringify(publisher)).not.toContain('publisher-only-secret');
-    expect(invitation.joinCode).toBe('4a54c6b9-fdc2-4e0c-a740-715efdcf03de');
+    expect(invitation.joinCode.exposeSecret()).toBe('4a54c6b9-fdc2-4e0c-a740-715efdcf03de');
     expect(invitation.sessionId).toBe(credentials.sessionId);
     expect(invitation.busId).toBe('application');
     expect(invitation.shareAlias).toBe('quiet-willow-river');
     expect(invitation.joinUrl).toBeInstanceOf(SecretUrl);
     expect(invitation.shareUrl).toBeInstanceOf(SecretUrl);
-    expect(JSON.stringify(invitation)).not.toContain('abcdefghijklmnopqrstuv');
+    expect(JSON.stringify(invitation)).not.toContain('4a54c6b9-fdc2-4e0c-a740-715efdcf03de');
     expect(requests).toEqual([
       {
         method: 'POST',
@@ -236,7 +236,7 @@ describe('ControlClient', () => {
   });
 
   test('creates, inspects, and explicitly redeems exact-bus invitations without leaking secrets', async () => {
-    const privateSecret = 'abcdefghijklmnopqrstuv';
+    const privateSecret = '4a54c6b9-fdc2-4e0c-a740-715efdcf03de';
     const requests: Array<{ method: string; path: string; body: unknown }> = [];
     const fetch: ControlFetch = async (input, init = {}) => {
       const url = new URL(input.toString());
@@ -249,10 +249,10 @@ describe('ControlClient', () => {
         return jsonResponse(201, {
           join_code: '4a54c6b9-fdc2-4e0c-a740-715efdcf03de',
           join_url:
-            `https://receiver.example/join/4a54c6b9-fdc2-4e0c-a740-715efdcf03de#secret=${privateSecret}`,
+            `https://receiver.example/join#join=${privateSecret}`,
           share_alias: 'quiet-willow-river',
           share_url:
-            `https://receiver.example/quiet-willow-river#secret=${privateSecret}`,
+            `https://receiver.example/quiet-willow-river#join=${privateSecret}`,
           visibility: 'private',
           expires_at: '2026-09-26T18:00:00Z',
         });
@@ -285,7 +285,7 @@ describe('ControlClient', () => {
     });
     const metadata = await client.inspectInvitation(created.shareAlias);
     const redeemed = await client.redeemInvitation(created.shareAlias, {
-      secret: new SecretToken(privateSecret),
+      joinCode: new SecretToken(privateSecret),
     });
 
     expect(metadata).toEqual({
@@ -322,13 +322,13 @@ describe('ControlClient', () => {
       },
       {
         method: 'POST',
-        path: '/v1/invitations/quiet-willow-river/redeem',
-        body: { secret: privateSecret },
+        path: '/v1/join/quiet-willow-river',
+        body: { join_code: privateSecret },
       },
     ]);
   });
 
-  test('creates a public two-word invitation without private fragment authority', async () => {
+  test('creates a public two-word invitation with the same delegated credential as three-word formatting', async () => {
     let requestBody: unknown;
     const client = new ControlClient('https://control.example', {
       fetch: async (_input, init) => {
@@ -336,9 +336,9 @@ describe('ControlClient', () => {
         return jsonResponse(201, {
           join_code: '4a54c6b9-fdc2-4e0c-a740-715efdcf03de',
           join_url:
-            'https://receiver.example/join/4a54c6b9-fdc2-4e0c-a740-715efdcf03de',
+            'https://receiver.example/join#join=4a54c6b9-fdc2-4e0c-a740-715efdcf03de',
           share_alias: 'quiet-willow',
-          share_url: 'https://receiver.example/quiet-willow',
+          share_url: 'https://receiver.example/quiet-willow#join=4a54c6b9-fdc2-4e0c-a740-715efdcf03de',
           visibility: 'public',
           expires_at: '2026-09-26T18:00:00Z',
         });
@@ -355,14 +355,14 @@ describe('ControlClient', () => {
     expect(invitation.busId).toBe('microphone');
     expect(invitation.shareAlias).toBe('quiet-willow');
     expect(invitation.shareUrl?.exposeSecret()).toBe(
-      'https://receiver.example/quiet-willow',
+      'https://receiver.example/quiet-willow#join=4a54c6b9-fdc2-4e0c-a740-715efdcf03de',
     );
   });
 
   test.each(['inspect', 'redeem'] as const)(
     'maps unavailable invitation %s to one non-oracular typed error',
     async (operation) => {
-      const privateSecret = 'abcdefghijklmnopqrstuv';
+      const privateSecret = '4a54c6b9-fdc2-4e0c-a740-715efdcf03de';
       const client = new ControlClient('https://control.example', {
         fetch: async () => jsonResponse(404, {
           error: 'invitation_not_found',
@@ -373,7 +373,7 @@ describe('ControlClient', () => {
       const pending = operation === 'inspect'
         ? client.inspectInvitation('quiet-willow-river')
         : client.redeemInvitation('quiet-willow-river', {
-            secret: new SecretToken(privateSecret),
+            joinCode: new SecretToken(privateSecret),
           });
       let failure: unknown;
       try {

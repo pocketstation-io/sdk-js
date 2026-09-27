@@ -73,8 +73,22 @@ const invitation = await control.createInvitation(
 );
 ```
 
-All credential and invitation operations require the source-owner token. They
-should execute in trusted application or server code.
+Session creation of invitations requires the source-owner token and runs in
+trusted application or server code. Readable words only navigate to the existing
+join flow. Every complete link contains its opaque credential in `#join=…`;
+`visibility` is deprecated and only selects two- or three-word formatting.
+Both formats are sensitive. `invitation.joinCode` is a redacted `SecretToken`.
+
+```ts
+const access = await control.redeemInvitation(invitation.shareAlias, {
+  joinCode: invitation.joinCode,
+});
+```
+
+Readable redemption posts `{ join_code }` to `/v1/join/{words}`. Passing the
+opaque token directly posts the same body to `/v1/join`, keeping authority out
+of request URLs. Words without the code fail before a network request. The
+deprecated `secret` option aliases the same code; it is not a second factor.
 
 Delete is explicit and idempotent only to the extent guaranteed by the service:
 

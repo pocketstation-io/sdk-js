@@ -44,7 +44,6 @@ export function parseRelayInvitationLocation(
     throw new PocketStationError(
       'relay.invalid_invitation_location',
       'Invitation location must be an absolute HTTP or HTTPS URL',
-      { cause },
     );
   }
   if (
@@ -80,9 +79,12 @@ export function parseRelayInvitationLocation(
       'Invitation location contains conflicting locators',
     );
   }
-  const locator = validatedInvitationLocator(pathLocator || queryLocator);
-  const secret = invitationFragmentSecret(parsed.hash);
-  return Object.freeze({ locator, secret });
+  const joinCode = invitationFragmentJoinCode(parsed.hash);
+  const locator = validatedInvitationLocator(pathLocator || queryLocator || joinCode?.exposeSecret() || '');
+  if (isOpaqueJoinCode(locator) && joinCode && locator !== joinCode.exposeSecret()) {
+    throw invitationFailure('relay.invalid_invitation_location', 'Conflicting delegated join credentials');
+  }
+  return Object.freeze({ locator: redactedLocator(locator), joinCode });
 }
 
 /** Redeem a one-time receiver invitation through one trusted control-plane origin. */
@@ -96,22 +98,24 @@ export async function resolveRelayInvitation(
   );
   const control = parseControlUrl(options.controlPlaneUrl);
   const locator = validatedInvitationLocator(invitation.locator);
-  const secret = invitation.secret;
-  if (secret !== null && !(secret instanceof SecretToken)) {
-    throw new TypeError('invitation secret must be a SecretToken or null');
-  }
+  const suppliedJoinCode = invitationJoinCode(invitation);
+  const opaqueLocator = isOpaqueJoinCode(locator);
+  if (opaqueLocator && suppliedJoinCode && suppliedJoinCode.exposeSecret() !== locator) throw new InvitationUnavailableError();
+  const joinCode = opaqueLocator ? new SecretToken(locator) : suppliedJoinCode;
+  if (joinCode === null) throw new InvitationUnavailableError();
   const operation = operationSignal(timeoutMs, options.signal);
   try {
     let response: Response;
     try {
       response = await fetch(
-        new URL(`/v1/invitations/${encodeURIComponent(locator)}/redeem`, control),
+        new URL(opaqueLocator ? '/v1/join' : `/v1/join/${encodeURIComponent(locator)}`, control),
         {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify(
-            secret === null ? {} : { secret: secret.exposeSecret() },
+            { join_code: joinCode.exposeSecret() },
           ),
+          redirect: 'error',
           cache: 'no-store',
           credentials: 'omit',
           referrerPolicy: 'no-referrer',
@@ -153,7 +157,6 @@ export async function resolveRelayInvitation(
       throw new PocketStationError(
         'relay.invalid_invitation_response',
         'PocketStation control plane returned malformed invitation JSON',
-        { cause },
       );
     }
     return invitationAccess(value);
@@ -217,13 +220,8 @@ export class RelayReceiver {
         );
       }
       const locator = validatedInvitationLocator(access.locator);
-      if (access.secret !== null && !(access.secret instanceof SecretToken)) {
-        throw new TypeError('invitation secret must be a SecretToken or null');
-      }
-      this.#requestedAccess = Object.freeze({
-        locator,
-        secret: access.secret,
-      });
+      const joinCode = invitationJoinCode(access);
+      this.#requestedAccess = Object.freeze({ locator: redactedLocator(locator), joinCode });
     } else {
       validateAccess(access);
       const snapshot = snapshotAccess(access);
@@ -944,8 +942,8 @@ function decodedInvitationSegment(segment: string): string {
   }
 }
 
-function validatedInvitationLocator(value: string): string {
-  const locator = requiredText(value, 'invitation locator').trim();
+function validatedInvitationLocator(value: string | SecretToken): string {
+  const locator = requiredText(value instanceof SecretToken ? value.exposeSecret() : value, 'invitation locator').trim();
   if (
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(locator) ||
     /^[a-z]{4,24}-[a-z]{4,24}(?:-[a-z]{4,24})?$/.test(locator)
@@ -958,22 +956,37 @@ function validatedInvitationLocator(value: string): string {
   );
 }
 
-function invitationFragmentSecret(hash: string): SecretToken | null {
+function isOpaqueJoinCode(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value);
+}
+
+function redactedLocator(value: string): string | SecretToken {
+  return isOpaqueJoinCode(value) ? new SecretToken(value) : value;
+}
+
+function invitationJoinCode(invitation: RelayInvitation): SecretToken | null {
+  const primary = invitation.joinCode ?? null;
+  const compatibility = invitation.secret ?? null;
+  for (const credential of [primary, compatibility]) {
+    if (credential !== null && (!(credential instanceof SecretToken) || !isOpaqueJoinCode(credential.exposeSecret()))) {
+      throw new TypeError('joinCode must be a SecretToken containing an opaque delegated credential');
+    }
+  }
+  if (primary && compatibility && primary.exposeSecret() !== compatibility.exposeSecret()) {
+    throw new TypeError('joinCode and deprecated secret alias disagree');
+  }
+  return primary ?? compatibility;
+}
+
+function invitationFragmentJoinCode(hash: string): SecretToken | null {
   if (hash.length === 0) return null;
   const parameters = new URLSearchParams(hash.slice(1));
   const keys: string[] = [];
   parameters.forEach((_value, key) => keys.push(key));
-  const secrets = parameters.getAll('secret');
-  const value = secrets[0] ?? '';
-  if (
-    keys.some((key) => key !== 'secret') ||
-    secrets.length !== 1 ||
-    !/^[A-Za-z0-9_-]{22}$/.test(value)
-  ) {
-    throw new PocketStationError(
-      'relay.invalid_invitation_location',
-      'Invitation fragment must contain exactly one valid private secret',
-    );
+  const values = parameters.getAll('join');
+  const value = values[0] ?? '';
+  if (keys.some((key) => key !== 'join') || values.length !== 1 || !isOpaqueJoinCode(value)) {
+    throw invitationFailure('relay.invalid_invitation_location', 'Invitation fragment must contain one opaque join credential');
   }
   return new SecretToken(value);
 }

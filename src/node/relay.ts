@@ -3,6 +3,7 @@ import {
   ControlClient,
   ControlPlaneError,
   SecretUrl,
+  type SecretToken,
   SessionId,
   type Invitation,
   type InvitationVisibility,
@@ -61,7 +62,7 @@ export class ReceiverActivation {
 export class ReceiverInvitation {
   public readonly sessionId: SessionId;
   public readonly busId: string;
-  public readonly joinCode: string;
+  public readonly joinCode: SecretToken;
   public readonly joinUrl: SecretUrl | null;
   public readonly shareAlias: string;
   public readonly shareUrl: SecretUrl | null;

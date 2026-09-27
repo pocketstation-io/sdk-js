@@ -1387,3 +1387,22 @@ while recording and Relay delivery remain separate. The CLI now prints exact
 model input dropped-frame/discontinuity totals instead of hiding them inside
 collapsed metrics objects. The six lifecycle regressions verify this output.
 This does not claim lossless transcription or change any queue capacity.
+
+
+## 2026-09-27 — Readable navigation preserves existing join authority
+
+Words now navigate into the original opaque join-code capability flow. Two- and
+three-word visibility is deprecated formatting only. Both URL formats carry
+`#join=…` and always redact credentials. New clients POST opaque codes in the
+body to `/v1/join`; readable paths require the matching body `join_code`.
+Deprecated secret options alias that same code and reject obsolete separate
+secrets. Redirects never forward credentials. Regression cases cover words
+alone, conflicting credentials, wire equivalence, redaction and opaque URLs.
+
+Validation: 38 Jest suites / 471 assertions including actual whisper-cli model passed; API extraction, docs and TypeScript passed. Native payload unchanged; installed
+archive / real service gates are recorded separately by the integrated Lab.
+Staff review: purpose/API boundary is SDK control-client compatibility; enables
+existing exact-bus browser joining, no new authorization model or capture path.
+Unit HTTP fixtures are MOCKED and make no new real-media claim. No live scaffold
+introduced; inventory n/a. CODE_PROTOCOL whitespace/type/test gates passed.
+Decision: SAFE-TO-TEST pending exact packaged live integration. No release.
