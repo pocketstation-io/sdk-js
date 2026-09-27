@@ -184,6 +184,13 @@ describe('demo batch transcription', () => {
     expect(transcript.sourceId).toBe(sourceId);
     expect(transcript.timestampStartNs).toBe(timestampStartNs);
     expect(transcript.timestampEndNs).toBe(timestampEndNs);
+    expect(transcript.durationMs).toBeUndefined();
+    const observed = Transcript.fromJson(JSON.stringify({ source_id: '1', text: '', language: 'en',
+      timestamp_start_ns: '0', timestamp_end_ns: '1', discontinuity_reasons: [],
+      processing_outcome: 'skipped-short-window', duration_ms: 200, inference_duration_ns: '0' }));
+    expect(observed.processingOutcome).toBe('skipped-short-window');
+    expect(observed.durationMs).toBe(200);
+    expect(observed.inferenceDurationNs).toBe(0n);
   });
 
   it.each([

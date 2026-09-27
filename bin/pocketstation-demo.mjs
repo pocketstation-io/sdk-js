@@ -25,6 +25,8 @@ then transcribe both through a local whisper.cpp executable.
 Options:
   --model <path>         local whisper.cpp model (or PKS_WHISPER_MODEL)
   --whisper-cli <path>   whisper.cpp executable (default: PKS_WHISPER_CLI or whisper-cli)
+  --no-gpu               use the CPU model backend (default)
+  --gpu                  explicitly enable the local GPU backend
   --microphone           capture and transcribe the default microphone
   --record-to <path>     write independent application and microphone WAV Stems
   --relay                publish each Stem to a named Relay AudioBus
@@ -77,13 +79,14 @@ async function main() {
   });
   const transcription = new WhisperTranscriber(
     new WhisperTranscriberConfiguration({
-      model, whisperCliExecutable, inputFrameSamplesPerChannel: 480,
+      model, whisperCliExecutable, inputFrameSamplesPerChannel: 480, useGpu: arguments_.useGpu,
     }),
   );
   // The Operator and its routes must be declared before Session.start().
   const transcriptSubscription = transcription.attachMany(live.session, live.stems);
 
   let remote;
+  let removeOwnerFailure = () => {};
   const abort = new AbortController();
   let interrupted = false;
   const interrupt = () => {
@@ -103,6 +106,10 @@ async function main() {
           : ['application', 'microphone'],
         signal: abort.signal,
       });
+      const ownerFailure = () => abort.abort(remote.renewalFailureSignal.reason);
+      remote.renewalFailureSignal.addEventListener('abort', ownerFailure, { once: true });
+      removeOwnerFailure = () => remote.renewalFailureSignal.removeEventListener('abort', ownerFailure);
+      if (remote.renewalFailureSignal.aborted) ownerFailure();
       const publisher = remote.publisher(live.session);
       live.application.publish(publisher, 'application');
       live.microphone?.publish(publisher, 'microphone');
@@ -181,6 +188,7 @@ async function main() {
     throw error;
   } finally {
     abort.abort();
+    removeOwnerFailure();
     process.removeListener('SIGINT', interrupt);
     try {
       await live.close();
@@ -196,6 +204,9 @@ async function printTranscripts(live, subscription, signal) {
       throw new TypeError('transcription Operator emitted a non-text signal');
     }
     const transcript = Transcript.fromJson(envelope.payload.text);
+    if (transcript.processingOutcome === 'skipped-short-window') {
+      console.warn(`Model source ${transcript.sourceId}: ${transcript.durationMs} ms untranscribed (short discontinuous or final window)`);
+    }
     console.log(`source ${transcript.sourceId}: ${transcript.text}`);
   }
 }
@@ -218,6 +229,7 @@ function parseArguments(values) {
   const result = {
     application: undefined,
     microphone: false,
+    useGpu: false,
     recordTo: undefined,
     relay: false,
     showLinks: false,
@@ -225,9 +237,15 @@ function parseArguments(values) {
     model: undefined,
     whisperCli: undefined,
   };
+  let gpuPreference;
   for (let index = 0; index < values.length; index += 1) {
     const value = values[index];
-    if (value === '--microphone') {
+    if (value === '--gpu' || value === '--no-gpu') {
+      const preference = value === '--gpu';
+      if (gpuPreference !== undefined && gpuPreference !== preference) throw new RangeError('--gpu and --no-gpu conflict');
+      gpuPreference = preference;
+      result.useGpu = preference;
+    } else if (value === '--microphone') {
       result.microphone = true;
     } else if (value === '--relay') {
       result.relay = true;

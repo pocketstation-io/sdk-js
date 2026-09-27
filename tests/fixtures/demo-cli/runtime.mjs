@@ -44,13 +44,14 @@ export class Capture {
   }
 }
 export class WhisperTranscriberConfiguration {
-  constructor(options) { assert.equal(options.inputFrameSamplesPerChannel, 480); }
+  constructor(options) { assert.equal(options.inputFrameSamplesPerChannel, 480); assert.equal(options.useGpu, false); }
 }
 export class WhisperTranscriber {
   attachMany() { return {}; }
 }
 export class Transcript {}
 export class RelaySession {
+  renewalFailureSignal = new AbortController().signal;
   static async create(options) {
     assert.deepEqual(options.requiredBuses, ['application', 'microphone']);
     return new RelaySession();
