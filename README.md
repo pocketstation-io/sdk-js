@@ -555,3 +555,10 @@ Readable Relay names may use short natural words such as `owl-sun`, `rice-river`
 `silly-mountain` or `lemon-corpus`. They are navigation, not credentials: pass
 the complete generated share URL. Clients accept the retained legacy compound
 syntax without duplicating Relay's vocabulary or exposing a grammar prefix.
+
+Readable receiver names follow Relay's configured allocation policy by default.
+Pass `wordCount: 2` or `wordCount: 3` to `createInvitation` or
+`createReceiverInvitation` only when a fixed length is needed. Deprecated
+`visibility` still selects formatting; it cannot be combined with `wordCount`
+and never changes authorization. Names do not carry authority: both formats
+require the same opaque join credential, and links remain redacted by default.

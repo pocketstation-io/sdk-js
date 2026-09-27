@@ -735,3 +735,29 @@ async function rejected(operation: Promise<unknown>): Promise<Error> {
   }
   throw new Error('operation unexpectedly resolved');
 }
+
+
+describe('Relay-owned name allocation preferences', () => {
+  test.each([undefined, 2, 3] as const)('omits default format and forwards explicit word count %s', async (wordCount) => {
+    let body: unknown;
+    const client = new ControlClient('https://service.example', { fetch: async (_input, init) => {
+      body = JSON.parse(init!.body as string);
+      const words = wordCount === 3 ? 'calm-river-otter' : 'calm-otter';
+      return jsonResponse(201, { join_code: '11111111-2222-4333-8444-555555555555',
+        join_url: 'https://receiver.example/join#join=11111111-2222-4333-8444-555555555555',
+        share_alias: words, share_url: `https://receiver.example/${words}#join=11111111-2222-4333-8444-555555555555`,
+        visibility: wordCount === 3 ? 'private' : 'public', expires_at: '2026-09-28T18:00:00Z' });
+    } });
+    const result = await client.createInvitation('session_123', new SecretToken('owner'), { busId: 'application', wordCount });
+    expect(body).toEqual({ bus_id: 'application', ...(wordCount === undefined ? {} : { word_count: wordCount }) });
+    expect(result.visibility).toBe(wordCount === 3 ? 'private' : 'public');
+  });
+  test('invalid or conflicting preference fails before any request', async () => {
+    let requests = 0;
+    const client = new ControlClient('https://service.example', { fetch: async () => { requests++;throw new Error('unexpected request'); } });
+    for (const options of [{ wordCount: 2 as const, visibility: 'public' as const }, { wordCount: 4 as unknown as 2 }, { wordCount: true as unknown as 2 }]) {
+      await expect(client.createInvitation('session_123', new SecretToken('owner'), { busId: 'application', ...options })).rejects.toThrow(/wordCount/);
+    }
+    expect(requests).toBe(0);
+  });
+});

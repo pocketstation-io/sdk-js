@@ -210,9 +210,12 @@ export interface BusCredentialOptions extends ControlRequestOptions {
   readonly busId?: string;
 }
 
-/** Options for creating one exact-AudioBus public or private invitation. */
+/** Options for one exact-AudioBus invitation; Relay chooses the default name length. */
 export interface CreateInvitationOptions extends ControlRequestOptions {
   readonly busId: string;
+  /** Choose a fixed name length; omit to use Relay allocation policy. */
+  readonly wordCount?: 2 | 3;
+  /** @deprecated Formatting only; cannot be combined with wordCount. */
   readonly visibility?: InvitationVisibility;
 }
 

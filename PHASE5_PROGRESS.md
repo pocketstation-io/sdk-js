@@ -1439,3 +1439,24 @@ wrong/missing capabilities and malformed two-/25-letter or four-word locators.
 TypeScript build passes. The HTTP fixtures are MOCKED; exact packed consumer
 qualification against real standalone/managed services belongs to Lab. No new
 scaffold, native/API/dependency/version change. Inventory n/a. SAFE-TO-TEST.
+
+
+## 2026-09-27 — C127 Relay-owned default name allocation
+
+ControlClient and RelaySession omit formatting when callers do not choose it,
+allowing Relay's configured default and collision fallback to apply. Additive
+`wordCount: 2 | 3` selects a fixed length; deprecated `visibility` remains a
+format-only compatibility option. Combining both or supplying an invalid count
+fails before transport. Responses still validate their actual returned format
+and preserve the same secret/redaction and exact-bus authorization boundaries.
+The demo no longer forces three words. No client dictionary or policy duplicate.
+
+Validation: 73 focused assertions, API reports/build/typecheck/docs, exports and
+six demo CLI lifecycle cases PASS. All 38 Jest suites pass (497 assertions),
+plus the optional real whisper-cli component passes separately, covering all
+498 current assertions. The native conformance addon is the unchanged cached
+Core1.1.12 artifact; production native restored before packaging. Mocked control
+responses are component proof only; installed real-service Lab evidence is
+separate. No new scaffold/dependency/native/version change, inventory n/a.
+CODE_PROTOCOL/whitespace gates pass. SAFE-TO-TEST pending exact C127 installed
+service matrix; no broader parity or model-quality claim.
