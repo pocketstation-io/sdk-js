@@ -25,16 +25,27 @@ describe('demo batch transcription', () => {
     expect(transcription.manifest.networkAllowed).toBe(false);
     expect(transcription.manifest.filesystemAllowed).toBe(true);
     expect(transcription.manifest.inputs[0]?.multiplicity).toBe(Multiplicity.MANY);
+    expect(transcription.configuration.inputChannels).toBe('any');
+    expect(transcription.manifest.inputs[0]?.media.channelLayout).toBe('any');
   });
 
-  it('shares one bounded model while preserving two source identities', async () => {
+  it.each([[1, 'mono'], [2, 'stereo']] as const)(
+    'preserves an explicit %i-channel input constraint', (inputChannels, layout) => {
+      const transcription = new WhisperTranscriber(
+        new WhisperTranscriberConfiguration({ inputChannels }),
+      );
+      expect(transcription.manifest.inputs[0]?.media.channelLayout).toBe(layout);
+    },
+  );
+
+  it.each([1, 2] as const)('shares one bounded model preserving two %i-channel source identities', async (channels) => {
     const directory = await mkdtemp(join(tmpdir(), 'pks-js-transcription-'));
     let modelCreations = 0;
     let modelCalls = 0;
     const model: WhisperModel = {
       transcribe: (audio, options) => {
         modelCalls += 1;
-        expect(audio).toHaveLength(4_800);
+        expect(audio).toHaveLength(1_600);
         expect(options).toEqual({ beamSize: 1, language: 'en' });
         const text = audio.reduce((total, sample) => total + sample, 0) > 0
           ? 'application source'
@@ -59,12 +70,11 @@ describe('demo batch transcription', () => {
           modelCreations += 1;
           return model;
         },
-        audioConverter: (window) => new Float32Array(window.samples),
       },
     );
 
     try {
-      const session = new Session({ recordingRoot: directory });
+      const session = new Session({ recordingRoot: directory, channels });
       const application = session.audioInput('application', {
         capacityFrames: 16,
         frameSamplesPerChannel: 960,
@@ -84,8 +94,8 @@ describe('demo batch transcription', () => {
       const received = new Map<bigint, Record<string, unknown>>();
       try {
         for (let index = 0; index < 5; index += 1) {
-          await application.write(new Float32Array(960).fill(0.1));
-          await microphone.write(new Float32Array(960).fill(-0.1));
+          await application.write(new Float32Array(960 * channels).fill(0.1));
+          await microphone.write(new Float32Array(960 * channels).fill(-0.1));
           await delay(10);
         }
         application.close();
@@ -111,6 +121,8 @@ describe('demo batch transcription', () => {
       expect(new Set(received.keys())).toEqual(new Set([application.sourceId, microphone.sourceId]));
       expect(received.get(application.sourceId)?.text).toBe('application source');
       expect(received.get(microphone.sourceId)?.text).toBe('microphone source');
+      expect(received.get(application.sourceId)?.channel_count).toBe(channels);
+      expect(received.get(microphone.sourceId)?.channel_count).toBe(channels);
       for (const value of received.values()) {
         expect(value.sequence_start).toBe('0');
         expect(value.sequence_end).toBe('4');
