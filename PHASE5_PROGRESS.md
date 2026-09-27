@@ -1573,3 +1573,18 @@ real-native tests pass: two-stem slow inference with all EOF tails and correct
 outer lineage, child cancellation cleanup, and retained versus explicitly
 closed subscriptions. The executable demo file mode is preserved after editing.
 Native tree remains c02e4e11; no additional native rebuild required.
+
+
+### Combined C129 qualification
+
+Owner renewal2cd61c is integrated with model/receipt fixes. Exact native tree
+c02e4e11 rebuilt against Core8aa: all42 Jest suites pass546 assertions with
+one separately exercised optional real-model case. Real retained-WAV inference
+uses CPU4 (the shipped default),5s windows,beam1: application WER4.55%, microphone
+WER0%, full11s/4s coverage, zero drops, workloadRTF0.281, first application result
+6.024s and finalization1.515s. The CPU2 follow-up missed2s finalization (2.684s)
+and is retained as a failure. A finite4s microphone cannot form a5s full window;
+its first tail arrives at Session finalization, so this case does not qualify a
+7s microphone first-result claim. Long equal-duration Lab replay must test that.
+All evidence is LOOPBACK-ONLY retained audio, not new physical capture. API,
+docs, typecheck, mocked CLI lifecycle, bounded child cleanup and exports pass.
