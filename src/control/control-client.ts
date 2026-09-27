@@ -20,6 +20,7 @@ import {
   type RedeemedInvitation,
   type RedeemInvitationOptions,
   type SessionCredentials,
+  type OwnerCredentials,
   type SessionSnapshot,
   type SubscriberCredentials,
   type SubscriptionState,
@@ -112,6 +113,19 @@ export class ControlClient {
       jsonBody: { required_buses: requiredBuses },
     });
     return sessionCredentials(payload);
+  }
+
+  /** Renew a still-valid owner capability without changing Session or scope. */
+  public async renewSession(
+    sessionId: string | SessionId,
+    sourceToken: SecretToken,
+    options: ControlRequestOptions = {},
+  ): Promise<OwnerCredentials> {
+    const identifier = sessionIdentifier(sessionId);
+    const payload = await this.#request('POST', `v1/sessions/${encodeURIComponent(identifier.toString())}/renew`, {
+      expectedStatus: 200, expectJson: true, authorization: sourceToken, options,
+    });
+    return Object.freeze({ sourceToken: decodedSecret(payload, 'source_token'), expiresAt: requiredExpiry(payload) });
   }
 
   /** Read the current state of one Session. */

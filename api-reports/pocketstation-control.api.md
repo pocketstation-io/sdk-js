@@ -37,6 +37,7 @@ export class ControlClient {
     issuePublisherCredentials(sessionId: string | SessionId, sourceToken: SecretToken, options: PublisherCredentialOptions): Promise<PublisherCredentials>;
     issueSubscriberCredentials(sessionId: string | SessionId, sourceToken: SecretToken, options?: BusCredentialOptions): Promise<SubscriberCredentials>;
     redeemInvitation(locator: string | SecretToken, options?: RedeemInvitationOptions): Promise<RedeemedInvitation>;
+    renewSession(sessionId: string | SessionId, sourceToken: SecretToken, options?: ControlRequestOptions): Promise<OwnerCredentials>;
     session(sessionId: string | SessionId, sourceToken: SecretToken, options?: ControlRequestOptions): Promise<SessionSnapshot>;
 }
 
@@ -134,6 +135,14 @@ export class InvitationUnavailableError extends ControlPlaneError {
 export type InvitationVisibility = 'public' | 'private';
 
 // @public
+export interface OwnerCredentials {
+    // (undocumented)
+    readonly expiresAt: string;
+    // (undocumented)
+    readonly sourceToken: SecretToken;
+}
+
+// @public
 export class PocketStationError extends Error {
     constructor(code: string, message: string, options?: {
         cause?: unknown;
@@ -226,6 +235,22 @@ export class SessionId {
     constructor(value: string);
     // (undocumented)
     toJSON(): string;
+    // (undocumented)
+    toString(): string;
+}
+
+// @public
+export class SessionOwner {
+    // (undocumented)
+    [Symbol.asyncDispose](): Promise<void>;
+    assertActive(): void;
+    close(options?: {
+        readonly deleteRemoteSession?: boolean;
+    }): Promise<void>;
+    get credentials(): SessionCredentials;
+    get failure(): ControlPlaneError | null;
+    get failureSignal(): AbortSignal;
+    static maintain(control: ControlClient, credentials: SessionCredentials, options?: ControlRequestOptions): Promise<SessionOwner>;
     // (undocumented)
     toString(): string;
 }

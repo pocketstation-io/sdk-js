@@ -24,7 +24,10 @@ export {
   type RedeemedInvitation,
   type RedeemInvitationOptions,
   type SessionCredentials,
+  type OwnerCredentials,
   type SessionSnapshot,
   type SubscriberCredentials,
   type SubscriptionState,
 } from './types.js';
+
+export { SessionOwner } from './session-owner.js';

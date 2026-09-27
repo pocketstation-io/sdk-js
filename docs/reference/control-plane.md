@@ -149,3 +149,30 @@ actual validated name length. Never infer a longer name's length from deprecated
 `visibility`: its `private` compatibility label covers all counts of three or
 more. Supplying both options, null, fractions or counts outside 2–15 is rejected.
 Legacy responses without `word_count` are supported only for two/three words.
+
+
+## Owner lifetime and cleanup
+
+`RelaySession.create()` starts serial owner renewal automatically. The initial
+renewal discovers the authoritative expiration; subsequent requests run at half
+the remaining lifetime (at most five minutes apart), with at most three bounded
+attempts for transient failures. `credentials` returns the latest immutable
+snapshot. Do not retain its original token for later management requests.
+
+Observe `renewalFailureSignal` to stop an owned capture when management renewal
+fails. `renewalFailure` retains a sanitized error; further management operations
+fail. `close()` stops scheduling, waits for a bounded request already in flight,
+and deletes the remote Session using its latest credential. Cleanup failure is
+reported rather than hidden. Close the RelaySession before its ControlClient.
+
+For direct ControlClient orchestration, use `SessionOwner.maintain(client,
+credentials)` and `await owner.close()` in a finally block. The low-level
+`renewSession()` remains available for applications that own scheduling. A
+failed bootstrap leaves ownership with the caller; RelaySession performs that
+cleanup automatically. `SessionOwner.failureSignal` is the corresponding signal.
+
+This renews management authority, not a media transport. The native publisher
+performs one admission handshake and reports signaling loss as a terminal
+failure; it does not reconnect automatically. A newly declared publisher uses
+the current credential. Existing admitted media may continue through credential
+expiry under the Relay service's separate Session lifecycle rules.
