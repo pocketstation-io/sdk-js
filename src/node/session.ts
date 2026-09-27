@@ -1166,9 +1166,8 @@ export class RunningSession implements AsyncDisposable {
         .then((result) => {
           this.audio._close();
           this.events._finish(result.remainingEvents);
-          for (const stream of this.#signalStreams.values()) {
-            stream._finish();
-          }
+          // Accepted signal outputs remain in their bounded native receipts.
+          // Readers reach EOF after draining; explicit stream.close discards.
           for (const sidecar of this.#sidecars.values()) {
             sidecar._close();
           }

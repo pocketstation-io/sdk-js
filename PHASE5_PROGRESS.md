@@ -1562,3 +1562,14 @@ a successful renewal. No new dependency, native edit, release, or live scaffold.
 Scaffold inventory n/a. CODE_PROTOCOL/whitespace review PASS. SAFE-TO-TEST pending
 root's integrated current-native Lab qualification. Evidence:
 /private/tmp/pks-renewal-129-evidence/js.
+
+
+### Accepted-output wrapper follow-up
+
+The rebuilt native receipt exposed a second early-EOF path: the TypeScript
+Session wrapper marked all signal streams closed after stop. Remove that mark;
+readers now drain the bounded native receipt and observe its actual EOF. Four
+real-native tests pass: two-stem slow inference with all EOF tails and correct
+outer lineage, child cancellation cleanup, and retained versus explicitly
+closed subscriptions. The executable demo file mode is preserved after editing.
+Native tree remains c02e4e11; no additional native rebuild required.
