@@ -803,8 +803,8 @@ function publisherCredentials(payload: JsonObject): PublisherCredentials {
   let parsedSignalUrl: URL;
   try {
     parsedSignalUrl = new URL(signalUrl);
-  } catch (error) {
-    throw responseDecode(`control-plane signal_url is invalid: ${safeErrorMessage(error)}`);
+  } catch {
+    throw responseDecode('control-plane signal_url is invalid');
   }
   if (!['ws:', 'wss:'].includes(parsedSignalUrl.protocol)) {
     throw responseDecode('control-plane signal_url must use ws or wss');

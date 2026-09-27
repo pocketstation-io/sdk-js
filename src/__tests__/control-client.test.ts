@@ -597,6 +597,17 @@ describe('ControlClient', () => {
     },
   );
 
+  test('given malformed publisher URL when parsing then no URL diagnostic details escape', async () => {
+    const client = new ControlClient('https://control.example', {
+      fetch: async () => jsonResponse(200, { signal_url: 'UNKNOWN_CREDENTIAL' }),
+    });
+    const error = await rejected(client.issuePublisherCredentials('session_123', new SecretToken('owner'), {busId: 'application'}));
+    expect(error.message).toBe('control-plane signal_url is invalid');
+    expect(inspect(error)).not.toContain('UNKNOWN_CREDENTIAL');
+    expect(error.cause).toBeUndefined();
+    client.close();
+  });
+
   test('rejects malformed credentials, ICE servers, buses, and subscriptions', async () => {
     const malformed = [
       { ...CREATE_RESPONSE, session_id: '../escape' },

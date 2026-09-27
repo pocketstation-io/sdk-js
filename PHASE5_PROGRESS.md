@@ -1419,3 +1419,8 @@ Regressions cover known authorization and newly issued credentials. Scope is
 control-client failure reporting; no API, native, capture, dependency or live
 scaffold change. Focused control suite, typecheck and TypeScript build pass.
 Final packaged Lab qualification is separate from predecessor e1ebf37 evidence.
+
+The final independent review also replaces the malformed publisher signal-URL
+parser diagnostic with a fixed message, avoiding runtime-dependent URL excerpts.
+A focused regression covers the unknown credential marker and absent raw cause.
+Control tests, typecheck and build pass; native/API behavior is unchanged.
