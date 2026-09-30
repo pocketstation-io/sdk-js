@@ -4,6 +4,7 @@ import {
   type SourceConfigurationInput,
 } from './graph.js';
 import {
+  SOURCE_DRAIN_DEADLINE_MS,
   SourceEmission,
   SourceFactory,
   type SourceConfiguration as SourceConfigurationRecord,
@@ -139,6 +140,8 @@ export interface AuthoredSourceDriver {
   next(
     cancellation: SourceCancellation,
   ): SourceEmission | undefined | Promise<SourceEmission | undefined>;
+  /** Return already accepted work during graceful stop; never advance live input. */
+  drain?(): SourceEmission | undefined | Promise<SourceEmission | undefined>;
   close?(): void | Promise<void>;
 }
 
@@ -238,17 +241,29 @@ export class SourceProvider {
       },
       create: async (configuration): Promise<ConciseSourceDriver> => {
         let cleanupStarted = false;
+        let pendingInput: Promise<void> | undefined;
+        const invokeInput = <T>(operation: () => T | Promise<T>, milliseconds: number, stage: string): Promise<T> => {
+          if (pendingInput !== undefined) throw new Error('Source input cleanup is still pending');
+          const task = Promise.resolve().then(operation);
+          const settled = task.then(() => undefined, () => undefined);
+          pendingInput = settled;
+          void settled.then(() => {
+            if (pendingInput === settled) pendingInput = undefined;
+          });
+          return within(task, milliseconds, stage);
+        };
         const cleanup = async (value: unknown): Promise<void> => {
           if (cleanupStarted) return;
           cleanupStarted = true;
           const close = sourceDriverClose(value);
-          if (close !== undefined) {
-            await within(
-              Promise.resolve(close()),
-              this.deadlines.closeMs,
-              'close',
-            );
-          }
+          await within(
+            Promise.resolve().then(async () => {
+              await pendingInput;
+              await close?.();
+            }),
+            this.deadlines.closeMs,
+            'close',
+          );
         };
         const creation = Promise.resolve().then(
           () => createDriver(this.factory, configuration),
@@ -276,10 +291,15 @@ export class SourceProvider {
               'prepare',
             );
           },
-          next: async (context: SourceContext) => within(
-            Promise.resolve(driver.next(new SourceCancellation(context.signal))),
+          next: async (context: SourceContext) => invokeInput(
+            () => driver.next(new SourceCancellation(context.signal)),
             this.deadlines.nextMs,
             'next',
+          ),
+          drain: async () => invokeInput(
+            async () => await driver.drain?.(),
+            Math.min(this.deadlines.closeMs, SOURCE_DRAIN_DEADLINE_MS),
+            'drain',
           ),
           close: async () => {
             await cleanup(driver);

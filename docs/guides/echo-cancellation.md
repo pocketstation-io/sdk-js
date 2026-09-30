@@ -47,8 +47,11 @@ audio streams are also accepted. Every input must belong to the same Session.
 
 Core owns reference admission, processing cadence, queues and error handling.
 The supported format is 48 kHz mono or stereo with 10 or 20 millisecond Session
-frames. Inspect
-`lastError`, discarded-frame counters, resets and processing generation when a
+frames. Core negotiates microphone and reference channel layouts independently;
+processed output retains the microphone layout. The current same-Session
+`AudioInput` writer contract still uses a shared format. Inputs must declare the
+same clock; mapping independently clocked capture devices is not yet qualified.
+Inspect `lastError`, discarded-frame counters, resets and processing generation when a
 reference becomes unavailable or changes. Failed processing does not silently
 substitute raw microphone audio. The `qualifiedAlgorithmicDelaySamples` field
 is absent while processor delay remains unqualified; processing CPU time is not

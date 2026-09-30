@@ -339,11 +339,12 @@ export class SignalStream
 
   /** Stop this subscription without stopping the Session. */
   public close(): void {
+    this.#pending = undefined;
     if (!this.#closed) {
+      this.#closed = true;
       nativeCallSync(() =>
         this.#running.closeSignal(this.#subscription._nativeHandle()),
       );
-      this.#closed = true;
     }
   }
 
@@ -416,6 +417,7 @@ export class SignalStream
           nativeWaitMs,
         ),
       );
+      if (this.#closed) return END_OF_STREAM;
       switch (result.status) {
         case 'item':
           if (result.envelope == null) {

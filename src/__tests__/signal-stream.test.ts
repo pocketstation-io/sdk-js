@@ -21,6 +21,41 @@ const TEST_SUBSCRIPTION = {
 } as Parameters<typeof SignalStream._create>[1];
 
 describe('typed signal streams', () => {
+  it.each(['pending', 'cached'] as const)('discards a %s native value on explicit close', async (stage) => {
+    let release: () => void = () => undefined;
+    const wait = new Promise<void>((resolve) => { release = resolve; });
+    let closes = 0;
+    const running = {
+      closeSignal: () => { closes += 1; },
+      readSignal: async () => {
+        await wait;
+        return {
+          status: 'item',
+          envelope: {
+            signalKind: 'text', signalFormat: 'utf8', signalWireId: SignalSpec.text().wireId,
+            timing: { observedTimestampNs: '13' }, payloadKind: 'text', text: 'discarded',
+          },
+        };
+      },
+    } as NativeRunningSessionHandle;
+    const stream = SignalStream._create(running, TEST_SUBSCRIPTION);
+    const controller = new AbortController();
+    const read = stream.read({ signal: controller.signal });
+    if (stage === 'cached') {
+      controller.abort();
+      release();
+      await expect(read).rejects.toBeInstanceOf(StreamAbortError);
+      stream.close();
+    } else {
+      stream.close();
+      release();
+      await expect(read).resolves.toBe(END_OF_STREAM);
+    }
+    stream.close();
+    expect(closes).toBe(1);
+    expect(await stream.poll()).toBe(END_OF_STREAM);
+  });
+
   it.each(['audio', 'text', 'bytes', 'future'])(
     'rejects malformed native %s payloads with the shared stream code',
     (payloadKind) => {

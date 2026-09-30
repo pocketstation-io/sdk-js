@@ -247,8 +247,26 @@ const instance = registered.declare({ text: "hello" });
 Use `SourceProvider.withDriver()` when each configured declaration needs a
 stateful driver. Its `prepare()` receives the actual Core-assigned Session,
 Source, output-port, and stream identities. `next()` receives a
-`SourceCancellation`; `close()` runs exactly once. `SourceDeadlines` bounds
-create, prepare, next, and close independently.
+`SourceCancellation`; `close()` runs exactly once. Optional `drain()` returns
+one previously accepted emission at a time during graceful stop, then
+`undefined`. Stop accepting new work before draining. Cancellation skips drain;
+cleanup belongs in `close()`. Omitted drain preserves existing drivers, and
+iterable helpers do not advance their iterators during stop.
+
+Graceful stop also interrupts a waiting `next()` through its cancellation signal.
+Core waits for that Promise and its asynchronous cleanup before draining; an
+already accepted result is preserved. Providers should settle promptly when
+the signal aborts. An independent rejection remains a failure. If cleanup
+exceeds its deadline, the Session reports failure instead of overlapping it
+with another input callback.
+
+`SourceDeadlines` bounds create, prepare, next, and close independently. Drain
+uses the close deadline capped at one second; concise `defineSource()` drivers
+use their lifecycle deadline capped at one second. Core also enforces a
+cumulative one-second drain budget across emissions. These deadlines cannot
+interrupt synchronous JavaScript that blocks its event loop. Keep drain prompt
+and finite; it must never acquire fresh live input. Drained emissions retain
+the same format validation, sequence, identity and delivery contract as `next()`.
 
 `SourceEmission.text()` and `.bytes()` validate payload versus `SignalSpec`,
 copy byte views at construction, validate every timing/continuity integer, and
@@ -510,6 +528,11 @@ worker.
 
 `running.stop()` lets accepted work finish. `running.cancel()` aborts provider
 signals first, discards pending Core work, and then closes each instance.
+After `stop()`, bounded audio and signal streams may still contain final values;
+read them until EOF. `running.close()` and `running.cancel()` discard unread
+values, including receipts that have not yet been opened by a reader. Closing
+one signal stream discards only that subscription. Aborting an individual read
+preserves a value it already accepted unless the stream is subsequently closed.
 Preparation failures call cleanup before `Session.start()` returns the error.
 
 One factory object belongs to one Session because its active instances share

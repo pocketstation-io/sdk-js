@@ -317,6 +317,34 @@ pub(crate) struct ProviderBridge {
 }
 
 impl ProviderBridge {
+    async fn call_source_next(
+        &self,
+        request: NativeProviderCall,
+        cancellation: &SourceCancellation,
+    ) -> std::result::Result<NativeProviderResult, String> {
+        let instance_id = request.instance_id.clone();
+        let pending = Box::pin(self.call_async(request));
+        let interrupt = Box::pin(async {
+            while !cancellation.is_cancelled() {
+                futures_timer::Delay::new(Duration::from_millis(1)).await;
+            }
+            let mut notification = provider_call("source.interrupt", None, None);
+            notification.instance_id = instance_id;
+            let dispatch = self.deadline_dispatch.as_ref().ok_or_else(|| {
+                "JavaScript Source interruption dispatch is unavailable".to_owned()
+            })?;
+            deadline_notification_status(
+                dispatch.call(notification, ThreadsafeFunctionCallMode::NonBlocking),
+            )?;
+            // Waking the input is not completion: wait for its actual Promise
+            // (including provider cleanup) before Core can drain or close it.
+            futures::future::pending::<std::result::Result<NativeProviderResult, String>>().await
+        });
+        match select(pending, interrupt).await {
+            Either::Left((result, _)) | Either::Right((result, _)) => result,
+        }
+    }
+
     pub(crate) fn new(
         dispatch: Function<'_, NativeProviderCall, Promise<NativeProviderResult>>,
         deadline_ms: Option<u32>,
@@ -2595,9 +2623,24 @@ impl SourceDriver for JavaScriptSourceDriver {
     ) -> std::result::Result<Option<SourceEmission>, SourceDriverError> {
         let mut request = provider_call("source.next", Some(self.instance_id), None);
         request.cancelled = Some(cancellation.is_cancelled());
-        let result = self
-            .bridge
-            .call(request)
+        let result =
+            futures::executor::block_on(self.bridge.call_source_next(request, cancellation))
+                .map_err(SourceDriverError::Failed)?;
+        result
+            .emission
+            .map(|emission| self.build_emission(emission))
+            .transpose()
+    }
+
+    fn drain(&mut self) -> std::result::Result<Option<SourceEmission>, SourceDriverError> {
+        let bridge = ProviderBridge {
+            deadline: self.bridge.deadline.min(Duration::from_secs(1)),
+            ..self.bridge.clone()
+        };
+        let request = provider_call("source.drain", Some(self.instance_id), None);
+        // Keep dispatch admission and the returned Promise inside one finite
+        // wait. Core owns the cumulative drain budget across emitted values.
+        let result = futures::executor::block_on(bridge.call_async(request))
             .map_err(SourceDriverError::Failed)?;
         result
             .emission

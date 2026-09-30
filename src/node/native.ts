@@ -1243,6 +1243,7 @@ export interface NativeRunningSessionHandle {
   readonly sessionId: string;
   readAudio(timeoutMs: number): Promise<NativeAudioRead>;
   discardAudio(): void;
+  discardSignals(): void;
   monotonicTimestampNs(): string;
   readEvent(timeoutMs: number): Promise<NativeEventRead>;
   readSignal(

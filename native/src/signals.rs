@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{fence, AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -79,7 +79,15 @@ impl SignalReceipt {
         match &mut *state {
             ReceiptState::Declared => SignalRead::Empty,
             ReceiptState::Active(receiver) => {
-                if let Some(envelope) = receiver.try_recv() {
+                let mut envelope = receiver.try_recv();
+                let abandoned = envelope.is_none() && receiver.is_abandoned();
+                if abandoned {
+                    // Observe the producer's final publication before deciding EOF.
+                    // Use this same abandonment observation for the Closed branch.
+                    fence(Ordering::Acquire);
+                    envelope = receiver.try_recv();
+                }
+                if let Some(envelope) = envelope {
                     if let Err(failure) = envelope.validate() {
                         let message = format!(
                             "JavaScript signal subscription received an invalid envelope: {failure}"
@@ -99,7 +107,7 @@ impl SignalReceipt {
                     self.received_total.fetch_add(1, Ordering::Relaxed);
                     return SignalRead::Item(Box::new(envelope));
                 }
-                if receiver.is_abandoned() {
+                if abandoned {
                     self.closed.store(true, Ordering::Release);
                     *state = ReceiptState::Closed;
                     SignalRead::Closed
@@ -672,6 +680,17 @@ pub(crate) fn close_signal(
     subscription: &NativeBusSubscription,
 ) -> Result<()> {
     receipt(receipts, session_id, subscription)?.close();
+    Ok(())
+}
+
+pub(crate) fn close_signals(receipts: &SignalReceipts) -> Result<()> {
+    for receipt in receipts
+        .lock()
+        .map_err(|_| state_unavailable("signal subscription registry"))?
+        .values()
+    {
+        receipt.close();
+    }
     Ok(())
 }
 
