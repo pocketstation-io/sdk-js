@@ -19,6 +19,7 @@ const artifacts = join(work, 'artifacts');
 const consumer = join(work, 'consumer');
 mkdirSync(artifacts);
 mkdirSync(consumer);
+writeFileSync(join(consumer, 'aec-consumer.mjs'), readFileSync('tools/aec-consumer.mjs'));
 
 try {
   const pack = JSON.parse(
@@ -87,6 +88,8 @@ import type {
   OperatorManifest,
   OperatorProvider,
   RunningSession,
+  EchoCancelledAudio,
+  PlaybackReference,
   Session,
   SignalEnvelope,
   SignalSpec,
@@ -104,6 +107,8 @@ new WhisperTranscriber(new WhisperTranscriberConfiguration());
 new RealtimeVoiceConfig();
 
 type DemoBoundary = {
+  echo: EchoCancelledAudio;
+  playbackReference: PlaybackReference;
   audioConverter: AudioConverter;
   input: RealtimeInput;
   socketFactory: RealtimeSocketFactory;
@@ -213,6 +218,7 @@ export type { DemoBoundary };
       RunningEndpointDriver,
       SampleRepresentation,
       Session,
+      PlaybackReference,
       SessionStartError,
       SidecarId,
       SidecarMessage,
@@ -398,6 +404,9 @@ export type { DemoBoundary };
     if (await inputAudio.read({ timeoutMs: 0 }) !== END_OF_STREAM) {
       throw new Error('packed audio stream did not report end-of-stream');
     }
+    const { exerciseEchoCancellation } = await import('./aec-consumer.mjs');
+    const aec = await exerciseEchoCancellation(Session, PlaybackReference);
+    console.log(JSON.stringify({ aec }));
     const eventSession = new Session();
     const eventInput = eventSession.eventInput('packed-events', {
       capacityEvents: 1,

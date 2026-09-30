@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -137,6 +138,7 @@ def consume(identity, node_cell, directory, output):
             'files': ['consumer.mts', 'consumer.cts']})
         run(['node', str(tooling / 'typescript/bin/tsc'), '-p', 'tsconfig.json'], work)
         shutil.copy2(ROOT / 'tools/native-matrix-consumer.mjs', work / 'consumer.mjs')
+        shutil.copy2(ROOT / 'tools/aec-consumer.mjs', work / 'aec-consumer.mjs')
         result = json.loads(run(['node', 'consumer.mjs', identity, native['nativeSha256'], root['version'], '1.1.12'], work))
     result.update({'schema': 1, 'typesPassed': True, 'nodeCell': node_cell, 'sourceCommit': root['sourceCommit'],
                    'rootSha256': root['sha256'], 'nativeArchiveSha256': native['sha256']})
@@ -158,6 +160,20 @@ def validate_consumer(result, row, node_cell, root, native):
     assert result['coreVersion'] == '1.1.12'
     assert result['frames'] == 1 and result['samples'] == 480
     assert all(result[k] is True for k in ['sourceIdentity', 'outputCancellation', 'stopSuccess'])
+    aec = result['aec']
+    assert isinstance(aec, dict)
+    assert type(aec['processedFramesTotal']) is int and aec['processedFramesTotal'] == 400
+    assert aec['rawStemUnchanged'] is True and aec['observationsRetained'] is True
+    assert aec['terminalState'] == 'stopped'
+    assert type(aec['tailFrames']) is int and aec['tailFrames'] == 4
+    assert type(aec['tailPaddingSamplesTotal']) is int and aec['tailPaddingSamplesTotal'] == 1920
+    for field, minimum, maximum in [('echoPowerRatio', 0, 0.5), ('voicePowerRatio', 0.5, 2)]:
+        value = aec[field]
+        assert type(value) in (int, float) and math.isfinite(value)
+        if minimum == 0:
+            assert minimum <= value < maximum
+        else:
+            assert minimum < value < maximum
     assert result['exports'] == ['pocketstation', *[f'pocketstation/{n}' for n in ['node', 'browser', 'control', 'demo', 'voice']]]
     if row['platform'] == 'linux':
         assert result['glibc'] == '2.34', 'The claimed libc floor must actually execute'

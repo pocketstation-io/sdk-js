@@ -6,7 +6,8 @@
   "files": [
     "pocketstation-js.linux-arm64-gnu.node",
     "LICENSE",
-    "README.md"
+    "README.md",
+    "THIRD_PARTY_NOTICES.md"
   ],
   "os": [
     "linux"

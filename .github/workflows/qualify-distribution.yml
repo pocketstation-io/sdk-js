@@ -38,6 +38,7 @@ jobs:
       - run: node --test tests/publish-qualified.test.mjs
       - run: npm ci --ignore-scripts
       - run: npm run build:typescript
+      - run: npm run notices:check
       - run: python3 tools/qualify-native-matrix.py freeze --kind root --output artifacts
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
@@ -58,7 +59,9 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - name: Install Linux build prerequisites
         if: runner.os == 'Linux'
-        run: dnf install -y alsa-lib-devel openssl-devel opus-devel pipewire-devel clang cmake ninja-build
+        run: |
+          dnf install -y alsa-lib-devel openssl-devel opus-devel pipewire-devel clang cmake ninja-build pkgconfig
+          python3 -m pip install 'meson==1.7.2' 'ninja==1.11.1.4'
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '24'
@@ -69,10 +72,11 @@ jobs:
           python-version: '3.13'
       - name: Install compatible CMake
         if: runner.os != 'Linux'
-        run: python -m pip install cmake==3.31.6 ninja==1.13.0
+        run: python -m pip install 'cmake==3.31.6' 'meson==1.7.2' 'ninja==1.11.1.4'
       - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
         with:
           toolchain: 1.95.0
+          components: llvm-tools
       - run: npm ci --ignore-scripts
       - name: Build the production addon from locked dependencies
         shell: bash

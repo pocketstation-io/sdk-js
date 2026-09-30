@@ -253,6 +253,7 @@ export abstract class RunningEndpointDriver {
   public observations(): EndpointDriverObservations | Promise<EndpointDriverObservations> {
     return new EndpointDriverObservations();
   }
+  /** Drain permits accepted deliveries until joinAndFinalize; abort rejects them. */
   public requestShutdown(_mode: EndpointShutdownMode): void | Promise<void> {}
   public joinAndFinalize(): EndpointDriverObservations | Promise<EndpointDriverObservations> {
     return this.observations();

@@ -1,3 +1,4 @@
+mod aec;
 mod application_audio;
 mod errors;
 mod extensions;

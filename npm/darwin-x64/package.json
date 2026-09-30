@@ -6,7 +6,8 @@
   "files": [
     "pocketstation-js.darwin-x64.node",
     "LICENSE",
-    "README.md"
+    "README.md",
+    "THIRD_PARTY_NOTICES.md"
   ],
   "os": [
     "darwin"

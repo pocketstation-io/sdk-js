@@ -5,6 +5,7 @@ import {
   nativeCall,
   nativeCallSync,
 } from './errors.js';
+import { EchoCancelledAudio, PlaybackReference, type EchoAudioInput } from './aec.js';
 import {
   ConnectorId,
   EndpointId,
@@ -418,6 +419,11 @@ export class Stem {
   /** Session identity that owns this Stem. */
   public get sessionId(): RuntimeSessionId {
     return this.#session.id;
+  }
+
+  /** @internal */
+  public _nativeHandle(): NativeStemHandle {
+    return this.#native;
   }
 
   /** Route this Stem to an Endpoint and return the Session-local route identity. */
@@ -1146,25 +1152,30 @@ export class RunningSession implements AsyncDisposable {
 
   /** Stop without draining pending work. */
   public cancel(): Promise<StopResult> {
+    this.audio._abort();
+    nativeCallSync(() => this.#native.discardAudio());
     for (const provider of this.#providers) provider._abort();
     return this.#finishSession('cancel');
   }
 
-  /** Deterministically stop the Session. */
+  /** Stop the Session and discard unread audio. Use stop() to retain it. */
   public async close(): Promise<void> {
     await this.stop();
+    this.audio._abort();
+    nativeCallSync(() => this.#native.discardAudio());
   }
 
   /** Stop the Session when used with `await using`. */
   public async [Symbol.asyncDispose](): Promise<void> {
-    await this.stop();
+    await this.close();
   }
 
   #finishSession(disposition: 'stop' | 'cancel'): Promise<StopResult> {
     if (this.#finish === undefined) {
       this.#finish = nativeCall(() => this.#native[disposition]())
         .then((result) => {
-          this.audio._close();
+          if (disposition === 'cancel') this.audio._abort();
+          else this.audio._close();
           this.events._finish(result.remainingEvents);
           // Accepted signal outputs remain in their bounded native receipts.
           // Readers reach EOF after draining; explicit stream.close discards.
@@ -1255,6 +1266,24 @@ export class Session {
     return Stem._create(
       this,
       nativeCallSync(() => this.#native.capture(nativeSource(source))),
+    );
+  }
+
+  /** Process an explicitly selected microphone/reference pair without changing raw audio. */
+  public echoCancel(microphone: EchoAudioInput, reference: PlaybackReference): EchoCancelledAudio {
+    if (!(reference instanceof PlaybackReference)) {
+      throw new TypeError('reference must be an explicit PlaybackReference');
+    }
+    const native = nativeCallSync(() => this.#native.echoCancel(
+      microphone._nativeHandle(),
+      reference.input._nativeHandle(),
+      reference.coverage,
+    ));
+    return EchoCancelledAudio._create(
+      Stem._create(this, nativeCallSync(() => native.audio())),
+      microphone,
+      reference,
+      native,
     );
   }
 

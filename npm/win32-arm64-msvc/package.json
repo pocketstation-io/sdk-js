@@ -6,7 +6,8 @@
   "files": [
     "pocketstation-js.win32-arm64-msvc.node",
     "LICENSE",
-    "README.md"
+    "README.md",
+    "THIRD_PARTY_NOTICES.md"
   ],
   "os": [
     "win32"

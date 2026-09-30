@@ -554,7 +554,8 @@ describe('Advanced Endpoint authoring', () => {
 
   it('preserves an explicit buffered route override', async () => {
     let input: EndpointPortInput | undefined;
-    class Running extends RunningEndpointDriver { public receive(): void {} }
+    let received = 0;
+    class Running extends RunningEndpointDriver { public receive(): void { received += 1; } }
     class Prepared extends PreparedEndpointDriver { public start(): RunningEndpointDriver { return new Running(); } }
     const provider = new EndpointProvider({
       manifest: EndpointManifest.audio('org.example.endpoint.route.v1'),
@@ -575,6 +576,59 @@ describe('Advanced Endpoint authoring', () => {
     await waitFor(() => input !== undefined);
     expect(input?.routeSettings.deliveryPolicy.queuePressure).toBe('buffer');
     expect((await running.stop()).success).toBe(true);
+    expect(received).toBe(1);
+  });
+
+  it.each(['drain', 'abort'] as const)('Given a %s shutdown request When accepted deliveries remain Then honors the shutdown mode', async (mode) => {
+    let received = 0;
+    let idle = 0;
+    let gate: EndpointStartGate | undefined;
+    class Running extends RunningEndpointDriver {
+      public receive(): void { received += 1; }
+      public idle(): void { idle += 1; }
+    }
+    class Prepared extends PreparedEndpointDriver {
+      public start(value: EndpointStartGate): RunningEndpointDriver {
+        gate = value;
+        return new Running();
+      }
+    }
+    const provider = new EndpointProvider({
+      manifest: EndpointManifest.audio('org.example.endpoint.drain-delivery.v1'),
+      factory: () => new Prepared(),
+    });
+    const dispatch = provider._factory()._dispatch;
+    for (const operation of ['endpoint.create', 'endpoint.prepare', 'endpoint.start']) {
+      await dispatch(endpointRequest(operation, '1'));
+    }
+    await dispatch({ ...endpointRequest('endpoint.stop', '1'), shutdownMode: mode });
+    await dispatch(endpointRequest('endpoint.gate_open', '1'));
+    const item = {
+      inputPort: 'audio', endpointId: '2', routeId: '3',
+      audio: {
+        samplesF32Le: Buffer.alloc(16), sampleCount: 4,
+        sampleRateHz: 48000, channelCount: 1, sourceId: '4', streamId: '5',
+        sequenceNumber: '0', timestampNs: '1000', routeEnqueuedAtNs: '1001',
+        routeReceivedAtNs: '1002', sourceGeneration: 0, discontinuityEpoch: '0',
+        permissionEpoch: '0', clockId: 1, durationNs: '83333',
+      },
+    };
+    const receive = { ...endpointRequest('endpoint.receive', '1'), ...item };
+    const batch = { ...endpointRequest('endpoint.receive_batch', '1'), endpointItems: [item, item] };
+    if (mode === 'drain') {
+      await expect(dispatch(receive)).resolves.toMatchObject({ outcome: 'delivered' });
+      await expect(dispatch(batch)).resolves.toMatchObject({ outcomes: ['delivered', 'delivered'] });
+      await dispatch(endpointRequest('endpoint.idle', '1'));
+      expect(gate?.isOpen).toBe(true);
+      expect(received).toBe(3);
+      expect(idle).toBe(1);
+    } else {
+      await expect(dispatch(receive)).rejects.toThrow('outside its running lifetime');
+      await expect(dispatch(batch)).rejects.toThrow('outside its running lifetime');
+      expect(received).toBe(0);
+    }
+    await dispatch(endpointRequest('endpoint.close', '1'));
+    await expect(dispatch(receive)).rejects.toThrow('no longer active');
   });
 });
 

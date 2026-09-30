@@ -22,6 +22,9 @@ class ConsumerVerificationTests(unittest.TestCase):
             'nativeArchiveSha256': self.native['sha256'], 'nativeSha256': self.native['nativeSha256'],
             'sdkVersion': '0.1.4', 'coreVersion': '1.1.12', 'frames': 1, 'samples': 480,
             'sourceIdentity': True, 'outputCancellation': True, 'stopSuccess': True,
+            'aec': {'processedFramesTotal': 400, 'echoPowerRatio': 0.01, 'voicePowerRatio': 0.9,
+                    'rawStemUnchanged': True, 'observationsRetained': True, 'terminalState': 'stopped',
+                    'tailFrames': 4, 'tailPaddingSamplesTotal': 1920},
             'exports': ['pocketstation', *[f'pocketstation/{n}' for n in ['node', 'browser', 'control', 'demo', 'voice']]],
         }
 
@@ -56,6 +59,43 @@ class ConsumerVerificationTests(unittest.TestCase):
         directories = {path.name for path in (module.ROOT / 'npm').iterdir() if path.is_dir()}
         self.assertEqual(directories, {row['id'] for row in module.MATRIX['targets']})
         self.assertEqual(len(module.MATRIX['targets']) * len(module.MATRIX['nodes']), 30)
+
+    def test_given_missing_echo_observations_when_validating_then_report_is_rejected(self):
+        for key, value in [('processedFramesTotal', 0), ('processedFramesTotal', True),
+                           ('rawStemUnchanged', False), ('observationsRetained', False),
+                           ('terminalState', 'processing'), ('tailFrames', 0), ('tailFrames', True),
+                           ('tailPaddingSamplesTotal', 0), ('tailPaddingSamplesTotal', True)]:
+            with self.subTest(key=key, mutation='false'):
+                report = copy.deepcopy(self.report)
+                report['aec'][key] = value
+                with self.assertRaises(AssertionError):
+                    module.validate_consumer(report, self.row, '20.17.0', self.root, self.native)
+            with self.subTest(key=key, mutation='missing'):
+                report = copy.deepcopy(self.report)
+                del report['aec'][key]
+                with self.assertRaises(KeyError):
+                    module.validate_consumer(report, self.row, '20.17.0', self.root, self.native)
+
+    def test_given_pass_through_muted_or_nonfinite_signal_when_validating_then_rejected(self):
+        for key, values in [
+            ('echoPowerRatio', [1.0, 0.5, -1, float('nan'), float('inf'), False, None]),
+            ('voicePowerRatio', [0.0, 0.5, 2.0, float('nan'), float('inf'), True, None]),
+        ]:
+            for value in values:
+                with self.subTest(key=key, value=value):
+                    report = copy.deepcopy(self.report)
+                    report['aec'][key] = value
+                    with self.assertRaises(AssertionError):
+                        module.validate_consumer(report, self.row, '20.17.0', self.root, self.native)
+            report = copy.deepcopy(self.report)
+            del report['aec'][key]
+            with self.assertRaises(KeyError):
+                module.validate_consumer(report, self.row, '20.17.0', self.root, self.native)
+
+    def test_given_no_aec_report_when_validating_then_rejected(self):
+        del self.report['aec']
+        with self.assertRaises(KeyError):
+            module.validate_consumer(self.report, self.row, '20.17.0', self.root, self.native)
 
 
 if __name__ == '__main__':

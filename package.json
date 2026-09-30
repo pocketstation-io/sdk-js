@@ -16,6 +16,7 @@
     "src/voice/*.ts",
     "README.md",
     "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
     "src/*.cjs",
     "src/*.cts"
   ],
@@ -91,6 +92,7 @@
     }
   },
   "scripts": {
+    "notices:check": "node tools/check-aec-notices.mjs",
     "build": "npm run build:native && npm run build:typescript",
     "build:native": "node tools/clean-native-output.mjs && napi build --platform --release --manifest-path native/Cargo.toml --output-dir native-dist && node tools/stage-native-package.mjs --install",
     "build:test-native": "node tools/clean-native-output.mjs && napi build --platform --release --features conformance-fixtures --manifest-path native/Cargo.toml --output-dir native-dist && node tools/stage-native-package.mjs --install",

@@ -25,6 +25,7 @@ row-level ledger.
 |---|---|---|---|
 | Session declaration and start | `REAL` | `REAL` | `PARTIAL`; native start and typed failure pass on macOS |
 | Concise application capture | `REAL` | `REAL` | `REAL`; `capture()` uses the same Session, while microphone and recording remain opt-in |
+| Built-in acoustic echo cancellation | Absent in the listed released version | Absent in the listed released version | `PARTIAL`; typed Session API delegates to unreleased Core; native component, package, physical and platform qualification must be recorded before a release claim |
 | Application Source, including exact smart string selection | `REAL` | `REAL` | `PARTIAL`; declaration and physical macOS capture pass |
 | Explicit microphone Source | `REAL` | `REAL` | `REAL-DEVICE-PROVEN` on the recorded macOS host; default and stable device declarations work, other targets remain pending |
 | Explicit system-audio Source | `REAL` | `REAL` | `PARTIAL`; declaration and a local Session start pass, audio proof pending |

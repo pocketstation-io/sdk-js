@@ -72,6 +72,7 @@ export interface AudioFrame {
     readonly outputGenerationId: bigint | undefined;
     readonly permissionEpoch: bigint;
     readonly polledAtNs: bigint | undefined;
+    readonly processing?: AudioProcessing;
     readonly routeEnqueuedAtNs: bigint;
     readonly routeId: RouteId;
     readonly routeReceivedAtNs: bigint;
@@ -210,6 +211,29 @@ export interface AudioInputTryWriteOptions {
 export interface AudioInputWriteOptions extends AudioInputTryWriteOptions {
     signal?: AbortSignal;
     timeoutMs?: number;
+}
+
+// @public
+export interface AudioProcessing {
+    readonly generation: bigint;
+    // (undocumented)
+    readonly inputDiscontinuityEpoch: bigint;
+    // (undocumented)
+    readonly inputDurationNs: bigint;
+    // (undocumented)
+    readonly inputSequenceNumber: bigint;
+    // (undocumented)
+    readonly inputSourceGeneration: number;
+    // (undocumented)
+    readonly inputSourceId: SourceId;
+    // (undocumented)
+    readonly inputStreamId: StreamId;
+    // (undocumented)
+    readonly inputTimestampNs: bigint;
+    readonly isTail: boolean;
+    readonly nominalDelaySamples: number;
+    readonly paddingSamples: number;
+    readonly tailOffsetSamples: number;
 }
 
 // @public
@@ -1381,6 +1405,79 @@ export class DiscoveredSource {
 export function discoverSources(query?: SourceQuery | SourceQueryInput): Promise<readonly DiscoveredSource[]>;
 
 // @public
+export type EchoAudioInput = Stem | SourceOutput | DerivedStream;
+
+// @public
+export interface EchoCancellationObservations {
+    // (undocumented)
+    readonly analyzedReferenceFramesTotal: bigint;
+    // (undocumented)
+    readonly discardedMicrophoneFramesTotal: bigint;
+    // (undocumented)
+    readonly discardedReferenceFramesTotal: bigint;
+    // (undocumented)
+    readonly discardedTailGenerationsTotal: bigint;
+    readonly drainDurationMs: number;
+    // (undocumented)
+    readonly interruptedRequestsTotal: bigint;
+    // (undocumented)
+    readonly lastError?: string;
+    // (undocumented)
+    readonly latestProcessingDurationNs: bigint;
+    // (undocumented)
+    readonly latestReferenceAgeNs: bigint;
+    // (undocumented)
+    readonly latestReferenceLeadNs: bigint;
+    // (undocumented)
+    readonly maximumCadenceErrorNs: bigint;
+    // (undocumented)
+    readonly maximumProcessingDurationNs: bigint;
+    // (undocumented)
+    readonly microphoneQueueDepthFrames: bigint;
+    // (undocumented)
+    readonly microphoneSourceId?: SourceId;
+    readonly nominalDelaySamples: number;
+    // (undocumented)
+    readonly outputFramesTotal: bigint;
+    // (undocumented)
+    readonly processedMicrophoneFramesTotal: bigint;
+    // (undocumented)
+    readonly processingGeneration: bigint;
+    readonly qualifiedAlgorithmicDelaySamples?: number;
+    // (undocumented)
+    readonly queueCapacityFrames: bigint;
+    // (undocumented)
+    readonly referenceQueueDepthFrames: bigint;
+    // (undocumented)
+    readonly referenceSourceId?: SourceId;
+    // (undocumented)
+    readonly resetsTotal: bigint;
+    // (undocumented)
+    readonly state: EchoCancellationState;
+    // (undocumented)
+    readonly tailFramesTotal: bigint;
+    // (undocumented)
+    readonly tailPaddingSamplesTotal: bigint;
+}
+
+// @public
+export type EchoCancellationState = 'waiting-for-reference' | 'processing' | 'reset' | 'failed' | 'interrupted' | 'stopped';
+
+// @public
+export class EchoCancelledAudio {
+    // (undocumented)
+    readonly audio: Stem;
+    // (undocumented)
+    readonly microphone: EchoAudioInput;
+    // (undocumented)
+    observations(): EchoCancellationObservations;
+    // (undocumented)
+    readonly reference: PlaybackReference;
+    // (undocumented)
+    readonly referenceCoverage: PlaybackReferenceCoverage;
+}
+
+// @public
 export const END_OF_STREAM: EndOfStream;
 
 // @public
@@ -1654,7 +1751,6 @@ export interface EndpointNode {
     receiveBatch?(items: readonly EndpointItem[], context: EndpointContext): EndpointDeliveryOutcome | readonly EndpointDeliveryOutcome[] | void | Promise<EndpointDeliveryOutcome | readonly EndpointDeliveryOutcome[] | void>;
     // (undocumented)
     start?(context: EndpointContext): void | Promise<void>;
-    // (undocumented)
     stop?(mode: 'drain' | 'abort', context: EndpointContext): void | Promise<void>;
 }
 
@@ -2649,6 +2745,20 @@ export const Platform: Readonly<{
 export type Platform = (typeof Platform)[keyof typeof Platform];
 
 // @public
+export class PlaybackReference {
+    // (undocumented)
+    readonly coverage: PlaybackReferenceCoverage;
+    // (undocumented)
+    readonly input: EchoAudioInput;
+    static outputMix(input: EchoAudioInput): PlaybackReference;
+    static renderedAudio(input: EchoAudioInput): PlaybackReference;
+    static selectedApplication(input: EchoAudioInput): PlaybackReference;
+}
+
+// @public
+export type PlaybackReferenceCoverage = 'selected-application' | 'authorized-output-mix' | 'caller-rendered-audio';
+
+// @public
 export class PocketStationError extends Error {
     constructor(code: string, message: string, options?: {
         cause?: unknown;
@@ -3280,7 +3390,6 @@ export abstract class RunningEndpointDriver {
     abstract receive(delivery: EndpointDriverItem): EndpointDeliveryOutcome | void | Promise<EndpointDeliveryOutcome | void>;
     // (undocumented)
     receiveBatch(deliveries: readonly EndpointDriverItem[]): Promise<readonly EndpointDeliveryOutcome[]>;
-    // (undocumented)
     requestShutdown(_mode: EndpointShutdownMode): void | Promise<void>;
 }
 
@@ -3427,6 +3536,7 @@ export class Session {
         configuration?: ConnectorConfigurationInput;
         routeSettings?: RouteSettings;
     }): Endpoint;
+    echoCancel(microphone: EchoAudioInput, reference: PlaybackReference): EchoCancelledAudio;
     endpoint(definition: EndpointDescriptor | EndpointFactory | EndpointProvider, configuration?: Configuration | EndpointConfigurationInput): Endpoint;
     eventInput(name: string, options?: EventInputOptions): EventInput;
     get id(): RuntimeSessionId;

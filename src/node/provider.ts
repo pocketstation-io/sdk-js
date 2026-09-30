@@ -817,6 +817,7 @@ export interface EndpointNode {
   receiveBatch?(items: readonly EndpointItem[], context: EndpointContext): EndpointDeliveryOutcome | readonly EndpointDeliveryOutcome[] | void | Promise<EndpointDeliveryOutcome | readonly EndpointDeliveryOutcome[] | void>;
   /** Optional finite work invoked only when a prepared Endpoint explicitly enables idle polling. */
   idle?(context: EndpointContext): void | Promise<void>;
+  /** Drain allows accepted delivery until close; abort rejects further delivery. */
   stop?(mode: 'drain' | 'abort', context: EndpointContext): void | Promise<void>;
   close?(): void | Promise<void>;
   /** @internal Return validated final counters to Core after close. */
@@ -857,7 +858,7 @@ interface ActiveEndpoint {
   readonly node: EndpointNode;
   readonly controller: AbortController;
   readonly inFlight: Set<Promise<void>>;
-  state: 'new' | 'preparing' | 'prepared' | 'running' | 'stopping' | 'closed';
+  state: 'new' | 'preparing' | 'prepared' | 'running' | 'draining' | 'stopping' | 'closed';
   timedOutOperation?: string;
   abortCleanupPromise?: Promise<NativeEndpointDriverObservations | undefined>;
   finishPromise?: Promise<NativeEndpointDriverObservations | undefined>;
@@ -997,7 +998,7 @@ export class EndpointFactory {
       case 'endpoint.gate_open': {
         const active = this.#active(request);
         if (active.state === 'stopping' || active.state === 'closed') return {};
-        if (active.state !== 'running') throw new Error('Endpoint start gate opened outside its running lifetime');
+        if (active.state !== 'running' && active.state !== 'draining') throw new Error('Endpoint start gate opened outside its running lifetime');
         await this.#runEndpointOperation(
           active,
           async () => await active.node.gateOpen?.({ signal: active.controller.signal }),
@@ -1006,7 +1007,7 @@ export class EndpointFactory {
       }
       case 'endpoint.receive': {
         const active = this.#active(request);
-        if (active.state !== 'running') {
+        if ((active.state !== 'running' && active.state !== 'draining') || active.controller.signal.aborted) {
           throw new Error('Endpoint received data outside its running lifetime');
         }
         const outcome = await this.#runEndpointOperation(
@@ -1022,7 +1023,7 @@ export class EndpointFactory {
       }
       case 'endpoint.receive_batch': {
         const active = this.#active(request);
-        if (active.state !== 'running') {
+        if ((active.state !== 'running' && active.state !== 'draining') || active.controller.signal.aborted) {
           throw new Error('Endpoint received data outside its running lifetime');
         }
         const items = Object.freeze((request.endpointItems ?? []).map(endpointItem));
@@ -1060,7 +1061,7 @@ export class EndpointFactory {
       }
       case 'endpoint.idle': {
         const active = this.#active(request);
-        if (active.state !== 'running') throw new Error('Endpoint cannot idle outside its running lifetime');
+        if ((active.state !== 'running' && active.state !== 'draining') || active.controller.signal.aborted) throw new Error('Endpoint cannot idle outside its running lifetime');
         await this.#runEndpointOperation(
           active,
           async () => await active.node.idle?.({ signal: active.controller.signal }),
@@ -1073,7 +1074,10 @@ export class EndpointFactory {
         const mode = request.shutdownMode === 'abort' || active.controller.signal.aborted
           ? 'abort'
           : 'drain';
-        active.state = 'stopping';
+        if (active.state === 'draining' && mode === 'drain') return {};
+        // Drain is a request, not EOF: Core may deliver already accepted data
+        // before endpoint.close completes the driver's lifetime.
+        active.state = mode === 'drain' ? 'draining' : 'stopping';
         if (mode === 'abort' && !active.controller.signal.aborted) active.controller.abort();
         await this.#runEndpointOperation(
           active,

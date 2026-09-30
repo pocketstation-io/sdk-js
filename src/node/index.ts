@@ -4,6 +4,14 @@
  * @packageDocumentation
  */
 export {
+  EchoCancelledAudio,
+  PlaybackReference,
+  type EchoAudioInput,
+  type EchoCancellationObservations,
+  type EchoCancellationState,
+  type PlaybackReferenceCoverage,
+} from './aec.js';
+export {
   RuntimeCompatibility,
   runtimeCompatibility,
   type RuntimeCompatibilityOptions,
@@ -479,6 +487,7 @@ export {
   StreamAbortError,
   type AudioBatchReadResult,
   type AudioFrame,
+  type AudioProcessing,
   type AudioReadResult,
   type ClockDomainDescriptor,
   type StreamReadOptions,
