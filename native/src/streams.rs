@@ -2,6 +2,41 @@ use napi::bindgen_prelude::Buffer;
 use napi_derive::napi;
 
 #[napi(object)]
+pub struct NativeAudioProcessing {
+    pub input_source_id: String,
+    pub input_stream_id: String,
+    pub input_sequence_number: String,
+    pub input_timestamp_ns: String,
+    pub input_duration_ns: String,
+    pub input_source_generation: u32,
+    pub input_discontinuity_epoch: String,
+    pub generation: String,
+    pub nominal_delay_samples: u32,
+    pub padding_samples: u32,
+    pub tail_offset_samples: u32,
+    pub is_tail: bool,
+}
+
+impl From<pocketstation::AudioProcessing> for NativeAudioProcessing {
+    fn from(value: pocketstation::AudioProcessing) -> Self {
+        Self {
+            input_source_id: value.input_source_id.get().to_string(),
+            input_stream_id: value.input_stream_id.get().to_string(),
+            input_sequence_number: value.input_sequence_number.to_string(),
+            input_timestamp_ns: value.input_timestamp_ns.to_string(),
+            input_duration_ns: value.input_duration_ns.to_string(),
+            input_source_generation: value.input_source_generation,
+            input_discontinuity_epoch: value.input_discontinuity_epoch.to_string(),
+            generation: value.generation.to_string(),
+            nominal_delay_samples: value.nominal_delay_samples,
+            padding_samples: value.padding_samples,
+            tail_offset_samples: value.tail_offset_samples,
+            is_tail: value.is_tail(),
+        }
+    }
+}
+
+#[napi(object)]
 pub struct NativeAudioFrame {
     pub samples_f32le: Buffer,
     pub sample_count: u32,
@@ -22,6 +57,7 @@ pub struct NativeAudioFrame {
     pub discontinuity_epoch: String,
     pub permission_epoch: String,
     pub output_generation_id: Option<String>,
+    pub processing: Option<NativeAudioProcessing>,
     pub endpoint_id: String,
     pub connector_id: String,
     pub route_id: String,
@@ -42,10 +78,27 @@ pub(crate) fn copy_audio(
     running: &pocketstation::RunningSession,
     timeout: std::time::Duration,
 ) -> Result<Vec<NativeAudioFrame>, String> {
-    let Some(batch) = running
-        .wait_audio(timeout)
-        .map_err(|error| error.to_string())?
-    else {
+    copy_batch(
+        running
+            .wait_audio(timeout)
+            .map_err(|error| error.to_string())?,
+    )
+}
+
+pub(crate) fn copy_retained_audio(
+    receipt: &pocketstation::PolledAudioReceipt,
+) -> Result<Vec<NativeAudioFrame>, String> {
+    match receipt.try_poll() {
+        Ok(batch) => copy_batch(Some(batch)),
+        Err(pocketstation::PolledAudioPollError::Empty) => Ok(Vec::new()),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+fn copy_batch(
+    batch: Option<pocketstation::PolledAudioBatchLease>,
+) -> Result<Vec<NativeAudioFrame>, String> {
+    let Some(batch) = batch else {
         return Ok(Vec::new());
     };
     let mut frames = Vec::with_capacity(batch.len());
@@ -92,6 +145,7 @@ pub(crate) fn copy_audio(
             output_generation_id: frame
                 .output_generation_id()
                 .map(|value| value.get().to_string()),
+            processing: frame.processing().map(NativeAudioProcessing::from),
             endpoint_id: frame.endpoint_id().get().to_string(),
             connector_id: frame.connector_id().get().to_string(),
             route_id: frame.route_id().get().to_string(),

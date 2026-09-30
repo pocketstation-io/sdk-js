@@ -13,13 +13,14 @@ if (manifest.main !== binary || root.optionalDependencies[manifest.name] !== man
 }
 cpSync(join('native-dist', binary), join(directory, binary));
 cpSync('LICENSE', join(directory, 'LICENSE'));
+cpSync('THIRD_PARTY_NOTICES.md', join(directory, 'THIRD_PARTY_NOTICES.md'));
 writeFileSync(join(directory, 'README.md'),
   `# ${manifest.name}\n\nNative addon for pocketstation ${manifest.version} on ${target}.\n`
   + 'Install the pocketstation package to use the public API.\n');
 if (process.argv.includes('--install')) {
   const installed = join('node_modules', manifest.name);
   mkdirSync(installed, { recursive: true });
-  for (const file of ['package.json', binary, 'LICENSE', 'README.md']) {
+  for (const file of ['package.json', binary, 'LICENSE', 'README.md', 'THIRD_PARTY_NOTICES.md']) {
     cpSync(join(directory, file), join(installed, file));
   }
 }

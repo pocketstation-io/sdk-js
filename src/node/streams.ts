@@ -33,6 +33,27 @@ export interface ClockDomainDescriptor {
   readonly tickRateHz: bigint | undefined;
 }
 
+/** Provenance of the most recent actual input consumed by an audio processor. */
+export interface AudioProcessing {
+  readonly inputSourceId: SourceId;
+  readonly inputStreamId: StreamId;
+  readonly inputSequenceNumber: bigint;
+  readonly inputTimestampNs: bigint;
+  readonly inputDurationNs: bigint;
+  readonly inputSourceGeneration: number;
+  readonly inputDiscontinuityEpoch: bigint;
+  /** Adaptation generation; a reset starts a new generation. */
+  readonly generation: bigint;
+  /** Nominal signal delay in samples per channel, separate from CPU duration. */
+  readonly nominalDelaySamples: number;
+  /** Internal zero-input samples per channel used for this terminal frame. */
+  readonly paddingSamples: number;
+  /** Tail offset from actual input EOF, in samples per channel. */
+  readonly tailOffsetSamples: number;
+  /** True when draining processor history after the actual input ended. */
+  readonly isTail: boolean;
+}
+
 /** One PCM frame with the identity and timing assigned by the native Session. */
 export interface AudioFrame {
   /** Interleaved floating-point PCM samples. */
@@ -73,6 +94,8 @@ export interface AudioFrame {
   readonly permissionEpoch: bigint;
   /** Identity of generated output, when the frame came from generated audio. */
   readonly outputGenerationId: bigint | undefined;
+  /** Present for processed audio; terminal padding is never additional capture. */
+  readonly processing?: AudioProcessing;
   /** Endpoint that supplied this observed frame. */
   readonly endpointId: EndpointId;
   /** Connector identity, when a Connector supplied the frame. */
@@ -212,6 +235,20 @@ function frameFromNative(frame: NativeAudioFrame): AudioFrame {
         ? undefined
         : BigInt(frame.outputGenerationId),
     endpointId: EndpointId(BigInt(frame.endpointId)),
+    processing: frame.processing == null ? undefined : Object.freeze({
+      inputSourceId: SourceId(BigInt(frame.processing.inputSourceId)),
+      inputStreamId: StreamId(BigInt(frame.processing.inputStreamId)),
+      inputSequenceNumber: BigInt(frame.processing.inputSequenceNumber),
+      inputTimestampNs: BigInt(frame.processing.inputTimestampNs),
+      inputDurationNs: BigInt(frame.processing.inputDurationNs),
+      inputSourceGeneration: frame.processing.inputSourceGeneration,
+      inputDiscontinuityEpoch: BigInt(frame.processing.inputDiscontinuityEpoch),
+      generation: BigInt(frame.processing.generation),
+      nominalDelaySamples: frame.processing.nominalDelaySamples,
+      paddingSamples: frame.processing.paddingSamples,
+      tailOffsetSamples: frame.processing.tailOffsetSamples,
+      isTail: frame.processing.isTail,
+    }),
     connectorId: optionalConnectorId(frame.connectorId),
     routeId: RouteId(BigInt(frame.routeId)),
     routeEnqueuedAtNs: BigInt(frame.routeEnqueuedAtNs),
@@ -244,6 +281,8 @@ export class AudioStream implements AsyncIterable<AudioFrame> {
   #activeReader = false;
   #readerMode: 'read' | 'frames' | 'batches' | undefined;
   #closed = false;
+  #exhausted = false;
+  #aborted = false;
   #pendingFrames: AudioFrame[] = [];
   #pendingBatch: AudioBatch | undefined;
 
@@ -394,6 +433,15 @@ export class AudioStream implements AsyncIterable<AudioFrame> {
     this.#closed = true;
   }
 
+  /** @internal */
+  public _abort(): void {
+    this.#closed = true;
+    this.#exhausted = true;
+    this.#aborted = true;
+    this.#pendingFrames.length = 0;
+    this.#pendingBatch = undefined;
+  }
+
   #claim(mode: 'read' | 'frames' | 'batches'): () => void {
     if (this.#readerMode !== undefined && this.#readerMode !== mode) {
       throw new StreamModeError(this.#readerMode, mode);
@@ -416,12 +464,12 @@ export class AudioStream implements AsyncIterable<AudioFrame> {
     if (pending !== undefined) {
       return pending;
     }
-    if (this.#closed) {
+    if (this.#exhausted) {
       return END_OF_STREAM;
     }
 
     const batch = await this.#waitNativeBatch(options);
-    if (batch !== undefined) {
+    if (batch !== undefined && !this.#aborted) {
       this.#pendingFrames.push(...batch);
     }
     throwIfAborted(options.signal);
@@ -429,7 +477,7 @@ export class AudioStream implements AsyncIterable<AudioFrame> {
     if (frame !== undefined) {
       return frame;
     }
-    return this.#closed ? END_OF_STREAM : undefined;
+    return this.#exhausted ? END_OF_STREAM : undefined;
   }
 
   async #readBatchOnce(
@@ -443,18 +491,18 @@ export class AudioStream implements AsyncIterable<AudioFrame> {
       this.#pendingBatch = undefined;
       return pending;
     }
-    if (this.#closed) {
+    if (this.#exhausted) {
       return END_OF_STREAM;
     }
     const batch = await this.#waitNativeBatch(options);
-    this.#pendingBatch = batch;
+    this.#pendingBatch = this.#aborted ? undefined : batch;
     throwIfAborted(options.signal);
     if (this.#pendingBatch !== undefined) {
       const ready = this.#pendingBatch;
       this.#pendingBatch = undefined;
       return ready;
     }
-    return this.#closed ? END_OF_STREAM : undefined;
+    return this.#exhausted ? END_OF_STREAM : undefined;
   }
 
   async #waitNativeBatch(
@@ -473,6 +521,7 @@ export class AudioStream implements AsyncIterable<AudioFrame> {
           ? 0
           : Math.min(ABORT_CHECK_INTERVAL_MS, remainingMs);
       const result = await nativeCall(() => this.#running.readAudio(nativeWaitMs));
+      if (this.#aborted) return undefined;
       const resolvedAtNs = this.#running.monotonicTimestampNs();
       for (const frame of result.frames) {
         frame.nativeReadResolvedAtNs = resolvedAtNs;
@@ -480,11 +529,12 @@ export class AudioStream implements AsyncIterable<AudioFrame> {
       const frames = result.frames.map(frameFromNative);
       if (result.sessionState === 'stopped' || result.sessionState === 'failed') {
         this.#closed = true;
+        this.#exhausted = frames.length === 0;
       }
       if (frames.length > 0) {
         return AudioBatch._create(frames);
       }
-      if (this.#closed) {
+      if (this.#exhausted) {
         return undefined;
       }
     }

@@ -3,6 +3,7 @@ import {
   AudioStream,
   END_OF_STREAM,
   PocketStationError,
+  RunningSession,
   Session,
   Source,
   StreamAbortError,
@@ -40,6 +41,7 @@ function nativeReader(reads: NativeAudioRead[]): NativeRunningSessionHandle {
     readAudio: async () =>
       reads.shift() ?? { frames: [], sessionState: 'stopped' },
     monotonicTimestampNs: () => '13',
+    discardAudio: () => {},
     readEvent: async () => ({ sessionState: 'stopped' }),
     stop: async () => STOP_RESULT,
     cancel: async () => STOP_RESULT,
@@ -47,6 +49,20 @@ function nativeReader(reads: NativeAudioRead[]): NativeRunningSessionHandle {
 }
 
 describe('Node audio stream', () => {
+  it.each(['cancel', 'close'] as const)('Given a stopped Session with cached audio When %s is called Then discards the remaining frames', async (operation) => {
+    let discards = 0;
+    const native = nativeReader([
+      { frames: [nativeFrame('1'), nativeFrame('2')], sessionState: 'running' },
+    ]);
+    native.discardAudio = () => { discards += 1; };
+    const running = RunningSession._create(native);
+    await expect(running.audio.read()).resolves.toMatchObject({ sequenceNumber: 1n });
+    await running.stop();
+    await running[operation]();
+    await expect(running.audio.read({ timeoutMs: 0 })).resolves.toBe(END_OF_STREAM);
+    expect(discards).toBe(1);
+  });
+
   it('Given a terminal native read When iterated Then the stream ends', async () => {
     const stream = AudioStream._create(
       nativeReader([{ frames: [], sessionState: 'stopped' }]),
@@ -383,6 +399,55 @@ describe('Node audio stream', () => {
     }
 
     expect(sequences).toEqual([1n, 2n]);
+  });
+
+  it('Given a stopped producer When several native batches remain Then drains each before EOF', async () => {
+    const stream = AudioStream._create(nativeReader([
+      { frames: [nativeFrame('1')], sessionState: 'stopped' },
+      { frames: [nativeFrame('2')], sessionState: 'stopped' },
+    ]));
+    stream._close();
+    expect(stream.closed).toBe(true);
+    await expect(stream.read()).resolves.toMatchObject({ sequenceNumber: 1n });
+    await expect(stream.read()).resolves.toMatchObject({ sequenceNumber: 2n });
+    await expect(stream.read()).resolves.toBe(END_OF_STREAM);
+  });
+
+  it('Given cancellation When a native read resolves late Then discards its frames', async () => {
+    let resolve!: (value: NativeAudioRead) => void;
+    const native = nativeReader([]);
+    native.readAudio = () => new Promise((ready) => { resolve = ready; });
+    const stream = AudioStream._create(native);
+    const reading = stream.read();
+    stream._abort();
+    resolve({ frames: [nativeFrame('1')], sessionState: 'stopped' });
+    await expect(reading).resolves.toBe(END_OF_STREAM);
+    await expect(stream.read()).resolves.toBe(END_OF_STREAM);
+  });
+
+  it('Given cached audio When cancelled Then pending frames are discarded', async () => {
+    const stream = AudioStream._create(nativeReader([
+      { frames: [nativeFrame('1'), nativeFrame('2')], sessionState: 'running' },
+    ]));
+    await stream.read();
+    stream._abort();
+    await expect(stream.read()).resolves.toBe(END_OF_STREAM);
+  });
+
+  it('Given a native read racing stop When both finish Then reading does not lose its worker reply', async () => {
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const session = new Session({ frameDurationMs: 10 });
+      const input = session.audioInput('read-stop race');
+      input.output.send(session.audio());
+      const running = await session.start();
+      input.close();
+      const [frame, stop] = await Promise.all([
+        running.audio.read({ timeoutMs: 10 }), running.stop(),
+      ]);
+      expect(frame === undefined || frame === END_OF_STREAM).toBe(true);
+      expect(stop.success).toBe(true);
+      await expect(running.audio.read({ timeoutMs: 0 })).resolves.toBe(END_OF_STREAM);
+    }
   });
 
   it('Given the real Core Session When frames are consumed Then two stems and clock lineage survive', async () => {

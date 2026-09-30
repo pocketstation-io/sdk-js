@@ -1,5 +1,62 @@
 # JavaScript SDK progress
 
+## Built-in AEC language binding preparation — 2026-09-30
+
+Status: `PARTIAL`. `Session.echoCancel()` delegates to Core's built-in processor
+using explicit `PlaybackReference` constructors. Inputs use existing Stem,
+SourceOutput and DerivedStream handles; the processed output is an ordinary
+Stem. Immutable observations preserve u64 counters and nanoseconds as bigint
+and remain available after stop. Audio frame metadata retains actual input
+provenance, processing generation, nominal delay and terminal padding. Raw
+streams and app-only capture remain independent. The SDK adds no DSP, timing
+correction, persistent PCM queue or implicit capture.
+
+Graceful stop retains Core's existing bounded receipt until its accepted frames
+are drained. Explicit close/cancel discards cached delivery and drops the native
+receipt, including late read results; the Session worker exits normally. Reads
+remain bounded to one second. Reciprocal review corrected an EOF race by
+observing producer completion before polling the final queue.
+
+Broader testing exposed an actual Endpoint lifecycle bug: requesting Drain set
+the JavaScript driver to a state that rejected accepted final deliveries. An
+immediate start/stop reproducer failed 24 of 25 attempts. The adapter now uses
+an explicit draining state until close, while Abort rejects delivery. The same
+25 attempts pass, and deterministic single/batch/idle/gate regressions preserve
+the boundary. The original failure and complete terminal diagnostics remain.
+
+Against immutable Core `51eef90916a3593b2cb9e78b0237a656c5f29de6`, separate
+production and conformance native builds pass. The final broad Jest run passes
+all 45 suites with 579 tests and one existing optional real-model test skipped.
+All 23 native Rust tests and all-target/all-feature Clippy pass. TypeScript,
+public API extraction, docs, bundled AEC notices and eight adversarial matrix
+verifier tests pass. An isolated installation of local root/native tarballs
+passes the 400-frame synthetic echo/near-end test: echo energy ratio 0.00685,
+near-end ratio 0.899, unchanged raw reference, retained observations and four
+actual post-stop tail frames with 1,920 padding samples per channel. Tests also
+cover 10/20 ms mono, anti-phase stereo, input provenance and read/stop races.
+
+The native projection targets unreleased Core source. Package versions and the
+published Core dependency pin remain unchanged. These local development-profile
+artifacts do not qualify registry installation or physical speaker cancellation.
+Normal NAPI Rust compilation succeeded, but its packaging reconciliation failed
+with sandbox process-inspection EPERM. Diagnostic assembly copies the exact
+hashed cdylib; normal NAPI packaging remains unpassed. Earlier source/build/test
+failures are preserved, including the preceding 571-test checkpoint.
+
+CI explicitly installs pinned Meson, Ninja and LLVM tools. This does not qualify
+Windows/MSVC portability: the pinned engine still assumes Unix tools/archive
+names. All six target builds and thirty Node runtime cells remain required.
+Both packed and matrix consumers use the same AEC quality and actual-tail proof;
+qualification rejects missing/nonfinite metrics, muting, pass-through or missing
+tail delivery. Full target qualification, release and physical acoustic proof
+remain pending. Terminal receipts, source snapshots and binary hashes are in
+W21-AEC-CORE-INTEGRATION/release-preparation-138/js-bindings.
+
+Staff Bar Self-Check: thin Core projection and existing lifecycle repair; public
+API changed; no new SDK dependency, unsafe code, hot-path change or live scaffold.
+Synthetic PCM and explicit test doubles are component evidence. Existing phase
+exception applies. No tag, push, publication or deployment performed.
+
 ## W21 graph execution parity — 2026-09-25
 
 - Status: `SAFE-TO-TEST`. The Node graph surface now uses the same Core-owned

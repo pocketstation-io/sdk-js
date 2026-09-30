@@ -1,4 +1,40 @@
 import { loadNativePackage } from './native-package.js';
+import type { EchoCancellationState, PlaybackReferenceCoverage } from './aec.js';
+
+export interface NativeEchoCancellationObservations {
+  state: EchoCancellationState;
+  processedMicrophoneFramesTotal: string;
+  outputFramesTotal: string;
+  tailFramesTotal: string;
+  tailPaddingSamplesTotal: string;
+  discardedTailGenerationsTotal: string;
+  nominalDelaySamples: number;
+  drainDurationMs: number;
+  discardedMicrophoneFramesTotal: string;
+  discardedReferenceFramesTotal: string;
+  resetsTotal: string;
+  processingGeneration: string;
+  microphoneQueueDepthFrames: string;
+  referenceQueueDepthFrames: string;
+  queueCapacityFrames: string;
+  latestProcessingDurationNs: string;
+  maximumProcessingDurationNs: string;
+  latestReferenceAgeNs: string;
+  latestReferenceLeadNs: string;
+  maximumCadenceErrorNs: string;
+  analyzedReferenceFramesTotal: string;
+  interruptedRequestsTotal: string;
+  referenceSourceId?: string | null;
+  microphoneSourceId?: string | null;
+  qualifiedAlgorithmicDelaySamples?: number | null;
+  lastError?: string | null;
+}
+
+export interface NativeEchoCancelledAudioHandle {
+  audio(): NativeStemHandle;
+  readonly referenceCoverage: PlaybackReferenceCoverage;
+  observations(): NativeEchoCancellationObservations;
+}
 
 export interface NativeSourceHandle {}
 
@@ -666,6 +702,21 @@ export interface NativeSignalMetrics {
   droppedTotal: string;
 }
 
+export interface NativeAudioProcessing {
+  inputSourceId: string;
+  inputStreamId: string;
+  inputSequenceNumber: string;
+  inputTimestampNs: string;
+  inputDurationNs: string;
+  inputSourceGeneration: number;
+  inputDiscontinuityEpoch: string;
+  generation: string;
+  nominalDelaySamples: number;
+  paddingSamples: number;
+  tailOffsetSamples: number;
+  isTail: boolean;
+}
+
 export interface NativeAudioFrame {
   samplesF32Le: Buffer;
   sampleCount: number;
@@ -686,6 +737,7 @@ export interface NativeAudioFrame {
   discontinuityEpoch: string;
   permissionEpoch: string;
   outputGenerationId?: string;
+  processing?: NativeAudioProcessing | null;
   endpointId: string;
   connectorId: string;
   routeId: string;
@@ -1190,6 +1242,7 @@ export interface NativeRelayPublishOutcome {
 export interface NativeRunningSessionHandle {
   readonly sessionId: string;
   readAudio(timeoutMs: number): Promise<NativeAudioRead>;
+  discardAudio(): void;
   monotonicTimestampNs(): string;
   readEvent(timeoutMs: number): Promise<NativeEventRead>;
   readSignal(
@@ -1247,6 +1300,11 @@ export interface NativeStartResultHandle {
 
 export interface NativeSessionHandle {
   readonly id: string;
+  echoCancel(
+    microphone: NativeStemHandle | NativeSourceOutputHandle | NativeDerivedStreamHandle,
+    reference: NativeStemHandle | NativeSourceOutputHandle | NativeDerivedStreamHandle,
+    coverage: PlaybackReferenceCoverage,
+  ): NativeEchoCancelledAudioHandle;
   capture(source: NativeSourceHandle): NativeStemHandle;
   audioInput(
     sampleRateHz: number,

@@ -176,6 +176,7 @@ describe('native Node Session', () => {
       sessionId: '1',
       readAudio: async () => ({ frames: [], sessionState: 'running' }),
       monotonicTimestampNs: () => '0',
+      discardAudio: () => {},
       readEvent: async () => ({ sessionState: 'running' }),
       lifecycleState: async () => 'running',
       stop: async () => {
@@ -206,6 +207,7 @@ describe('native Node Session', () => {
         sessionId: '1',
         readAudio: async () => ({ frames: [], sessionState: 'running' }),
         monotonicTimestampNs: () => '0',
+        discardAudio: () => {},
         readEvent: async () => ({ sessionState: 'running' }),
         stop: async () => ({ ...STOP_RESULT, metrics, metricsUnavailableReason }),
         cancel: async () => STOP_RESULT,

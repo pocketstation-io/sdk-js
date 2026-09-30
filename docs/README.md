@@ -14,6 +14,7 @@ so browser-safe packages do not load native code.
 ## Build a Session
 
 - [Route, process, and record media](guides/compose-a-session.md)
+- [Reduce playback echo in a microphone](guides/echo-cancellation.md)
 - [Consume Operator output](guides/signal-streams.md)
 - [Run compiled extensions and managed processes](guides/extensions-and-sidecars.md)
 - [Add JavaScript Sources, Operators, Connectors, and Endpoints](guides/provider-authoring.md)

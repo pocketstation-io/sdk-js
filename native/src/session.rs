@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
@@ -39,7 +39,7 @@ use crate::signals::{
     NativeSignalRead, SignalReceipts,
 };
 use crate::sources::{platform_name, source_kind_name, NativeSource};
-use crate::streams::{copy_audio, NativeAudioRead};
+use crate::streams::{copy_audio, copy_retained_audio, NativeAudioRead};
 
 const COMMAND_CAPACITY_COUNT: usize = 8;
 const MAXIMUM_AUDIO_WAIT_MS: u32 = 1_000;
@@ -530,6 +530,39 @@ impl NativeSession {
                     handle,
                 })
                 .map_err(|failure| error("session.invalid_source", failure.to_string()))
+        })
+    }
+
+    #[napi]
+    pub fn echo_cancel(
+        &self,
+        microphone: crate::aec::AudioInput<'_>,
+        reference: crate::aec::AudioInput<'_>,
+        coverage: String,
+    ) -> Result<crate::aec::NativeEchoCancelledAudio> {
+        let microphone = crate::aec::echo_input(microphone);
+        let reference = crate::aec::echo_input(reference);
+        let reference = match coverage.as_str() {
+            "selected-application" => {
+                pocketstation::PlaybackReference::selected_application(reference)
+            }
+            "authorized-output-mix" => pocketstation::PlaybackReference::output_mix(reference),
+            "caller-rendered-audio" => pocketstation::PlaybackReference::rendered_audio(reference),
+            _ => {
+                return Err(error(
+                    "session.invalid_operator",
+                    "unknown playback reference coverage",
+                ))
+            }
+        };
+        self.with_session(|session| {
+            session
+                .echo_cancel(microphone, reference)
+                .map(|handle| crate::aec::NativeEchoCancelledAudio {
+                    session_id: self.session_id,
+                    handle,
+                })
+                .map_err(|failure| error("session.invalid_operator", failure.to_string()))
         })
     }
 
@@ -1286,9 +1319,26 @@ struct SessionWorker {
     join: Option<JoinHandle<()>>,
 }
 
+struct AudioWorkerEnd(Arc<AtomicBool>);
+
+fn discarded_audio_read() -> NativeAudioRead {
+    NativeAudioRead {
+        frames: Vec::new(),
+        session_state: "stopped".to_owned(),
+    }
+}
+
+impl Drop for AudioWorkerEnd {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Release);
+    }
+}
+
 #[napi(js_name = "NativeRunningSession")]
 pub struct NativeRunningSession {
     worker: Mutex<Option<SessionWorker>>,
+    audio_receipt: Mutex<Option<pocketstation::PolledAudioReceipt>>,
+    audio_terminal: Arc<AtomicBool>,
     session_id: u64,
     signal_receipts: SignalReceipts,
 }
@@ -1353,6 +1403,15 @@ impl NativeRunningSession {
     }
 
     #[napi]
+    pub fn discard_audio(&self) -> Result<()> {
+        self.audio_receipt
+            .lock()
+            .map_err(|_| state_unavailable("Session audio receipt"))?
+            .take();
+        Ok(())
+    }
+
+    #[napi]
     pub async fn read_audio(&self, timeout_ms: u32) -> Result<NativeAudioRead> {
         if timeout_ms > MAXIMUM_AUDIO_WAIT_MS {
             return Err(error(
@@ -1360,20 +1419,42 @@ impl NativeRunningSession {
                 "timeoutMs must be between 0 and 1000",
             ));
         }
-        let commands = self.commands()?;
+        if self.retained_audio_receipt()?.is_none() {
+            return Ok(discarded_audio_read());
+        }
         let (response, receiver) = oneshot::channel();
-        commands
-            .try_send(SessionCommand::ReadAudio {
-                timeout: Duration::from_millis(u64::from(timeout_ms)),
-                response,
-            })
-            .map_err(command_send_error)?;
-        receiver.await.map_err(|_| {
+        // Serialize enqueue with take_worker: no read may be queued after Stop.
+        let queued = {
+            let worker = self
+                .worker
+                .lock()
+                .map_err(|_| state_unavailable("running Session"))?;
+            if let Some(worker) = worker.as_ref() {
+                worker
+                    .commands
+                    .try_send(SessionCommand::ReadAudio {
+                        timeout: Duration::from_millis(u64::from(timeout_ms)),
+                        response,
+                    })
+                    .map_err(command_send_error)?;
+                true
+            } else {
+                false
+            }
+        };
+        if !queued {
+            return self.read_retained_audio(timeout_ms).await;
+        }
+        let result = receiver.await.map_err(|_| {
             error(
                 "session.worker_stopped",
                 "native Session worker did not return audio",
             )
-        })?
+        })??;
+        if self.retained_audio_receipt()?.is_none() {
+            return Ok(discarded_audio_read());
+        }
+        Ok(result)
     }
 
     #[napi]
@@ -1576,9 +1657,15 @@ impl NativeRunningSession {
         relay: Option<RelayRuntime>,
     ) -> Result<Self> {
         let (commands, receiver) = sync_channel(COMMAND_CAPACITY_COUNT);
+        let audio_receipt = running.audio_receipt();
+        let audio_terminal = Arc::new(AtomicBool::new(false));
+        let worker_terminal = Arc::clone(&audio_terminal);
         let join = thread::Builder::new()
             .name("pocketstation-js-session".to_owned())
-            .spawn(move || session_worker(running, receiver, relay))
+            .spawn(move || {
+                let _terminal = AudioWorkerEnd(worker_terminal);
+                session_worker(running, receiver, relay);
+            })
             .map_err(|failure| {
                 error(
                     "session.worker_start_failed",
@@ -1590,9 +1677,45 @@ impl NativeRunningSession {
                 commands,
                 join: Some(join),
             })),
+            audio_receipt: Mutex::new(Some(audio_receipt)),
+            audio_terminal,
             session_id,
             signal_receipts,
         })
+    }
+
+    fn retained_audio_receipt(&self) -> Result<Option<pocketstation::PolledAudioReceipt>> {
+        self.audio_receipt
+            .lock()
+            .map_err(|_| state_unavailable("Session audio receipt"))
+            .map(|receipt| receipt.clone())
+    }
+
+    async fn read_retained_audio(&self, timeout_ms: u32) -> Result<NativeAudioRead> {
+        let Some(receipt) = self.retained_audio_receipt()? else {
+            return Ok(discarded_audio_read());
+        };
+        let deadline = Instant::now() + Duration::from_millis(u64::from(timeout_ms));
+        loop {
+            // Observe producer completion before polling. Otherwise final frames
+            // could arrive between an empty poll and a terminal load, causing EOF.
+            let terminal = self.audio_terminal.load(Ordering::Acquire);
+            let frames = copy_retained_audio(&receipt)
+                .map_err(|failure| error("stream.read_failed", failure))?;
+            if self.retained_audio_receipt()?.is_none() {
+                return Ok(discarded_audio_read());
+            }
+            if !frames.is_empty() || terminal || Instant::now() >= deadline {
+                return Ok(NativeAudioRead {
+                    frames,
+                    session_state: if terminal { "stopped" } else { "stopping" }.to_owned(),
+                });
+            }
+            futures_timer::Delay::new(
+                Duration::from_millis(1).min(deadline.saturating_duration_since(Instant::now())),
+            )
+            .await;
+        }
     }
 
     fn commands(&self) -> Result<SyncSender<SessionCommand>> {
