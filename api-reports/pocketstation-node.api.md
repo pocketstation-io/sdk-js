@@ -318,6 +318,7 @@ export interface AuthoredOperatorNode {
 export interface AuthoredSourceDriver {
     // (undocumented)
     close?(): void | Promise<void>;
+    drain?(): SourceEmission | undefined | Promise<SourceEmission | undefined>;
     // (undocumented)
     next(cancellation: SourceCancellation): SourceEmission | undefined | Promise<SourceEmission | undefined>;
     // (undocumented)
@@ -4554,6 +4555,7 @@ export class SourceDeadlines {
 export interface SourceDriver {
     // (undocumented)
     close?(): void | Promise<void>;
+    drain?(): SourceEmissionInput | undefined | Promise<SourceEmissionInput | undefined>;
     // (undocumented)
     next(context: SourceContext): SourceEmissionInput | undefined | Promise<SourceEmissionInput | undefined>;
     // (undocumented)

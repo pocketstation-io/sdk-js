@@ -119,8 +119,13 @@ export type SourceEmissionInput = SourceEmission | SourceEmissionOptions;
 export interface SourceDriver {
   prepare?(context: SourceDriverPrepareContext): void | Promise<void>;
   next(context: SourceContext): SourceEmissionInput | undefined | Promise<SourceEmissionInput | undefined>;
+  /** Return already accepted work during graceful stop; never acquire new input. */
+  drain?(): SourceEmissionInput | undefined | Promise<SourceEmissionInput | undefined>;
   close?(): void | Promise<void>;
 }
+
+/** @internal Core bounds the complete Source drain to one second. */
+export const SOURCE_DRAIN_DEADLINE_MS = 1_000;
 
 /** Defines one reusable Source implementation. */
 export interface SourceFactoryOptions {
@@ -152,6 +157,8 @@ interface ActiveSource {
   driver?: SourceDriver;
   closeRequested: boolean;
   closePromise?: Promise<void>;
+  pending?: Promise<void>;
+  interrupted?: boolean;
 }
 
 /** Reusable registration produced by `defineSource()`. */
@@ -216,7 +223,10 @@ export class SourceFactory {
   /** @internal */
   public _abort(reason?: unknown): void {
     for (const active of this.#instances.values()) {
-      if (!active.controller.signal.aborted) active.controller.abort(reason);
+      if (!active.controller.signal.aborted) {
+        active.interrupted = reason === undefined;
+        active.controller.abort(reason);
+      }
     }
   }
 
@@ -269,13 +279,42 @@ export class SourceFactory {
       case 'source.next': {
         const active = this.#active(request);
         if (request.cancelled === true && !active.controller.signal.aborted) {
+          active.interrupted = true;
           active.controller.abort();
         }
         try {
-          const emission = await requiredValue(active.driver, 'Source driver').next({
-            signal: active.controller.signal,
-          });
+          const emission = await this.#invokeSource(active, async () =>
+            await requiredValue(active.driver, 'Source driver').next({
+              signal: active.controller.signal,
+            }));
           if (active.closeRequested) await this.#closeSourceForRequest(request, active);
+          return emission === undefined ? {} : { emission: emissionToNative(emission, this.outputs) };
+        } catch (error) {
+          if (active.interrupted === true && error === active.controller.signal.reason) return {};
+          if (!active.controller.signal.aborted) active.controller.abort(error);
+          throw error;
+        }
+      }
+      case 'source.interrupt': {
+        const active = this.#instances.get(required(request.instanceId, 'instanceId'));
+        if (active !== undefined && !active.controller.signal.aborted) {
+          active.interrupted = true;
+          active.controller.abort();
+        }
+        return {};
+      }
+      case 'source.drain': {
+        const active = this.#active(request);
+        try {
+          const emission = await boundedProviderCleanup(
+            this.#invokeSource(active, async () => await requiredValue(active.driver, 'Source driver').drain?.()),
+            Math.min(this.deadlineMs, SOURCE_DRAIN_DEADLINE_MS),
+            'Source drain',
+          );
+          if (active.closeRequested) {
+            await this.#closeSourceForRequest(request, active);
+            return {};
+          }
           return emission === undefined ? {} : { emission: emissionToNative(emission, this.outputs) };
         } catch (error) {
           if (!active.controller.signal.aborted) active.controller.abort(error);
@@ -299,6 +338,18 @@ export class SourceFactory {
     const active = this.#instances.get(instanceId);
     if (active === undefined) throw new Error('Source instance is no longer active');
     return active;
+  }
+
+  async #invokeSource<T>(active: ActiveSource, operation: () => T | Promise<T>): Promise<T> {
+    if (active.pending !== undefined) throw new Error('Source operation is still pending');
+    const pending = Promise.resolve().then(operation);
+    const settled = pending.then(() => undefined, () => undefined);
+    active.pending = settled;
+    try {
+      return await pending;
+    } finally {
+      if (active.pending === settled) active.pending = undefined;
+    }
   }
 
   #sourceDeadlineExceeded(request: NativeProviderCall): void {
@@ -331,7 +382,10 @@ export class SourceFactory {
     const driver = active.driver;
     if (driver === undefined) return;
     active.closePromise ??= boundedProviderCleanup(
-      Promise.resolve().then(async () => await driver.close?.()),
+      Promise.resolve().then(async () => {
+        await active.pending;
+        await driver.close?.();
+      }),
       this.deadlineMs,
       'Source close',
     ).finally(() => {
@@ -1414,14 +1468,14 @@ function requiredValue<T>(value: T | null | undefined, name: string): T {
   return value;
 }
 
-async function boundedProviderCleanup(
-  operation: Promise<void>,
+async function boundedProviderCleanup<T>(
+  operation: Promise<T>,
   milliseconds: number,
   label: string,
-): Promise<void> {
+): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    await Promise.race([
+    return await Promise.race([
       operation,
       new Promise<never>((_resolve, reject) => {
         timer = setTimeout(

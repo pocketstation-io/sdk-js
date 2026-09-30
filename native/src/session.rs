@@ -34,9 +34,9 @@ use crate::sidecar::{
     NativeSidecarProcessSpec, NativeSidecarRead, NativeSidecarSnapshot, MAXIMUM_WAIT_MS,
 };
 use crate::signals::{
-    close_signal, copy_signal_metrics, new_signal_receipts, read_signal, subscribe_derived,
-    subscribe_source_output, validate_subscription, NativeBusSubscription, NativeSignalMetrics,
-    NativeSignalRead, SignalReceipts,
+    close_signal, close_signals, copy_signal_metrics, new_signal_receipts, read_signal,
+    subscribe_derived, subscribe_source_output, validate_subscription, NativeBusSubscription,
+    NativeSignalMetrics, NativeSignalRead, SignalReceipts,
 };
 use crate::sources::{platform_name, source_kind_name, NativeSource};
 use crate::streams::{copy_audio, copy_retained_audio, NativeAudioRead};
@@ -1412,6 +1412,11 @@ impl NativeRunningSession {
     }
 
     #[napi]
+    pub fn discard_signals(&self) -> Result<()> {
+        close_signals(&self.signal_receipts)
+    }
+
+    #[napi]
     pub async fn read_audio(&self, timeout_ms: u32) -> Result<NativeAudioRead> {
         if timeout_ms > MAXIMUM_AUDIO_WAIT_MS {
             return Err(error(
@@ -1645,6 +1650,7 @@ impl NativeRunningSession {
 
     #[napi]
     pub async fn cancel(&self) -> Result<NativeStopResult> {
+        self.discard_signals()?;
         self.finish(FinishDisposition::Cancel).await
     }
 }

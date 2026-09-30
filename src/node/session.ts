@@ -993,6 +993,7 @@ export class RunningSession implements AsyncDisposable {
   #finish: Promise<StopResult> | undefined;
   #stopResult: StopResult | undefined;
   readonly #signalStreams = new Map<bigint, SignalStream>();
+  #signalsDiscarded = false;
   readonly #sidecars = new Map<bigint, SidecarConnection>();
   readonly #providers: readonly { _abort(reason?: unknown): void }[];
 
@@ -1077,6 +1078,7 @@ export class RunningSession implements AsyncDisposable {
     if (stream === undefined) {
       stream = SignalStream._create(this.#native, subscription);
       this.#signalStreams.set(subscription.id, stream);
+      if (this.#signalsDiscarded) stream.close();
     }
     return stream;
   }
@@ -1154,15 +1156,29 @@ export class RunningSession implements AsyncDisposable {
   public cancel(): Promise<StopResult> {
     this.audio._abort();
     nativeCallSync(() => this.#native.discardAudio());
+    this.#discardSignals();
     for (const provider of this.#providers) provider._abort();
     return this.#finishSession('cancel');
   }
 
-  /** Stop the Session and discard unread audio. Use stop() to retain it. */
+  /** Stop the Session and discard unread audio and signals. Use stop() to retain them. */
   public async close(): Promise<void> {
-    await this.stop();
-    this.audio._abort();
-    nativeCallSync(() => this.#native.discardAudio());
+    try {
+      await this.stop();
+    } finally {
+      this.audio._abort();
+      try {
+        this.#discardSignals();
+      } finally {
+        nativeCallSync(() => this.#native.discardAudio());
+      }
+    }
+  }
+
+  #discardSignals(): void {
+    this.#signalsDiscarded = true;
+    for (const stream of this.#signalStreams.values()) stream.close();
+    nativeCallSync(() => this.#native.discardSignals());
   }
 
   /** Stop the Session when used with `await using`. */

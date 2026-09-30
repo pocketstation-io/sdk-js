@@ -1,6 +1,7 @@
 import {
   MediaCaps,
   PortSpec,
+  RouteSettings,
   Session,
   SignalSpec,
   SourceCancellation,
@@ -8,12 +9,188 @@ import {
   SourceEmission,
   SourceManifest,
   SourceProvider,
+  defineEndpoint,
+  defineSource,
   source,
   type AuthoredSourceDriver,
+  type EndpointItem,
   type SourcePrepareContext,
 } from '../node/index.js';
 
 describe('advanced Source authoring', () => {
+  it.each(['concise', 'authored'] as const)(
+    'waits for actual %s next cleanup and preserves its accepted result after interruption',
+    async (surface) => {
+      const entered = deferred<void>();
+      const cleanupStarted = deferred<void>();
+      const cleanup = deferred<void>();
+      const signal = SignalSpec.text();
+      let nextSettled = false;
+      let closed = 0;
+      let cleanupDone = false;
+      const driver: AuthoredSourceDriver = {
+        next: async (cancellation) => {
+          entered.resolve();
+          try {
+            await waitForAbort(cancellation.signal);
+            return SourceEmission.text('events', 'already accepted', { signal });
+          } finally {
+            cleanupStarted.resolve();
+            await cleanup.promise;
+            cleanupDone = true;
+          }
+        },
+        drain: () => { expect(cleanupDone).toBe(true); return undefined; },
+        close: () => { expect(cleanupDone).toBe(true); closed += 1; },
+      };
+      const dispatch = sourceDispatch(surface, driver, signal);
+      const instanceId = 'interruption-order';
+      await dispatch({ operation: 'source.create', instanceId });
+      const next = dispatch({ operation: 'source.next', instanceId }).finally(() => { nextSettled = true; });
+      try {
+        await entered.promise;
+        await dispatch({ operation: 'source.interrupt', instanceId });
+        await cleanupStarted.promise;
+        expect(nextSettled).toBe(false);
+        cleanup.resolve();
+        await expect(next).resolves.toMatchObject({ emission: { text: 'already accepted' } });
+        await expect(dispatch({ operation: 'source.drain', instanceId })).resolves.toEqual({});
+      } finally {
+        cleanup.resolve();
+        await next;
+        await dispatch({ operation: 'source.close', instanceId });
+      }
+      expect(closed).toBe(1);
+    },
+  );
+
+  it.each([
+    ['concise', 'requested'], ['authored', 'requested'],
+    ['concise', 'independent'], ['authored', 'independent'],
+  ] as const)('keeps %s %s next cancellation distinct', async (surface, reason) => {
+    const entered = deferred<void>();
+    const signal = SignalSpec.text();
+    const independent = new Error('provider cleanup failed independently');
+    let closed = 0;
+    const dispatch = sourceDispatch(surface, {
+      next: async (cancellation) => {
+        entered.resolve();
+        await waitForAbort(cancellation.signal);
+        throw reason === 'requested' ? cancellation.signal.reason : independent;
+      },
+      close: () => { closed += 1; },
+    }, signal);
+    const instanceId = 'interruption-error';
+    await dispatch({ operation: 'source.create', instanceId });
+    const next = dispatch({ operation: 'source.next', instanceId });
+    await entered.promise;
+    await dispatch({ operation: 'source.interrupt', instanceId });
+    if (reason === 'requested') await expect(next).resolves.toEqual({});
+    else await expect(next).rejects.toBe(independent);
+    await dispatch({ operation: 'source.close', instanceId });
+    expect(closed).toBe(1);
+  });
+
+  it('keeps timed-out authored input cleanup ahead of drain and close', async () => {
+    const entered = deferred<void>();
+    const release = deferred<void>();
+    let finished = false;
+    let closes = 0;
+    const signal = SignalSpec.text();
+    const provider = SourceProvider.withDriver(new SourceManifest({
+      sourceTypeId: 'org.example.source.pending-timeout.v1',
+      outputs: [PortSpec.output('events', signal)],
+    }), () => ({
+      next: async () => {
+        entered.resolve();
+        await release.promise;
+        finished = true;
+        return undefined;
+      },
+      drain: () => { throw new Error('drain must not overlap next'); },
+      close: () => { expect(finished).toBe(true); closes += 1; },
+    }), { deadlines: new SourceDeadlines({ nextMs: 10, closeMs: 20 }) });
+    const dispatch = provider._factory()._dispatch;
+    const instanceId = 'pending-timeout';
+    await dispatch({ operation: 'source.create', instanceId });
+    const next = dispatch({ operation: 'source.next', instanceId });
+    await entered.promise;
+    await expect(next).rejects.toThrow('next exceeded 10 milliseconds');
+    try {
+      await expect(dispatch({ operation: 'source.drain', instanceId }))
+        .rejects.toThrow('Source input cleanup is still pending');
+      await expect(dispatch({ operation: 'source.close', instanceId }))
+        .rejects.toThrow('close exceeded 20 milliseconds');
+      expect(closes).toBe(0);
+    } finally {
+      release.resolve();
+      await waitFor(() => closes === 1);
+    }
+  });
+
+  it('does not advance an iterable to manufacture work during drain', async () => {
+    let advances = 0;
+    const signal = SignalSpec.text();
+    const provider = SourceProvider.fromIterable(new SourceManifest({
+      sourceTypeId: 'org.example.source.iterable-drain.v1',
+      outputs: [PortSpec.output('events', signal)],
+    }), function* () {
+      advances += 1;
+      yield SourceEmission.text('events', 'not yet accepted', { signal });
+    });
+    const dispatch = provider._factory()._dispatch;
+    const instanceId = 'iterable-drain';
+    await dispatch({ operation: 'source.create', instanceId });
+    await expect(dispatch({ operation: 'source.drain', instanceId })).resolves.toEqual({});
+    await dispatch({ operation: 'source.close', instanceId });
+    expect(advances).toBe(0);
+  });
+
+  it.each(['concise', 'authored'] as const)(
+    'drains previously accepted %s Source output through Core before closing',
+    async (surface) => {
+      const proof = await bufferedSourceProof(surface, 'stop');
+      expect(proof.stopped.success).toBe(true);
+      expect(proof.received.filter((item) => item.kind === 'signal'
+        && item.signal.payload.kind === 'text'
+        && item.signal.payload.text.startsWith('accepted-')))
+        .toHaveLength(3);
+      const signals = proof.received.flatMap((item) => item.kind === 'signal' ? [item.signal] : []);
+      expect(signals.slice(-3).map((value) => value.payload)).toEqual([
+        { kind: 'text', text: 'accepted-1' },
+        { kind: 'text', text: 'accepted-2' },
+        { kind: 'text', text: 'accepted-3' },
+      ]);
+      expect(signals.every((value) => value.lineage?.sourceId === proof.sourceId)).toBe(true);
+      expect(signals.map((value) => value.lineage?.sequenceNumber))
+        .toEqual(signals.map((_, index) => BigInt(index)));
+      expect(proof.lifecycle.slice(-5)).toEqual(['drain', 'drain', 'drain', 'drain', 'close']);
+      expect(proof.lifecycle.filter((value) => value === 'close')).toHaveLength(1);
+    },
+  );
+
+  it.each(['concise', 'authored'] as const)(
+    'skips %s Source drain on cancellation and still closes exactly once',
+    async (surface) => {
+      const proof = await bufferedSourceProof(surface, 'cancel');
+      expect(proof.lifecycle).not.toContain('drain');
+      expect(proof.lifecycle.filter((value) => value === 'close')).toHaveLength(1);
+      expect(proof.received.some((item) => item.kind === 'signal'
+        && item.signal.payload.kind === 'text'
+        && item.signal.payload.text.startsWith('accepted-'))).toBe(false);
+    },
+  );
+
+  it.each(['concise', 'authored'] as const)(
+    'reports a %s Source drain failure through Core and closes exactly once',
+    async (surface) => {
+      const proof = await bufferedSourceProof(surface, 'stop', true);
+      expect(proof.stopped.success).toBe(false);
+      expect(proof.stopped.metrics?.externalSources[0]?.failureTotal).toBe(1n);
+      expect(proof.lifecycle.filter((value) => value === 'close')).toHaveLength(1);
+    },
+  );
+
   it('runs the async iterable helper through Core with exact timing and lineage', async () => {
     const signal = SignalSpec.text('utf8', { role: 'transcript' });
     const manifest = new SourceManifest({
@@ -328,6 +505,82 @@ describe('advanced Source authoring', () => {
     expect(closed).toBe(1);
   });
 });
+
+function sourceDispatch(surface: 'concise' | 'authored', driver: AuthoredSourceDriver, signal: SignalSpec) {
+  const id = `org.example.source.interrupt-${surface}.v1`;
+  const outputs = [PortSpec.output('events', signal)];
+  return (surface === 'concise'
+    ? defineSource({ id, outputs, create: () => driver })
+    : SourceProvider.withDriver(new SourceManifest({ sourceTypeId: id, outputs }), () => driver)._factory())
+    ._dispatch;
+}
+
+function deferred<T>() {
+  let resolve: (value: T | PromiseLike<T>) => void = () => undefined;
+  const promise = new Promise<T>((complete) => { resolve = complete; });
+  return { promise, resolve };
+}
+
+async function bufferedSourceProof(
+  surface: 'concise' | 'authored',
+  operation: 'stop' | 'cancel',
+  failDrain = false,
+) {
+  const signal = SignalSpec.text('utf8', { role: 'buffered-source-test' });
+  const lifecycle: string[] = [];
+  const received: EndpointItem[] = [];
+  // These are accepted before Session start, not produced by the drain hook.
+  const accepted = ['accepted-1', 'accepted-2', 'accepted-3'];
+  let notifyReady: () => void = () => undefined;
+  const ready = new Promise<void>((resolve) => { notifyReady = resolve; });
+  let announced = false;
+  const driver: AuthoredSourceDriver = {
+    next: async (cancellation) => {
+      if (!announced) {
+        announced = true;
+        return SourceEmission.text('events', 'active', { signal });
+      }
+      await waitForAbort(cancellation.signal);
+      return undefined;
+    },
+    drain: () => {
+      lifecycle.push('drain');
+      if (failDrain) throw new Error('accepted Source buffer could not drain');
+      const text = accepted.shift();
+      return text === undefined ? undefined : SourceEmission.text('events', text, { signal });
+    },
+    close: () => { lifecycle.push('close'); accepted.length = 0; },
+  };
+  const id = `org.example.source.buffered-${surface}.v1`;
+  const outputs = [PortSpec.output('events', signal)];
+  const feed = surface === 'concise'
+    ? defineSource({ id, outputs, create: () => driver })
+    : SourceProvider.withDriver(new SourceManifest({ sourceTypeId: id, outputs }), () => driver);
+  const session = new Session();
+  const instance = session.source(feed);
+  instance.output('events').send(session.endpoint(defineEndpoint({
+    id: `org.example.endpoint.buffered-${surface}.v1`,
+    inputs: [PortSpec.input('events', signal)],
+    create: () => ({
+      receive: (item) => { received.push(item); notifyReady(); },
+    }),
+  })), { input: 'events', route: RouteSettings.buffered() });
+  const running = await session.start();
+  try {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([ready, new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error('Source did not reach its Endpoint')), 1_000);
+      })]);
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
+    const stopped = await running[operation]();
+    return { stopped, lifecycle, received, sourceId: instance.sourceId };
+  } finally {
+    await running.close();
+  }
+}
 
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));

@@ -30,6 +30,24 @@ const STOP_RESULT: NativeStopResult = {
 };
 
 describe('native Node Session', () => {
+  it('discards retained data even when explicit close cannot stop the native Session', async () => {
+    const failure = new Error('native stop failed');
+    let audioDiscards = 0;
+    let signalDiscards = 0;
+    const native = {
+      sessionId: '1',
+      monotonicTimestampNs: () => '0',
+      stop: async () => { throw failure; },
+      discardAudio: () => { audioDiscards += 1; },
+      discardSignals: () => { signalDiscards += 1; },
+    } as NativeRunningSessionHandle;
+    const running = RunningSession._create(native);
+    await expect(running.close()).rejects.toThrow('native stop failed');
+    expect(audioDiscards).toBe(1);
+    expect(signalDiscards).toBe(1);
+    expect(running.audio.closed).toBe(true);
+  });
+
   it('Given a selected application When composed Then Core assigns exact identities', () => {
     const session = new Session({ frameDurationMs: 10 });
     const application = session.capture(
@@ -177,6 +195,7 @@ describe('native Node Session', () => {
       readAudio: async () => ({ frames: [], sessionState: 'running' }),
       monotonicTimestampNs: () => '0',
       discardAudio: () => {},
+      discardSignals: () => {},
       readEvent: async () => ({ sessionState: 'running' }),
       lifecycleState: async () => 'running',
       stop: async () => {
@@ -208,6 +227,7 @@ describe('native Node Session', () => {
         readAudio: async () => ({ frames: [], sessionState: 'running' }),
         monotonicTimestampNs: () => '0',
         discardAudio: () => {},
+        discardSignals: () => {},
         readEvent: async () => ({ sessionState: 'running' }),
         stop: async () => ({ ...STOP_RESULT, metrics, metricsUnavailableReason }),
         cancel: async () => STOP_RESULT,

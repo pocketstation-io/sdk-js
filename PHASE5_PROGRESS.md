@@ -1,5 +1,73 @@
 # JavaScript SDK progress
 
+## Graceful custom Source drain projection — 2026-09-30
+
+Status: `PARTIAL`; local macOS binding qualification passes, while Core pressure
+semantics and physical/release qualification remain open.
+Both concise `SourceDriver` and authored `AuthoredSourceDriver` optionally expose
+Core's graceful `drain()` hook. It returns previously accepted emissions through
+the existing native validation, lineage and fan-out path. Missing hooks return
+no output; iterable helpers do not fetch new values during stop. Cancellation
+skips draining and existing exact-close cleanup remains responsible for resource
+release. No new cancellation callback or deadline configuration is introduced.
+
+The native bridge uses one bounded dispatch/Promise wait capped at one second.
+The authored adapter reuses the close deadline with the same cap; Core owns the
+cumulative drain budget. A synchronous JavaScript callback blocking its event
+loop cannot be forcibly interrupted, and this limitation is documented.
+
+A real pending-input regression on the prior native artifact exposed a missing
+interruption notification: graceful stop timed out waiting for `next()`. The
+bridge now wakes the existing AbortSignal only after Core requests interruption,
+then waits for the actual Promise and its cleanup. Already accepted results
+survive; unrelated provider failures remain errors. Authored callback deadlines
+retain a completion barrier so timed-out input cleanup cannot overlap drain or
+close. No additional worker or persistent queue is introduced.
+
+Signal EOF now performs an Acquire-fenced final dequeue after one observed
+producer abandonment. Stop preserves accepted signals; explicit Session close
+or cancellation discards native receipts, cached and in-flight values, including
+subscriptions opened after termination or cancellation after an earlier stop.
+Explicit close also discards when stop fails. Individual read abortion still
+retains accepted values until the stream is explicitly closed.
+
+TypeScript, API extraction, docs, notices and seventeen selected adapter/read
+barrier regressions pass. All 23 native Rust tests and strict all-target,
+all-feature Clippy pass against frozen Core
+`5559610c82e1e2c7b23bc7f9bc2471fb91494ef1`. The normal host NAPI production build
+and package staging pass. All 46 production-native Source, signal and AEC tests
+pass, including the previously failing pending-next stop. Isolated root/native
+tarball installation passes the 400-frame proof with echo power ratio 0.006853,
+near-end ratio 0.899031, unchanged raw input and four actually consumed terminal
+frames (1,920 padding samples). Normal package assembly also passes.
+
+Normal host NAPI production and fixture packaging both pass. Final full Jest
+passes all 45 suites with 606 tests and one existing optional real-model skip.
+The first full run exposed two stale test doubles and a Source-drain fixture
+that saturated the route with unrestricted heartbeat emissions. The drain
+fixture now emits one readiness value and waits for cancellation; exact
+contiguous sequence and all three accepted drain-value assertions remain.
+CLI and performance-statistics checks also pass. Eight adversarial native-matrix
+verifier tests pass without claiming the unrun target matrix.
+
+The original sequence gap prompted a separate bounded diagnostic. On frozen
+Core `5559610`, twenty normal signals sent to a `MustDeliverOrFail` route produce
+nine deliveries and eleven explicitly counted drops, but no Source failure and
+a successful stop. Core's typed fan-out applies its required-delivery failure
+check only to terminal emissions. This is an open Core policy defect; the
+passing SDK drain tests do not resolve it or qualify release. The execution
+owner has the counter report and owning source locations.
+
+Earlier sandbox build failures, aborted approval attempts, the initial npm
+cache failure and the first full-suite failure remain preserved. The former
+installed-package symlink was moved without modifying its historical target;
+normal staging now uses its own local package directory. Package versions and
+the published Core dependency pin remain unchanged. These are local package
+and component proofs, not registry publication, physical AEC qualification or
+cross-platform acceptance.
+Scaffold inventory: no new live scaffold; test doubles are confined to tests.
+This checkpoint changes no dependency/version, tag, push or publication.
+
 ## Built-in AEC language binding preparation — 2026-09-30
 
 Status: `PARTIAL`. `Session.echoCancel()` delegates to Core's built-in processor
