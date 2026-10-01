@@ -5,6 +5,7 @@ export interface NativeEchoCancellationObservations {
   state: EchoCancellationState;
   processedMicrophoneFramesTotal: string;
   outputFramesTotal: string;
+  discardedOutputFramesTotal: string;
   tailFramesTotal: string;
   tailPaddingSamplesTotal: string;
   discardedTailGenerationsTotal: string;
@@ -544,6 +545,7 @@ export interface NativeDeliveryPolicyHandle {
   readonly observability: string;
   readonly maxPayloadBytes?: number | null;
   withBackpressure(value: string): NativeDeliveryPolicyHandle;
+  withLoss(value: string): NativeDeliveryPolicyHandle;
   withCopyPolicy(value: string): NativeDeliveryPolicyHandle;
   withJitterBudgetMs(value?: number): NativeDeliveryPolicyHandle;
   withMaxPayloadBytes(value: number): NativeDeliveryPolicyHandle;
@@ -1353,6 +1355,7 @@ export interface NativeSessionHandle {
     terminalRoles: string[],
     dispatch: (request: NativeProviderCall) => Promise<NativeProviderResult>,
     deadlineMs?: number,
+    inputDelivery?: NativeDeliveryPolicyHandle,
   ): void;
   registerEndpoint(
     operatorId: string,

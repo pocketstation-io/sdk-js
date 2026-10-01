@@ -54,16 +54,20 @@ same clock; mapping independently clocked capture devices is not yet qualified.
 Inspect `lastError`, discarded-frame counters, resets and processing generation when a
 reference becomes unavailable or changes. Failed processing does not silently
 substitute raw microphone audio. The `qualifiedAlgorithmicDelaySamples` field
-is absent while processor delay remains unqualified; processing CPU time is not
-an audio-alignment offset.
+is absent while processor delay remains unqualified. `latestProcessingDurationNs`
+and `maximumProcessingDurationNs` measure complete native command wall time,
+including queue wait, resets, reference analysis and capture processing. They
+are not algorithmic audio delay or audio-alignment offsets.
 
 Processed `AudioFrame.processing` metadata retains the actual microphone input
 identity, sequence and timestamp, processing generation, nominal delay and
 terminal padding. Raw frames omit this metadata. `isTail` identifies internal
 zero-input draining; it does not mean more microphone audio was captured. The
 snapshot separately counts microphone inputs, total outputs, tail frames and
-padding samples. Core's nominal 432-sample delay and bounded 40 ms graceful-stop
-drain are explicit policies; the qualified delay remains unknown. Tail output
+padding samples. `discardedOutputFramesTotal` counts computed frames whose
+waiting request ended before the result could be delivered. Core's nominal
+432-sample delay and bounded 40 ms graceful-stop drain are explicit policies;
+the qualified delay remains unknown. Tail output
 is included in Core recording finalization. Post-stop polled tails remain
 readable through `running.audio` until its finite buffer reaches
 `END_OF_STREAM`. `stop()` completes producers and finalizes recording; it does

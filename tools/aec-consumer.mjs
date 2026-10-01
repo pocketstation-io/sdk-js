@@ -90,6 +90,7 @@ export async function exerciseEchoCancellation(Session, PlaybackReference) {
   assert.equal(observations.processedMicrophoneFramesTotal, 400n);
   assert.equal(observations.analyzedReferenceFramesTotal, 400n);
   assert.equal(observations.outputFramesTotal, 404n);
+  assert.equal(observations.discardedOutputFramesTotal, 0n);
   assert.equal(observations.tailFramesTotal, 4n);
   assert.equal(observations.tailPaddingSamplesTotal, 1920n);
   assert.equal(observations.microphoneSourceId, microphone.sourceId);
@@ -104,6 +105,7 @@ export async function exerciseEchoCancellation(Session, PlaybackReference) {
     `installed AEC muted or amplified the near-end signal: ${voicePowerRatio}`);
   return {
     processedFramesTotal: Number(observations.processedMicrophoneFramesTotal),
+    discardedOutputFramesTotal: Number(observations.discardedOutputFramesTotal),
     echoPowerRatio,
     voicePowerRatio,
     rawStemUnchanged: true,

@@ -2,6 +2,8 @@ import {
   END_OF_STREAM,
   EndOfStream,
   Operator,
+  PortSpec,
+  RouteSettings,
   Session,
   SignalSpec,
   SignalStream,
@@ -9,6 +11,7 @@ import {
   STREAM_EOF,
   StreamAbortError,
   StreamError,
+  defineSource,
 } from '../node/index.js';
 import { _envelopeFromNative } from '../node/signals.js';
 import type {
@@ -21,6 +24,44 @@ const TEST_SUBSCRIPTION = {
 } as Parameters<typeof SignalStream._create>[1];
 
 describe('typed signal streams', () => {
+  it('keeps a required sibling route live for values produced after explicit close', async () => {
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let sent = false;
+    const signal = SignalSpec.text();
+    const session = new Session();
+    const output = session.source(defineSource({
+      id: 'org.example.source.subscription-revocation.v1',
+      outputs: [PortSpec.output('text', signal)],
+      create: () => ({ next: async () => {
+        if (sent) return undefined;
+        await gate;
+        sent = true;
+        return { output: 'text', data: 'after-close' };
+      } }),
+    })).output('text');
+    const first = session.subscribe(output, { signal, route: RouteSettings.buffered() });
+    const second = session.subscribe(output, { signal, route: RouteSettings.buffered() });
+    const running = await session.start();
+    const firstStream = running.signals(first);
+    const secondStream = running.signals(second);
+    try {
+      firstStream.close();
+      release();
+      expect(await secondStream.read({ timeoutMs: 1_000 }))
+        .toMatchObject({ payload: { text: 'after-close' } });
+      expect(await firstStream.poll()).toBe(END_OF_STREAM);
+      const stopped = await running.stop();
+      expect(stopped.success).toBe(true);
+      expect(stopped.metrics?.externalSources[0]?.failureTotal).toBe(0n);
+      expect(stopped.metrics?.derivedRoutes.find((route) => route.routeId === first.routeId)?.output)
+        .toMatchObject({ depthSignals: 0n, enqueuedTotal: 0n, droppedTotal: 1n });
+    } finally {
+      release();
+      await running.close();
+    }
+  });
+
   it.each(['pending', 'cached'] as const)('discards a %s native value on explicit close', async (stage) => {
     let release: () => void = () => undefined;
     const wait = new Promise<void>((resolve) => { release = resolve; });

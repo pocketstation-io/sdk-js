@@ -477,6 +477,19 @@ impl NativeDeliveryPolicy {
     }
 
     #[napi]
+    pub fn with_loss(&self, value: String) -> Result<Self> {
+        let value = match value.as_str() {
+            "conceal-for-audio" => LossPolicy::ConcealForAudio,
+            "must-deliver-or-fail" => LossPolicy::MustDeliverOrFail,
+            "drop-allowed" => LossPolicy::DropAllowed,
+            _ => return Err(invalid(format!("unsupported loss policy {value:?}"))),
+        };
+        Ok(Self {
+            value: self.value.with_loss(value),
+        })
+    }
+
+    #[napi]
     pub fn with_copy_policy(&self, value: String) -> Result<Self> {
         let value = match value.as_str() {
             "move" => CopyPolicy::MoveExclusive,

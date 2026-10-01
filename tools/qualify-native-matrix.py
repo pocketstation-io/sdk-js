@@ -163,6 +163,7 @@ def validate_consumer(result, row, node_cell, root, native):
     aec = result['aec']
     assert isinstance(aec, dict)
     assert type(aec['processedFramesTotal']) is int and aec['processedFramesTotal'] == 400
+    assert type(aec['discardedOutputFramesTotal']) is int and aec['discardedOutputFramesTotal'] == 0
     assert aec['rawStemUnchanged'] is True and aec['observationsRetained'] is True
     assert aec['terminalState'] == 'stopped'
     assert type(aec['tailFrames']) is int and aec['tailFrames'] == 4

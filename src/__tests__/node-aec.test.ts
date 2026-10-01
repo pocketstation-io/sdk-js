@@ -28,6 +28,7 @@ describe('built-in Session echo cancellation', () => {
       expect(processed.observations()).toMatchObject({
         state: 'waiting-for-reference',
         processedMicrophoneFramesTotal: 0n,
+        discardedOutputFramesTotal: 0n,
         tailFramesTotal: 0n,
         nominalDelaySamples: 432,
         drainDurationMs: 40,
@@ -163,6 +164,7 @@ describe('built-in Session echo cancellation', () => {
       expect(processed.observations()).toMatchObject({
         state: 'stopped',
         processedMicrophoneFramesTotal: 400n,
+        discardedOutputFramesTotal: 0n,
         outputFramesTotal: 400n + BigInt(40 / frameDurationMs),
         tailFramesTotal: BigInt(40 / frameDurationMs),
         tailPaddingSamplesTotal: 1_920n,

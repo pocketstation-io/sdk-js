@@ -335,6 +335,25 @@ deadline, network/filesystem permission declarations, drain/discard policy,
 failure continuation, and terminal output roles. None of these values is
 silently widened by the JavaScript binding.
 
+`OperatorManifest` and `defineOperator()` also accept an optional `inputDelivery`
+using the existing `DeliveryPolicy`. Omission preserves the normal media-specific
+defaults. Bounded asynchronous signals require delivery or visible failure. A
+consumer that deliberately tolerates loss can provide the complete input policy:
+
+```ts
+const inputDelivery = DeliveryPolicy.boundedAsync()
+  .withBackpressure(BackpressurePolicy.DROP_NEWEST)
+  .withCopyPolicy(CopyPolicy.COPY_TO_BRANCH_POOL)
+  .withLoss(LossPolicy.DROP_ALLOWED);
+```
+
+The asynchronous Operator bridge requires `DROP_NEWEST` backpressure. Providing
+`inputDelivery` replaces the entire input policy; it does not merge defaults.
+This applies only to that Operator's input; output delivery guarantees remain unchanged.
+The Whisper demonstration permits loss for complete inference windows when its
+configured queue fills, while preserving the original recording and transcript
+delivery contracts. Inspect the route's drop counters and discontinuities.
+
 ```ts
 import {
   OperatorEmission,

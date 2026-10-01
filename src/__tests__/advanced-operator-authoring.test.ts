@@ -2,6 +2,10 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  BackpressurePolicy,
+  CopyPolicy,
+  DeliveryPolicy,
+  LossPolicy,
   MediaCaps,
   OperatorDeadlines,
   OperatorEmission,
@@ -11,6 +15,7 @@ import {
   Session,
   SignalSpec,
   defineSource,
+  defineOperator,
   operator,
   secret,
   type AuthoredOperatorNode,
@@ -19,6 +24,69 @@ import {
 } from '../node/index.js';
 
 describe('advanced Operator authoring', () => {
+  it.each(['concise', 'authored'] as const)(
+    'honors explicit %s Operator input loss while preserving accepted values', async (surface) => {
+      const signal = SignalSpec.text();
+      const inputDelivery = DeliveryPolicy.boundedAsync()
+        .withBackpressure(BackpressurePolicy.DROP_NEWEST)
+        .withCopyPolicy(CopyPolicy.COPY_TO_BRANCH_POOL)
+        .withLoss(LossPolicy.DROP_ALLOWED);
+      let release: () => void = () => undefined;
+      const gate = new Promise<void>((resolve) => { release = resolve; });
+      let entered: () => void = () => undefined;
+      const processing = new Promise<void>((resolve) => { entered = resolve; });
+      let produced = 0;
+      let closed = false;
+      const received: bigint[] = [];
+      let prepared: OperatorPrepareContext | undefined;
+      const process = async (envelope: SignalEnvelope) => {
+        if (received.length === 0) { entered(); await gate; }
+        received.push(envelope.lineage!.sequenceNumber);
+        return [];
+      };
+      const id = `org.example.operator.loss-input-${surface}.v1`;
+      const inputs = [PortSpec.input('text', signal)];
+      const outputs = [PortSpec.output('text', signal)];
+      const provider = surface === 'concise'
+        ? defineOperator({ id, inputs, outputs, inputDelivery, create: () => ({ process }) })
+        : OperatorProvider.withNode(new OperatorManifest({ operatorId: id, inputs, outputs, inputDelivery }), () => ({
+          prepare: (context) => { prepared = context; },
+          process: (_port, envelope) => process(envelope),
+        }));
+      const session = new Session();
+      const source = session.source(defineSource({
+        id: `org.example.source.loss-input-${surface}.v1`, outputs: [PortSpec.output('text', signal)],
+        create: () => ({
+          next: async () => {
+            if (produced === 1) await processing;
+            return produced < 20 ? { output: 'text', data: `value-${produced++}` } : undefined;
+          },
+          close: () => { closed = true; },
+        }),
+      }));
+      const instance = session.operator(provider);
+      source.output('text').connect(instance.input('text'));
+      session.subscribe(instance.output('text'), { signal });
+      const running = await session.start();
+      try {
+        await waitFor(() => closed);
+        release();
+        const stopped = await running.stop();
+        expect(stopped.success).toBe(true);
+        expect(stopped.metrics?.externalSources[0]).toMatchObject({
+          emittedTotal: 9n, droppedTotal: 11n, failureTotal: 0n, joined: true,
+        });
+        expect(received).toEqual(Array.from({ length: 9 }, (_, index) => BigInt(index)));
+        if (surface === 'authored') {
+          expect(prepared?.inputs[0]?.routeSettings.deliveryPolicy.loss).toBe(LossPolicy.DROP_ALLOWED);
+        }
+      } finally {
+        release();
+        await running.close();
+      }
+    },
+  );
+
   it('runs a manifest-driven async Operator with compiled context and inferred output', async () => {
     const inputSignal = SignalSpec.text('utf8', { role: 'prompt' });
     const outputSignal = SignalSpec.text('utf8', { role: 'transcript.final' });

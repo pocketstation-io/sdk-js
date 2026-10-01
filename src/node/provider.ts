@@ -1,5 +1,5 @@
 import type { Configuration, PortSpec } from './graph.js';
-import { EndpointDefinition, Operator, SignalSpec } from './graph.js';
+import { DeliveryPolicy, EndpointDefinition, Operator, SignalSpec } from './graph.js';
 import { _envelopeFromNative, type SignalEnvelope } from './signals.js';
 import {
   _audioFrameFromNative,
@@ -496,6 +496,8 @@ export interface OperatorFactoryOptions {
   readonly drainQueued?: boolean;
   readonly continueOnFailure?: boolean;
   readonly terminalRoles?: readonly string[];
+  /** Optional input delivery policy; omission preserves Core's media-specific defaults. */
+  readonly inputDelivery?: DeliveryPolicy;
   /** @internal */
   readonly prepareContext?: (
     context: NativeOperatorPrepareContext,
@@ -526,6 +528,7 @@ export class OperatorFactory {
   public readonly drainQueued: boolean;
   public readonly continueOnFailure: boolean;
   public readonly terminalRoles: readonly string[];
+  public readonly inputDelivery?: DeliveryPolicy;
   readonly #options: OperatorFactoryOptions;
   readonly #instances = new Map<string, ActiveOperator>();
   #sessionId: RuntimeSessionId | undefined;
@@ -545,6 +548,10 @@ export class OperatorFactory {
     this.drainQueued = options.drainQueued ?? false;
     this.continueOnFailure = options.continueOnFailure ?? false;
     this.terminalRoles = Object.freeze([...(options.terminalRoles ?? [])]);
+    if (options.inputDelivery !== undefined && !(options.inputDelivery instanceof DeliveryPolicy)) {
+      throw new TypeError('inputDelivery must be a DeliveryPolicy');
+    }
+    this.inputDelivery = options.inputDelivery;
     requirePositiveU32('revision', this.revision);
     requirePositiveU32('generation', this.generation);
     requirePositiveSafeInteger('queueCapacity', this.queueCapacity);
@@ -599,6 +606,7 @@ export class OperatorFactory {
       [...this.terminalRoles],
       this._dispatch,
       this.deadlineMs,
+      this.inputDelivery?._nativeHandle(),
     );
   }
 
