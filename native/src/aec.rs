@@ -115,3 +115,11 @@ impl NativeEchoCancelledAudio {
         }
     }
 }
+
+/// Whether this native build includes the optional AEC engine.
+// N-API calls this entry point; Rust's standalone test harness does not load it.
+#[cfg_attr(test, allow(dead_code))]
+#[napi]
+pub fn aec_available() -> bool {
+    pocketstation::aec_available()
+}

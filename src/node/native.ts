@@ -1406,6 +1406,7 @@ interface NativeSessionConstructor {
 }
 
 export interface NativeAddon {
+  aecAvailable(): boolean;
   NativeSource: NativeSourceConstructor;
   NativeSourceManifest: NativeSourceManifestConstructor;
   NativeSession: NativeSessionConstructor;

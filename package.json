@@ -104,7 +104,7 @@
     "examples:check": "npm run build && npm run build:examples && node tools/check-examples.mjs",
     "api:check": "npm run build:typescript && api-extractor run && api-extractor run --config api-extractor.browser.json && api-extractor run --config api-extractor.control.json && api-extractor run --config api-extractor.demo.json && api-extractor run --config api-extractor.voice.json && api-extractor run --config api-extractor.root.json && node tools/check-demo-api-boundary.mjs",
     "api:update": "npm run build:typescript && api-extractor run --local && api-extractor run --local --config api-extractor.browser.json && api-extractor run --local --config api-extractor.control.json && api-extractor run --local --config api-extractor.demo.json && api-extractor run --local --config api-extractor.voice.json && api-extractor run --local --config api-extractor.root.json && node tools/check-demo-api-boundary.mjs",
-    "native:check": "cargo fmt --manifest-path native/Cargo.toml --all -- --check && cargo clippy --manifest-path native/Cargo.toml --all-targets --all-features -- -D warnings && cargo test --manifest-path native/Cargo.toml --all-features",
+    "native:check": "cargo fmt --manifest-path native/Cargo.toml --all -- --check && cargo clippy --manifest-path native/Cargo.toml --all-targets --features conformance-fixtures -- -D warnings && cargo test --manifest-path native/Cargo.toml --features conformance-fixtures",
     "test:exports": "npm run build && node tests/package-resolution.mjs",
     "test:packed": "npm run build && node tools/test-packed-consumer.mjs && node tests/package-assembly.mjs",
     "test:relay": "npm run build:test-native && npm run build:typescript && node --experimental-vm-modules node_modules/.bin/jest src/__tests__/node-relay.test.ts src/__tests__/relay-session.test.ts --runInBand",
@@ -113,7 +113,9 @@
     "typecheck": "tsc --noEmit",
     "test": "npm run build && npm run build:test-native && node --experimental-vm-modules node_modules/.bin/jest && node tests/demo-cli.mjs && node tests/performance-statistics.mjs",
     "pack:dry-run": "npm pack --dry-run --json",
-    "test:package-assembly": "node tests/package-assembly.mjs"
+    "test:package-assembly": "node tests/package-assembly.mjs",
+    "build:native:aec": "node tools/clean-native-output.mjs && napi build --platform --release --features aec --manifest-path native/Cargo.toml --output-dir native-dist && node tools/stage-native-package.mjs --install",
+    "build:test-native:aec": "node tools/clean-native-output.mjs && napi build --platform --release --features conformance-fixtures,aec --manifest-path native/Cargo.toml --output-dir native-dist && node tools/stage-native-package.mjs --install"
   },
   "engines": {
     "node": ">=20.17"

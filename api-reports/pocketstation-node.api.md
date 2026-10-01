@@ -7,6 +7,9 @@
 import { Buffer as Buffer_2 } from 'node:buffer';
 
 // @public
+export function aecAvailable(): boolean;
+
+// @public
 export function applicationCaptureAvailable(): boolean;
 
 // @public

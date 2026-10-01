@@ -1887,3 +1887,31 @@ example compilation gates PASS. Initial stale-dist package check failure was
 retained, TypeScript regenerated, then the complete suite rerun. Production
 native and TypeScript source bytes match accepted 56b580b; this commit changes
 only documentation/progress and the explicit PCM lifecycle regression variant.
+
+## 2026-10-01 — optional AEC projection, candidate 142
+
+SAFE-TO-TEST against the recorded matching local Core source. Default native
+builds omit the engine; build:native:aec explicitly selects it. aecAvailable()
+exposes actual build contents, and lean Session requests fail explicitly. API
+reports, examples and consumer mode assertions preserve the normal Session DX.
+CI retains lean conformance and adds a separately enabled macOS gate.
+
+Final production lean packed-consumer/package-assembly tests pass and its addon
+has zero WebRTC symbols. The enabled packed consumer processes 400 frames with
+exact raw stem and retained observations; four tails/1920 padding samples and
+zero discarded outputs. Prepared echo/voice power ratios are
+0.00685346/0.899031. Five enabled tests pass separately. The complete lean suite
+passes 45 suites/607 tests with six named skips (the enabled-only tests are
+verified separately). Twenty-three native Rust tests, strict all-feature Clippy,
+formatting, TypeScript, six API reports, docs/notices and workflow syntax pass.
+The compatibility parser now reads the explicit Cargo table version and still
+asserts the exact pinned version. Native export dead-code allowance is scoped to
+the Rust standalone test harness; installed Node availability is exercised.
+
+No new live scaffold; factory inventory updated. Core retains policy and callback
+safety. Staff gate PASS for local source projection. Published Core 1.1.12 lacks
+this API/feature; registry-only builds await a separately authorized release and
+dependency update. Diagnostic absolute-path patches and locks are restored after
+qualification. Native automatic selection, duplicate-processing prevention,
+physical acoustic quality and platform qualification remain pending. No version,
+tag, push, publication or deployment changed.

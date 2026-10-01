@@ -1,4 +1,5 @@
 import {
+  aecAvailable,
   EchoCancelledAudio,
   END_OF_STREAM,
   PlaybackReference,
@@ -7,7 +8,7 @@ import {
   Source,
 } from '../node/index.js';
 
-describe('built-in Session echo cancellation', () => {
+(aecAvailable() ? describe : describe.skip)('built-in Session echo cancellation', () => {
   it('given explicit reference scopes when declaring then preserves inputs and retained observations', () => {
     for (const [declare, coverage] of [
       [PlaybackReference.selectedApplication, 'selected-application'],
@@ -178,3 +179,13 @@ describe('built-in Session echo cancellation', () => {
     30_000,
   );
 });
+
+if (!aecAvailable()) {
+  test('lean native build rejects AEC explicitly', () => {
+    const session = new Session();
+    const microphone = session.audioInput('microphone');
+    const reference = session.audioInput('reference');
+    expect(() => session.echoCancel(microphone.output, PlaybackReference.renderedAudio(reference.output)))
+      .toThrow('AEC is unavailable');
+  });
+}

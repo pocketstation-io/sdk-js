@@ -1,5 +1,34 @@
 # Reduce playback echo in a microphone
 
+Default native builds exclude the AEC engine. The API remains importable and
+reports an explicit unavailable error when processing is requested without it.
+This is unreleased source functionality; use a matching Core development build.
+An AEC-enabled build of this same SDK is selected explicitly. It also requires
+a C/C++ toolchain, Meson, Ninja, pkg-config, libclang and Rust's `llvm-tools`
+component:
+
+```sh
+npm run build:native:aec
+npm run build:typescript
+```
+
+After installing the resulting artifact, check its actual native capability:
+
+```ts
+import { aecAvailable } from 'pocketstation/node';
+console.log(aecAvailable());
+```
+
+A runtime option does not remove compiled dependencies. Default native addons
+omit the engine; explicitly enabled artifacts include it. No additional package
+name is introduced. For source qualification before the Core release, the test
+runner records the exact local Core override; this is not published-registry
+compatibility. Published versions and dependencies are unchanged. PocketStation
+does not automatically discover or enable OS-provided AEC on any platform.
+Availability here means this artifact includes the optional processor, not that
+a microphone and playback route have been acoustically qualified.
+
+
 Declare the microphone and playback reference in one `Session`, then route the
 processed microphone to ordinary audio, recording or Connector destinations.
 The original application and microphone streams remain available independently.

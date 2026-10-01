@@ -1,6 +1,6 @@
 import { nativeCallSync } from './errors.js';
 import { SourceId } from './identity.js';
-import type { NativeEchoCancelledAudioHandle } from './native.js';
+import { nativeAddon, type NativeEchoCancelledAudioHandle } from './native.js';
 import type { DerivedStream, SourceOutput, Stem } from './session.js';
 
 /** An already-declared audio stream; AudioInput callers use its output. */
@@ -151,4 +151,9 @@ export class EchoCancelledAudio {
       lastError: value.lastError ?? undefined,
     });
   }
+}
+
+/** Whether the installed native build includes AEC; device suitability is separate. */
+export function aecAvailable(): boolean {
+  return nativeCallSync(() => nativeAddon().aecAvailable());
 }
