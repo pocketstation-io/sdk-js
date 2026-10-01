@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { exerciseEchoCancellation } from './aec-consumer.mjs';
+import { exerciseAecBuild } from './aec-consumer.mjs';
 import { createRequire } from 'node:module';
 import { readFileSync, realpathSync } from 'node:fs';
 import { resolve, sep } from 'node:path';
@@ -21,7 +21,7 @@ const nativePath = require.resolve(`@pocketstation/native-${target}`);
 assert.ok(realpathSync(nativePath).startsWith(realpathSync(resolve('node_modules')) + sep));
 const nativeSha256 = createHash('sha256').update(readFileSync(nativePath)).digest('hex');
 assert.equal(nativeSha256, expectedBinaryHash);
-const { Session, PlaybackReference, runtimeCompatibility, OutputCancelledError } = require('pocketstation/node');
+const { Session, PlaybackReference, aecAvailable, runtimeCompatibility, OutputCancelledError } = require('pocketstation/node');
 assert.equal(runtimeCompatibility.sdkVersion, expectedVersion);
 assert.equal(runtimeCompatibility.coreVersion, expectedCore);
 assert.equal(runtimeCompatibility.nativeAbi, 'napi8');
@@ -46,7 +46,7 @@ try {
   assert.equal((await running.stop()).success, true);
 }
 const header = process.report.getReport().header;
-const aec = await exerciseEchoCancellation(Session, PlaybackReference);
+const aec = await exerciseAecBuild(Session, PlaybackReference, aecAvailable);
 console.log(JSON.stringify({
   passed: true, target, platform: process.platform, arch: process.arch,
   node: process.versions.node, napi: process.versions.napi,

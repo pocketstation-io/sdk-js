@@ -12,12 +12,13 @@ crate-type = ["cdylib"]
 
 [features]
 default = []
+aec = ["pocketstation/aec"]
 conformance-fixtures = ["pocketstation/conformance-fixtures"]
 
 [dependencies]
 napi = { version = "3.12.2", features = ["napi8", "tokio_rt"] }
 napi-derive = "3.6.3"
-pocketstation = "=1.1.12"
+pocketstation = { version = "=1.1.12", default-features = false, features = ["native-capture", "opus-codec"] }
 pocketstation-relay = "=0.1.5"
 futures = "0.3.31"
 futures-timer = "3.0.3"

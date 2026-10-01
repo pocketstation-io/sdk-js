@@ -115,3 +115,15 @@ export async function exerciseEchoCancellation(Session, PlaybackReference) {
     tailPaddingSamplesTotal: Number(observations.tailPaddingSamplesTotal),
   };
 }
+
+// A requested feature must never turn into a skipped positive proof.
+export async function exerciseAecBuild(Session, PlaybackReference, aecAvailable) {
+  const expected = process.env.PKS_EXPECT_AEC === '1';
+  assert.equal(aecAvailable(), expected, 'native AEC does not match the requested artifact');
+  if (expected) return exerciseEchoCancellation(Session, PlaybackReference);
+  const session = new Session();
+  const microphone = session.audioInput('microphone');
+  const reference = session.audioInput('reference');
+  assert.throws(() => session.echoCancel(microphone.output, PlaybackReference.renderedAudio(reference.output)), /AEC is unavailable/);
+  return { available: false, unavailableErrorVerified: true };
+}

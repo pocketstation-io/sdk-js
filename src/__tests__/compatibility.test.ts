@@ -18,9 +18,10 @@ describe('runtime compatibility', () => {
 
     expect(runtimeCompatibility.sdkVersion).toBe(manifest.version);
     expect(runtimeCompatibility.nodeRequires).toBe(manifest.engines.node);
-    expect(cargoManifest).toContain(
-      `pocketstation = "=${runtimeCompatibility.coreVersion}"`,
-    );
+    const coreVersion = cargoManifest.match(
+      /^pocketstation\s*=\s*\{[^\n}]*\bversion\s*=\s*"([^"]+)"/m,
+    )?.[1];
+    expect(coreVersion).toBe(`=${runtimeCompatibility.coreVersion}`);
     expect(cargoManifest).toContain(
       `pocketstation-relay = "=${runtimeCompatibility.relayConnectorVersion}"`,
     );

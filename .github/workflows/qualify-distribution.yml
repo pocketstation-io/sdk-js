@@ -61,7 +61,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           dnf install -y alsa-lib-devel openssl-devel opus-devel pipewire-devel clang cmake ninja-build pkgconfig
-          python3 -m pip install 'meson==1.7.2' 'ninja==1.11.1.4'
+          python3 -m pip install 'ninja==1.11.1.4'
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '24'
@@ -72,7 +72,7 @@ jobs:
           python-version: '3.13'
       - name: Install compatible CMake
         if: runner.os != 'Linux'
-        run: python -m pip install 'cmake==3.31.6' 'meson==1.7.2' 'ninja==1.11.1.4'
+        run: python -m pip install 'cmake==3.31.6' 'ninja==1.11.1.4'
       - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
         with:
           toolchain: 1.95.0

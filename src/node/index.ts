@@ -4,6 +4,7 @@
  * @packageDocumentation
  */
 export {
+  aecAvailable,
   EchoCancelledAudio,
   PlaybackReference,
   type EchoAudioInput,

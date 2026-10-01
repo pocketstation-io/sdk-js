@@ -218,6 +218,7 @@ export type { DemoBoundary };
       RunningEndpointDriver,
       SampleRepresentation,
       Session,
+      aecAvailable,
       PlaybackReference,
       SessionStartError,
       SidecarId,
@@ -404,8 +405,8 @@ export type { DemoBoundary };
     if (await inputAudio.read({ timeoutMs: 0 }) !== END_OF_STREAM) {
       throw new Error('packed audio stream did not report end-of-stream');
     }
-    const { exerciseEchoCancellation } = await import('./aec-consumer.mjs');
-    const aec = await exerciseEchoCancellation(Session, PlaybackReference);
+    const { exerciseAecBuild } = await import('./aec-consumer.mjs');
+    const aec = await exerciseAecBuild(Session, PlaybackReference, aecAvailable);
     console.log(JSON.stringify({ aec }));
     const eventSession = new Session();
     const eventInput = eventSession.eventInput('packed-events', {
