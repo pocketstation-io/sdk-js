@@ -1,5 +1,9 @@
 import { Capture } from '../node/capture.js';
 import {
+  BackpressurePolicy,
+  CopyPolicy,
+  DeliveryPolicy,
+  LossPolicy,
   MediaCaps,
   Multiplicity,
   PortSpec,
@@ -266,6 +270,12 @@ export class WhisperTranscriber {
       inputs: [PortSpec.input('window', WINDOW_SIGNAL, { multiplicity: Multiplicity.MANY })],
       outputs: this.manifest.outputs,
       queueCapacitySignals: 8,
+      // Complete windows may be dropped while inference is occupied.
+      // This permission applies only to the inference input, not transcripts.
+      inputDelivery: DeliveryPolicy.boundedAsync()
+        .withBackpressure(BackpressurePolicy.DROP_NEWEST)
+        .withCopyPolicy(CopyPolicy.COPY_TO_BRANCH_POOL)
+        .withLoss(LossPolicy.DROP_ALLOWED),
       processTimeoutMs: this.manifest.processTimeoutMs,
       filesystemAllowed: true,
       drainQueued: false,

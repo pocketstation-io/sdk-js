@@ -5,12 +5,66 @@ import {
   Session,
   SignalSpec,
   SourceFactory,
+  defineEndpoint,
   defineSource,
   type SourceDriver,
   type SourceDriverPrepareContext,
 } from '../node/index.js';
 
 describe('Source authoring', () => {
+  it('fails a required buffered route when ordinary Source values exceed its capacity', async () => {
+    const signal = SignalSpec.text();
+    let produced = 0;
+    let closes = 0;
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let entered: () => void = () => undefined;
+    const receiving = new Promise<void>((resolve) => { entered = resolve; });
+    const received: bigint[] = [];
+    const session = new Session();
+    const source = session.source(defineSource({
+      id: 'org.example.source.required-pressure.v1',
+      outputs: [PortSpec.output('text', signal)],
+      create: () => ({
+        next: async () => {
+          // Keep the first receive occupied before filling the bounded queue.
+          if (produced === 1) await receiving;
+          return produced < 20 ? { output: 'text', data: `value-${produced++}` } : undefined;
+        },
+        close: () => { closes += 1; },
+      }),
+    }));
+    source.output('text').send(session.endpoint(defineEndpoint({
+      id: 'org.example.endpoint.required-pressure.v1',
+      inputs: [PortSpec.input('text', signal)],
+      create: () => ({ receive: async (item) => {
+        if (received.length === 0) {
+          entered();
+          await gate;
+        }
+        received.push(item.signal.lineage.sequenceNumber);
+      } }),
+    })), { input: 'text', route: RouteSettings.buffered() });
+    const running = await session.start();
+    try {
+      await waitFor(async () => (await running.metrics()).externalSources[0]?.joined === true);
+      const before = await running.metrics();
+      expect(before.externalSources[0]).toMatchObject({
+        emittedTotal: 9n, droppedTotal: 1n, failureTotal: 1n,
+      });
+      expect(produced).toBe(10);
+      release();
+      const stopped = await running.stop();
+      expect(stopped.success).toBe(false);
+      expect(stopped.runtimeFailuresTotal).toBe(1n);
+      expect(received).toEqual(Array.from({ length: 9 }, (_, index) => BigInt(index)));
+      expect(closes).toBe(1);
+    } finally {
+      release();
+      await running.close();
+    }
+  });
+
   it('returns every accepted final signal before stable EOF after graceful stop', async () => {
     const accepted = ['final-1', 'final-2', 'final-3'];
     let started = false;

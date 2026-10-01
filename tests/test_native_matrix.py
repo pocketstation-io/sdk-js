@@ -22,7 +22,8 @@ class ConsumerVerificationTests(unittest.TestCase):
             'nativeArchiveSha256': self.native['sha256'], 'nativeSha256': self.native['nativeSha256'],
             'sdkVersion': '0.1.4', 'coreVersion': '1.1.12', 'frames': 1, 'samples': 480,
             'sourceIdentity': True, 'outputCancellation': True, 'stopSuccess': True,
-            'aec': {'processedFramesTotal': 400, 'echoPowerRatio': 0.01, 'voicePowerRatio': 0.9,
+            'aec': {'processedFramesTotal': 400, 'discardedOutputFramesTotal': 0,
+                    'echoPowerRatio': 0.01, 'voicePowerRatio': 0.9,
                     'rawStemUnchanged': True, 'observationsRetained': True, 'terminalState': 'stopped',
                     'tailFrames': 4, 'tailPaddingSamplesTotal': 1920},
             'exports': ['pocketstation', *[f'pocketstation/{n}' for n in ['node', 'browser', 'control', 'demo', 'voice']]],
@@ -62,6 +63,7 @@ class ConsumerVerificationTests(unittest.TestCase):
 
     def test_given_missing_echo_observations_when_validating_then_report_is_rejected(self):
         for key, value in [('processedFramesTotal', 0), ('processedFramesTotal', True),
+                           ('discardedOutputFramesTotal', 1), ('discardedOutputFramesTotal', False),
                            ('rawStemUnchanged', False), ('observationsRetained', False),
                            ('terminalState', 'processing'), ('tailFrames', 0), ('tailFrames', True),
                            ('tailPaddingSamplesTotal', 0), ('tailPaddingSamplesTotal', True)]:

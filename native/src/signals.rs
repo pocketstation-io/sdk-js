@@ -48,7 +48,7 @@ impl SignalReceipt {
 
     fn activate(
         &self,
-        receiver: pocketstation::EndpointSignalReceiver,
+        mut receiver: pocketstation::EndpointSignalReceiver,
     ) -> std::result::Result<(), EndpointFailure> {
         let mut state = self.state.lock().map_err(|_| {
             EndpointFailure::new(
@@ -57,6 +57,7 @@ impl SignalReceipt {
             )
         })?;
         if self.closed.load(Ordering::Acquire) {
+            receiver.close();
             *state = ReceiptState::Closed;
             return Ok(());
         }
@@ -123,6 +124,9 @@ impl SignalReceipt {
     fn close(&self) {
         self.closed.store(true, Ordering::Release);
         if let Ok(mut state) = self.state.lock() {
+            if let ReceiptState::Active(receiver) = &mut *state {
+                receiver.close();
+            }
             *state = ReceiptState::Closed;
         }
     }

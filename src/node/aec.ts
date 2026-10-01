@@ -53,6 +53,8 @@ export interface EchoCancellationObservations {
   readonly state: EchoCancellationState;
   readonly processedMicrophoneFramesTotal: bigint;
   readonly outputFramesTotal: bigint;
+  /** Computed frames discarded when their waiting request had already ended. */
+  readonly discardedOutputFramesTotal: bigint;
   readonly tailFramesTotal: bigint;
   readonly tailPaddingSamplesTotal: bigint;
   readonly discardedTailGenerationsTotal: bigint;
@@ -67,7 +69,9 @@ export interface EchoCancellationObservations {
   readonly microphoneQueueDepthFrames: bigint;
   readonly referenceQueueDepthFrames: bigint;
   readonly queueCapacityFrames: bigint;
+  /** Full native command wall time, including queue wait, reset and audio processing. */
   readonly latestProcessingDurationNs: bigint;
+  /** Maximum native command wall time; this is not algorithmic audio delay. */
   readonly maximumProcessingDurationNs: bigint;
   readonly latestReferenceAgeNs: bigint;
   readonly latestReferenceLeadNs: bigint;
@@ -119,6 +123,7 @@ export class EchoCancelledAudio {
       state: value.state,
       processedMicrophoneFramesTotal: BigInt(value.processedMicrophoneFramesTotal),
       outputFramesTotal: BigInt(value.outputFramesTotal),
+      discardedOutputFramesTotal: BigInt(value.discardedOutputFramesTotal),
       tailFramesTotal: BigInt(value.tailFramesTotal),
       tailPaddingSamplesTotal: BigInt(value.tailPaddingSamplesTotal),
       discardedTailGenerationsTotal: BigInt(value.discardedTailGenerationsTotal),

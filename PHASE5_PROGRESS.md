@@ -1,5 +1,80 @@
 # JavaScript SDK progress
 
+## Explicit subscription close and Operator input loss — 2026-09-30
+
+Status: `PARTIAL`; local binding and installed-package qualification pass on
+frozen Core `71e203c6590a4b1b2e67f6749c51b4a2defddd65`. Registry-dependent release
+and the platform matrix remain pending. The earlier full run on frozen Core
+`b06e5664abf2e80bca817e7646b17e6056fb9bb5` passed 604 tests with one optional
+real-model skip and failed three existing assertions: closing one subscription
+terminated its sibling, and both model-window overload cases reported failed
+shutdown. These failures remain in `required-full-jest-01`; expectations and
+deadlines are unchanged.
+
+The native subscription now explicitly revokes its Core receiver before dropping
+it on requested close, including activation that arrives after close. Unexpected
+receiver loss and faults retain failure semantics. `DeliveryPolicy.withLoss()`
+and optional `inputDelivery` on both Operator authoring surfaces project the
+existing Core contract without changing defaults. Only the demonstration's
+complete inference-window input opts into `DROP_ALLOWED`; transcript output and
+recording guarantees remain unchanged. New barrier-controlled tests distinguish
+intentional close from receiver failure and required delivery from explicitly
+permitted loss. The new Operator regression initially omitted the required
+`DROP_NEWEST`/`COPY_TO_BRANCH_POOL` delivery settings; the test and documentation
+now declare the complete policy. All original assertions and deadlines remain.
+
+Normal NAPI production and conformance builds pass against the exact 316-file
+Core archive. The production suite passes 71 tests, and the full suite passes
+all 45 suites with 611 tests and one existing optional real-model skip. All
+three earlier failures now pass. Native Rust tests pass 23/23 and strict
+all-target/all-feature Clippy passes. TypeScript, API extraction, rustfmt, docs,
+notices, eight matrix-verifier regressions, CLI, statistics, package exports and
+assembly pass. An initial production selection mistakenly included nine
+fixture-only cases; its failure record remains alongside the corrected gates.
+
+The isolated root/native tarball consumer processes 400 AEC frames with echo
+power ratio 0.006853 and near-end ratio 0.899031, unchanged raw reference, zero
+discarded outputs and four delivered terminal frames (1,920 padding samples).
+Production addon SHA-256
+`976fc306b4e4d1e3c89f322cf212c8a0d2c68ea1ff817238b8a8b58244b5844f`
+is restored after fixture testing. Hashed source, command, log and terminal
+receipts are retained under the factory evidence directory
+`W21-AEC-CORE-INTEGRATION/release-preparation-138/js-bindings/lifecycle-restored-*`.
+
+Staff review: PASS for this local source integration; `SAFE-TO-TEST` pending
+published Core qualification and release. Thin Core projection, independent
+app capture, explicit loss policy and failure semantics are preserved. No new
+SDK engine, provider, realtime work, dependency/version or live scaffold is
+introduced (scaffold inventory n/a). CODE_PROTOCOL review, formatting and
+whitespace checks pass. Synthetic PCM and explicit test doubles remain
+component evidence, not physical speech quality or cross-platform acceptance.
+No tag, push, publication or deployment is part of this checkpoint.
+
+## Interrupted AEC output accounting — 2026-09-30
+
+Status: `PARTIAL`; local component qualification passes on frozen Core
+`b06e5664abf2e80bca817e7646b17e6056fb9bb5`. The subsequent lifecycle follow-up
+above qualifies the combined projection on Core `71e203c`.
+`discardedOutputFramesTotal` projects Core's u64 counter as bigint for computed
+frames whose waiting request ended before delivery. Declaration and normal
+400-frame tests require zero discarded output; the installed consumer requires
+the same. This follow-up does not reuse the preceding checkpoint's native proof
+as qualification for the new observation field.
+The duration observations now explicitly describe complete native command wall
+time, including queue wait, reset, reference analysis and capture processing;
+they do not qualify algorithmic audio delay.
+
+Normal production and fixture NAPI packaging, all 23 Rust tests and strict
+native Clippy pass. The production artifact passes 47 focused Source/signal/AEC
+tests and the isolated packed 400-frame proof: echo ratio 0.006853, voice ratio
+0.899031, unchanged raw reference, zero discarded output and four delivered tail
+frames. The original required-route pressure defect now yields nine accepted
+values, one rejected value and a failed stop with the concrete error. The
+old-Core regression failure is preserved; one new diagnostic initially sampled
+failure accounting before native close completed, then passed with terminal
+metrics. This does not accept the three full-suite failures above or establish
+physical AEC, cross-platform distribution or registry publication.
+
 ## Graceful custom Source drain projection — 2026-09-30
 
 Status: `PARTIAL`; local macOS binding qualification passes, while Core pressure

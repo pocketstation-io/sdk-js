@@ -151,6 +151,16 @@ describe('native graph declarations', () => {
     expect(() => delivery.withMaxPayloadBytes(0)).toThrow(PocketStationError);
   });
 
+  it('requires explicit loss permission without weakening the original policy', () => {
+    const required = DeliveryPolicy.boundedAsync();
+    const lossy = required.withLoss(LossPolicy.DROP_ALLOWED);
+    expect(required.loss).toBe(LossPolicy.MUST_DELIVER_OR_FAIL);
+    expect(lossy.loss).toBe(LossPolicy.DROP_ALLOWED);
+    expect(RouteSettings.create(MediaCaps.text(), lossy).deliveryPolicy.loss)
+      .toBe(LossPolicy.DROP_ALLOWED);
+    expect(() => required.withLoss('silent-success' as LossPolicy)).toThrow(PocketStationError);
+  });
+
   it('keeps open Operator, Source, and Endpoint configuration immutable', () => {
     const operatorConfiguration = new OperatorConfiguration([
       ['language', 'en'],

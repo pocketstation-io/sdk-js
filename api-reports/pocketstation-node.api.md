@@ -1344,6 +1344,7 @@ export class DeliveryPolicy {
     // @deprecated (undocumented)
     withFrameOwnership(value: FrameOwnership): DeliveryPolicy;
     withJitterBudgetMs(value?: number): DeliveryPolicy;
+    withLoss(value: LossPolicy): DeliveryPolicy;
     withMaxPayloadBytes(value: number): DeliveryPolicy;
     // @deprecated (undocumented)
     withQueuePressure(value: QueuePressure): DeliveryPolicy;
@@ -1414,6 +1415,7 @@ export interface EchoCancellationObservations {
     readonly analyzedReferenceFramesTotal: bigint;
     // (undocumented)
     readonly discardedMicrophoneFramesTotal: bigint;
+    readonly discardedOutputFramesTotal: bigint;
     // (undocumented)
     readonly discardedReferenceFramesTotal: bigint;
     // (undocumented)
@@ -1423,7 +1425,6 @@ export interface EchoCancellationObservations {
     readonly interruptedRequestsTotal: bigint;
     // (undocumented)
     readonly lastError?: string;
-    // (undocumented)
     readonly latestProcessingDurationNs: bigint;
     // (undocumented)
     readonly latestReferenceAgeNs: bigint;
@@ -1431,7 +1432,6 @@ export interface EchoCancellationObservations {
     readonly latestReferenceLeadNs: bigint;
     // (undocumented)
     readonly maximumCadenceErrorNs: bigint;
-    // (undocumented)
     readonly maximumProcessingDurationNs: bigint;
     // (undocumented)
     readonly microphoneQueueDepthFrames: bigint;
@@ -2423,6 +2423,8 @@ export class OperatorFactory {
     // (undocumented)
     readonly id: string;
     // (undocumented)
+    readonly inputDelivery?: DeliveryPolicy;
+    // (undocumented)
     readonly inputs: readonly PortSpec[];
     // (undocumented)
     readonly networkAllowed: boolean;
@@ -2453,6 +2455,7 @@ export interface OperatorFactoryOptions {
     readonly generation?: number;
     // (undocumented)
     readonly id: string;
+    readonly inputDelivery?: DeliveryPolicy;
     // (undocumented)
     readonly inputs: readonly PortSpec[];
     // (undocumented)
@@ -2516,6 +2519,7 @@ export class OperatorManifest {
         readonly drainQueued?: boolean;
         readonly continueOnFailure?: boolean;
         readonly terminalRoles?: readonly string[];
+        readonly inputDelivery?: DeliveryPolicy;
     });
     // (undocumented)
     readonly continueOnFailure: boolean;
@@ -2525,6 +2529,7 @@ export class OperatorManifest {
     readonly filesystemAllowed: boolean;
     // (undocumented)
     readonly implementationGeneration: number;
+    readonly inputDelivery?: DeliveryPolicy;
     // (undocumented)
     readonly inputs: readonly PortSpec[];
     // (undocumented)

@@ -50,6 +50,8 @@ export class OperatorManifest {
   public readonly drainQueued: boolean;
   public readonly continueOnFailure: boolean;
   public readonly terminalRoles: readonly string[];
+  /** Optional input policy; omitted inputs retain Core's media-specific defaults. */
+  public readonly inputDelivery?: DeliveryPolicy;
 
   public constructor(options: {
     readonly operatorId: string;
@@ -64,6 +66,7 @@ export class OperatorManifest {
     readonly drainQueued?: boolean;
     readonly continueOnFailure?: boolean;
     readonly terminalRoles?: readonly string[];
+    readonly inputDelivery?: DeliveryPolicy;
   }) {
     this.operatorId = exactText(options.operatorId, 'operatorId');
     this.inputs = ports(options.inputs, 'input');
@@ -103,6 +106,10 @@ export class OperatorManifest {
       }
     }
     this.terminalRoles = Object.freeze([...terminalRoles]);
+    if (options.inputDelivery !== undefined && !(options.inputDelivery instanceof DeliveryPolicy)) {
+      throw new TypeError('inputDelivery must be a DeliveryPolicy');
+    }
+    this.inputDelivery = options.inputDelivery;
     Object.freeze(this);
   }
 }
@@ -300,6 +307,7 @@ export class OperatorProvider {
       drainQueued: this.manifest.drainQueued,
       continueOnFailure: this.manifest.continueOnFailure,
       terminalRoles: this.manifest.terminalRoles,
+      inputDelivery: this.manifest.inputDelivery,
       deadlineMs: maximumDeadline,
       prepareContext: (context, signal) => new OperatorPrepareContext(
         context,
@@ -466,7 +474,6 @@ function routeFromCompiledContext(
   if (
     value.clock === 'capture'
     && value.delivery === 'ordered'
-    && value.loss === 'conceal-audio'
     && value.observability === 'counters'
     && noLatencyBudget
   ) {
@@ -474,7 +481,6 @@ function routeFromCompiledContext(
   } else if (
     value.clock === 'inherited'
     && value.delivery === 'ordered'
-    && value.loss === 'deliver-or-fail'
     && value.observability === 'counters'
     && noLatencyBudget
   ) {
@@ -483,6 +489,7 @@ function routeFromCompiledContext(
     throw new TypeError('Core returned an Operator route policy JavaScript cannot represent exactly');
   }
   delivery = delivery
+    .withLoss(canonicalLossPolicy(value.loss))
     .withQueuePressure(value.backpressure as QueuePressure)
     .withFrameOwnership(value.copyPolicy as FrameOwnership)
     .withJitterBudgetMs(value.jitterBudgetMs ?? undefined);

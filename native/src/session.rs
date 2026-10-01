@@ -20,8 +20,8 @@ use crate::extensions::{
     NativeExtensionLibrary, NativeSourceInstance,
 };
 use crate::graph::{
-    NativeConfigurationEntry, NativeEndpointDefinition, NativeOperator, NativeOperatorInput,
-    NativeOperatorInstance, NativePortSpec, NativeRouteSettings,
+    NativeConfigurationEntry, NativeDeliveryPolicy, NativeEndpointDefinition, NativeOperator,
+    NativeOperatorInput, NativeOperatorInstance, NativePortSpec, NativeRouteSettings,
 };
 use crate::observations::{
     copy_metrics, copy_recording_outcome, copy_trace_outcome, sample_representation_name,
@@ -838,6 +838,7 @@ impl NativeSession {
         terminal_roles: Vec<String>,
         dispatch: Function<'_, NativeProviderCall, Promise<NativeProviderResult>>,
         deadline_ms: Option<u32>,
+        input_delivery: Option<&NativeDeliveryPolicy>,
     ) -> Result<()> {
         let inputs = inputs
             .iter()
@@ -864,6 +865,7 @@ impl NativeSession {
                 terminal_roles,
                 dispatch,
                 deadline_ms,
+                input_delivery.map(|delivery| delivery.value),
             )
         })
     }

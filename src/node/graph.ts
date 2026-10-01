@@ -739,6 +739,11 @@ export class DeliveryPolicy {
     );
   }
 
+  /** Return a copy with an explicit missing-media guarantee. */
+  public withLoss(value: LossPolicy): DeliveryPolicy {
+    return new DeliveryPolicy(nativeCallSync(() => this.#native.withLoss(value)));
+  }
+
   /** Return a copy with different frame-memory behavior. */
   public withCopyPolicy(value: CopyPolicy): DeliveryPolicy {
     return new DeliveryPolicy(

@@ -593,6 +593,7 @@ pub(crate) fn register_operator(
     terminal_roles: Vec<String>,
     dispatch: Function<'_, NativeProviderCall, Promise<NativeProviderResult>>,
     deadline_ms: Option<u32>,
+    input_delivery: Option<pocketstation::DeliveryPolicy>,
 ) -> Result<()> {
     let bridge_deadline_ms = deadline_ms.unwrap_or(DEFAULT_PROVIDER_DEADLINE_MS);
     let queue_capacity = queue_capacity.parse::<usize>().map_err(|_| {
@@ -631,21 +632,25 @@ pub(crate) fn register_operator(
         .iter()
         .filter_map(|port| port.signal().role().cloned())
         .collect();
+    let mut input_route = if matches!(input_media, MediaCaps::Audio(_)) {
+        pocketstation::RouteSettings::realtime_audio()
+            .with_media(input_media)
+            .with_copy_policy(CopyPolicy::CopyToBranchPool)
+    } else {
+        pocketstation::RouteSettings::bounded_async()
+            .with_media(input_media)
+            .with_backpressure(BackpressurePolicy::DropNewest)
+            .with_copy_policy(CopyPolicy::CopyToBranchPool)
+    };
+    if let Some(delivery) = input_delivery {
+        input_route = input_route.with_delivery_policy(delivery);
+    }
     let manifest = AsyncOperatorManifest::new(
         OperatorId::new(operator_id),
         revision,
         generation,
         node,
-        if matches!(input_media, MediaCaps::Audio(_)) {
-            pocketstation::RouteSettings::realtime_audio()
-                .with_media(input_media)
-                .with_copy_policy(CopyPolicy::CopyToBranchPool)
-        } else {
-            pocketstation::RouteSettings::bounded_async()
-                .with_media(input_media)
-                .with_backpressure(BackpressurePolicy::DropNewest)
-                .with_copy_policy(CopyPolicy::CopyToBranchPool)
-        },
+        input_route,
         pocketstation::RouteSettings::bounded_async()
             .with_media(output_media)
             .with_copy_policy(CopyPolicy::CopyToBranchPool),
