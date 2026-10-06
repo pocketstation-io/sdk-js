@@ -61,7 +61,9 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           dnf install -y alsa-lib-devel openssl-devel opus-devel pipewire-devel clang cmake ninja-build pkgconfig
-          python3 -m pip install 'ninja==1.11.1.4'
+          # The container's system Python has no pip; use its CPython toolchain.
+          /opt/python/cp313-cp313/bin/python -m pip install 'ninja==1.11.1.4'
+          echo "/opt/python/cp313-cp313/bin" >> "$GITHUB_PATH"
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '24'
