@@ -6,9 +6,9 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { EndOfStream, Session } from '../node/index.js';
 import { WhisperTranscriber, WhisperTranscriberConfiguration } from '../demo/faster-whisper.js';
 
-const FRAME_MS = 20;
 const SATURATION_FRAMES = 100;
 const RECOVERY_FRAMES = 20;
+const FEED_BUDGET_MS = 5000;
 const ABORT_BUDGET_MS = 2000;
 
 test.each(['recover', 'abort'] as const)('complete-window overload isolates recording and %s is bounded', async (mode) => {
@@ -45,14 +45,27 @@ test.each(['recover', 'abort'] as const)('complete-window overload isolates reco
       events.push(JSON.parse(item.payload.text) as Record<string, unknown>);
     }
   })();
+  let framesSent = 0;
   const feed = async (frames: number) => {
+    const started = performance.now();
     for (let frame = 0; frame < frames; frame += 1) {
+      if (performance.now() - started >= FEED_BUDGET_MS) throw new Error('window feeder exhausted its PCM setup budget');
       for (const [index, input] of inputs.entries()) await input.write(new Float32Array(960).fill(index ? -.1 : .1));
-      await delay(FRAME_MS);
+      framesSent += 1;
+      // PCM duration is sample-count based. Await consumption rather than
+      // accumulating timer delays that can expire the held inference call.
+      for (;;) {
+        const metrics = await running.metrics();
+        const windows = metrics.operators.filter(operator => operator.inputPorts.some(port => port.portName === 'audio'));
+        if (windows.length === inputs.length && windows.every(operator => operator.worker.processedTotal >= BigInt(framesSent))) break;
+        if (performance.now() - started >= FEED_BUDGET_MS) throw new Error('window feeder did not consume PCM within its budget');
+        await delay(1);
+      }
     }
+    return performance.now() - started;
   };
   try {
-    await feed(SATURATION_FRAMES);
+    const saturationMs = await feed(SATURATION_FRAMES);
     expect(entered).toBe(true);
     expect(calls).toBe(1);
     const saturated = await running.metrics();
@@ -61,12 +74,30 @@ test.each(['recover', 'abort'] as const)('complete-window overload isolates reco
     expect(inference.inputDelivery.framesDroppedTotal).toBeGreaterThan(0n);
     expect(inference.inputDelivery.queueCapacityFrames).toBeLessThanOrEqual(16n);
     expect(inference.inputDelivery.queuePeakFrames).toBeLessThanOrEqual(inference.inputDelivery.queueCapacityFrames);
-    if (mode === 'recover') { release(); await feed(RECOVERY_FRAMES); }
+    let recoveryMs = 0;
+    if (mode === 'recover') {
+      release(); recoveryMs = await feed(RECOVERY_FRAMES);
+      const recoveryStarted = performance.now();
+      while (!inputs.every(input => {
+        const source = events.filter(event => event.source_id === String(input.sourceId));
+        return source.some((event, index) => index > 0 && BigInt(String(event.sequence_start)) > BigInt(String(source[index - 1]!.sequence_end)) + 1n);
+      })) {
+        if (performance.now() - recoveryStarted >= ABORT_BUDGET_MS) throw new Error('inference did not resume both source sequences within its budget');
+        await delay(1);
+      }
+    }
     if (mode === 'recover') inputs.forEach(input => input.close());
     const started = performance.now();
     const outcome = mode === 'abort' ? await running.cancel() : await running.stop();
     const shutdownMs = performance.now() - started;
     await drain;
+    const evidence = JSON.stringify({ classification: 'actual native PCM/recording; model callback MOCKED',
+      mode, calls, maximumActive, saturationMs, recoveryMs, shutdownMs,
+      saturated: inference.inputDelivery, outcome, events },
+    (_key, value: unknown) => typeof value === 'bigint' ? value.toString() : value, 2);
+    if (process.env.PKS_TEST_EVIDENCE_DIR) await writeFile(
+      join(process.env.PKS_TEST_EVIDENCE_DIR, `js-overload-${mode}.json`), evidence);
+    if (!outcome.success) console.error(evidence);
     expect(shutdownMs).toBeLessThan(ABORT_BUDGET_MS);
     expect(outcome.success).toBe(true);
     expect(outcome.recording?.complete).toBe(true);
@@ -88,10 +119,6 @@ test.each(['recover', 'abort'] as const)('complete-window overload isolates reco
         expect(source.some((event, index) => index > 0 && BigInt(String(event.sequence_start)) > BigInt(String(source[index - 1]!.sequence_end)) + 1n)).toBe(true);
       }
     }
-    if (process.env.PKS_TEST_EVIDENCE_DIR) await writeFile(join(process.env.PKS_TEST_EVIDENCE_DIR, `js-overload-${mode}.json`),
-      JSON.stringify({ classification: 'actual native PCM/recording; model callback MOCKED', mode, calls,
-        maximumActive, shutdownMs, saturated: inference.inputDelivery, outcome, events },
-      (_key, value: unknown) => typeof value === 'bigint' ? value.toString() : value, 2));
   } finally {
     release(); inputs.forEach(input => input.close());
     await running.cancel(); await drain; await rm(directory, { recursive: true, force: true });

@@ -2067,3 +2067,28 @@ six enabled-AEC cases remain explicitly skipped in the lean build. Corrected
 Windows source jobs and the complete source CI must pass before merge.
 Staff launcher review: PASS / SAFE-TO-TEST. Scaffold inventory: n/a; no new
 runtime path, platform qualification or acoustic claim is introduced.
+
+### 2026-10-06 — overload fixture consumption barriers
+
+Linux Node20 CI failed recovery with an unsuccessful native StopResult. A
+one-variable real-native reproduction retains the exact symptom: delaying the
+100-frame feed to 11.14s expires the held Operator's 10.5s deadline; recording
+is still complete and cancellation is reported honestly. The original timer
+feeder assumed 100 waits of 20ms would complete near two seconds, which is not
+Node's timer contract under concurrent load. The original cloud log lacks the
+terminal failure detail, so this reproduction establishes a failure mechanism,
+not an independently recorded cloud timeout cause.
+
+The fixture now waits for both real window workers to acknowledge each PCM
+frame, within a five-second setup budget, instead of pacing by timer sleeps.
+Recovery waits for both source sequence gaps before stop. All prior acceptance
+assertions remain: 100/120 recorded frames per independent stem, zero recorder
+and route drops, bounded inference queue, one in-flight inference, resume gaps,
+joined workers and shutdown below two seconds. Failure diagnostics are retained
+before assertions. Production code and deadlines remain unchanged.
+
+Focused real-native tests pass (recover 618ms, abort 498ms). All 47 suites /
+626 tests pass, six enabled-AEC cases explicitly skipped. Corrected same-source
+cloud CI remains required before merge/publication.
+Scaffold inventory: no new runtime stub; the held model callback remains MOCKED.
+Staff fixture review: SAFE-TO-TEST; final cloud acceptance remains pending.
