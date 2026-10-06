@@ -5,6 +5,14 @@ import type { OperatorInstanceId } from './identity.js';
 
 export { PocketStationError } from '../errors.js';
 
+/** Core refused a recording interval, identity, format or integrity check. */
+export class RecordingClipError extends PocketStationError {
+  public constructor(code: string, message: string, cause?: unknown) {
+    super(code, message, { cause });
+    this.name = 'RecordingClipError';
+  }
+}
+
 /** Base failure from Session declaration, startup, or runtime ownership. */
 export class SessionError extends PocketStationError {
   public constructor(code: string, message: string, cause?: unknown) {
@@ -357,6 +365,9 @@ export function fromNativeError(failure: unknown): PocketStationError {
   }
   const code = message.slice(0, separator);
   const detail = message.slice(separator + NATIVE_ERROR_SEPARATOR.length);
+  if (code.startsWith('recording.clip_')) {
+    return new RecordingClipError(code, detail, failure);
+  }
   if (code === 'audio_input.full') {
     return new AudioInputFullError(detail, { cause: failure });
   }

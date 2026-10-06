@@ -5,6 +5,7 @@ mod extensions;
 mod graph;
 mod observations;
 mod provider;
+mod recording;
 mod session;
 mod sidecar;
 mod signals;

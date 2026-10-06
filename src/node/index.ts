@@ -12,6 +12,8 @@ export {
   type EchoCancellationState,
   type PlaybackReferenceCoverage,
 } from './aec.js';
+export { RecordedAudio, RecordingClipWindow, type RecordedStem, type RecordingClip } from './recording.js';
+export { RecordingClipError } from './errors.js';
 export {
   RuntimeCompatibility,
   runtimeCompatibility,
