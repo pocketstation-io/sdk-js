@@ -72,3 +72,22 @@ test('archive qualification is deliberate and publication still verifies frozen 
   assert.match(commands, /--manifest-sha256/);
   assert.match(commands, /publish-qualified\.mjs/);
 });
+
+test('source and archive builds reject private files before installs and pin only the build CLI', () => {
+  for (const job of Object.values(workflow('ci').jobs)) {
+    const check = job.steps.findIndex((step) => step.run === 'node tools/check-public-source.mjs');
+    const install = job.steps.findIndex((step) => /npm ci/.test(step.run ?? ''));
+    assert.ok(check >= 0 && check < install);
+  }
+  const qualification = workflow('qualify-distribution');
+  for (const name of ['root', 'native']) {
+    const steps = qualification.jobs[name].steps;
+    const check = steps.findIndex((step) => step.run === 'node tools/check-public-source.mjs');
+    const pin = steps.findIndex((step) => step.run === 'npm install --global npm@10.8.2 --ignore-scripts');
+    const install = steps.findIndex((step) => step.run === 'npm ci --ignore-scripts');
+    assert.ok(check >= 0 && check < pin && pin < install);
+  }
+  const publishing = workflow('publish').jobs.publish.steps;
+  assert.ok(publishing.some((step) => step.run === 'npm install --global npm@11.9.0 --ignore-scripts'),
+    'publishing keeps its OIDC-capable CLI');
+});
