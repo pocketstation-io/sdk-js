@@ -2939,6 +2939,74 @@ export interface ReceiverInvitationOptions {
 }
 
 // @public
+export class RecordedAudio {
+    static fromOutcome(outcome: RecordingOutcome): Promise<RecordedAudio>;
+    static open(directory: string, sessionId: RuntimeSessionId): Promise<RecordedAudio>;
+    readClip(stemId: StemId, window: RecordingClipWindow): Promise<RecordingClip>;
+    // (undocumented)
+    get stems(): readonly RecordedStem[];
+}
+
+// @public
+export interface RecordedStem {
+    // (undocumented)
+    readonly channels: number;
+    // (undocumented)
+    readonly clockId: ClockDomainId;
+    // (undocumented)
+    readonly finalTimestampNs: bigint;
+    // (undocumented)
+    readonly firstTimestampNs: bigint;
+    // (undocumented)
+    readonly label: string;
+    // (undocumented)
+    readonly permissionEpoch: bigint;
+    // (undocumented)
+    readonly sampleRateHz: number;
+    // (undocumented)
+    readonly sessionId: RuntimeSessionId;
+    // (undocumented)
+    readonly sourceGeneration: number;
+    // (undocumented)
+    readonly sourceId: SourceId;
+    // (undocumented)
+    readonly stemId: StemId;
+}
+
+// @public
+export interface RecordingClip {
+    // (undocumented)
+    readonly actual: RecordingClipWindow;
+    // (undocumented)
+    readonly discontinuities: readonly RecordingDiscontinuity[];
+    // (undocumented)
+    readonly firstSampleFrame: bigint;
+    // (undocumented)
+    readonly requested: RecordingClipWindow;
+    // (undocumented)
+    readonly sampleFrames: bigint;
+    // (undocumented)
+    readonly stem: RecordedStem;
+    // (undocumented)
+    readonly wav: Buffer_2;
+}
+
+// @public
+export class RecordingClipError extends PocketStationError {
+    constructor(code: string, message: string, cause?: unknown);
+}
+
+// @public
+export class RecordingClipWindow {
+    constructor(startNs: bigint, endNs: bigint);
+    static around(startNs: bigint, endNs: bigint, beforeNs: bigint, afterNs: bigint): RecordingClipWindow;
+    // (undocumented)
+    readonly endNs: bigint;
+    // (undocumented)
+    readonly startNs: bigint;
+}
+
+// @public
 export interface RecordingDiscontinuity {
     // (undocumented)
     readonly kind: RecordingDiscontinuityKind;

@@ -2423,6 +2423,7 @@ mod tests {
 
     #[test]
     fn replacement_errors_use_the_source_semantic_namespace() {
+        #[cfg(feature = "conformance-fixtures")]
         let _ = super::conformance_source_replacement_error("session-not-running".to_owned());
         let stem_id = StemId::new(7);
         let cases = [

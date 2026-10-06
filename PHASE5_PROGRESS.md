@@ -1915,3 +1915,30 @@ dependency update. Diagnostic absolute-path patches and locks are restored after
 qualification. Native automatic selection, duplicate-processing prevention,
 physical acoustic quality and platform qualification remain pending. No version,
 tag, push, publication or deployment changed.
+
+
+## 2026-10-05 — Core recording clips in Node
+
+The user's Core-to-SDK cascade explicitly authorizes this thin Phase 5
+projection (phase-exception-approved), W21-RECORDING-TRIGGER-CLIPS candidate147.
+RecordedAudio.open/fromOutcome and readClip call Core on native workers; clip
+windows, owned Buffer data, source metadata and gaps preserve u64 as bigint.
+Clock-domain IDs preserve Core's u32 as number. The Node entry exports the API;
+the neutral root and browser keep their existing filesystem-free semantics.
+A fixture-only source-replacement assertion is correctly feature-gated so the
+lean native Rust test target compiles. No runtime source-replacement changes.
+
+Twelve production-addon clip tests pass. All 46 broader fixture-enabled suites
+pass (621 tests, six enabled-only skips). TypeScript, six API report checks,
+strict native Clippy and formatting pass. Installed local npm tarballs pass
+CommonJS/ESM Node imports and exact cross-language WAV/identity/time/gap checks
+against Python-created normal Session recordings. u64/gap metadata modifications
+are explicitly serialization fixtures, not physical-device/clock evidence.
+
+No copied clipping engine, live scaffold, detector/provider/default AEC
+dependency, new package/repository, version, push/tag/publication or deployment.
+Source and artifacts use matching local Core and preserve prior AEC/release
+edits. The API report also reflects the pre-existing uncommitted native AEC API;
+only recording additions belong to this scoped commit. Staff review PASS for
+recording semantics; formal clean-owner/release acceptance pending. Receipts:
+factory evidence/W21-RECORDING-TRIGGER-CLIPS/sdk-parity-147.

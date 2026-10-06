@@ -1050,6 +1050,40 @@ export interface NativeRecordingDiscontinuity {
   sequenceEnd?: string | null;
 }
 
+export interface NativeClipInterval {
+  startNs: string;
+  endNs: string;
+}
+
+export interface NativeRecordedStem {
+  label: string;
+  sessionId: string;
+  sourceId: string;
+  stemId: string;
+  clockId: string;
+  sourceGeneration: number;
+  permissionEpoch: string;
+  sampleRateHz: number;
+  channels: number;
+  firstTimestampNs: string;
+  finalTimestampNs: string;
+}
+
+export interface NativeRecordingClip {
+  wav: Buffer;
+  stem: NativeRecordedStem;
+  requested: NativeClipInterval;
+  actual: NativeClipInterval;
+  firstSampleFrame: string;
+  sampleFrames: string;
+  discontinuities: NativeRecordingDiscontinuity[];
+}
+
+export interface NativeRecordedAudioHandle {
+  stems(): NativeRecordedStem[];
+  readClip(stemId: string, startNs: string, endNs: string): Promise<NativeRecordingClip>;
+}
+
 export interface NativeRecordingStemOutcome {
   stemName: string;
   framesWrittenTotal: string;
@@ -1406,6 +1440,9 @@ interface NativeSessionConstructor {
 }
 
 export interface NativeAddon {
+  recordingClipWindow(startNs: string, endNs: string, beforeNs: string, afterNs: string): NativeClipInterval;
+  openRecordedAudio(directory: string, sessionId: string): Promise<NativeRecordedAudioHandle>;
+
   aecAvailable(): boolean;
   NativeSource: NativeSourceConstructor;
   NativeSourceManifest: NativeSourceManifestConstructor;
