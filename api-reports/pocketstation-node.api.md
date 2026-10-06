@@ -2361,6 +2361,13 @@ export interface NativeExtensionRegistration {
 }
 
 // @public
+export class NativePlaybackReference {
+    static output(playbackDeviceId: string): NativePlaybackReference;
+    // (undocumented)
+    readonly playbackDeviceId: string;
+}
+
+// @public
 export interface OpenedNativeFormat {
     // (undocumented)
     readonly channelCount: number;
@@ -3670,6 +3677,7 @@ export class Session {
     eventInput(name: string, options?: EventInputOptions): EventInput;
     get id(): RuntimeSessionId;
     loadNativeExtensionLibrary(path: string): Promise<NativeExtensionLibrary>;
+    nativeAec(microphone: Stem, reference: NativePlaybackReference): void;
     operator(operator: Operator | OperatorFactory | OperatorProvider, configuration?: Configuration | OperatorConfiguration): OperatorInstance;
     pcmSource(config: AudioInputConfig): PcmSource;
     polledAudio(route?: RouteSettings): Endpoint;

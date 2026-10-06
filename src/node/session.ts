@@ -7,7 +7,12 @@ import {
   nativeCall,
   nativeCallSync,
 } from './errors.js';
-import { EchoCancelledAudio, PlaybackReference, type EchoAudioInput } from './aec.js';
+import {
+  EchoCancelledAudio,
+  NativePlaybackReference,
+  PlaybackReference,
+  type EchoAudioInput,
+} from './aec.js';
 import {
   ConnectorId,
   EndpointId,
@@ -1335,6 +1340,17 @@ export class Session {
       reference,
       native,
     );
+  }
+
+  /** Request OS-provided AEC for one microphone and exact playback device at Session start. */
+  public nativeAec(microphone: Stem, reference: NativePlaybackReference): void {
+    if (!(reference instanceof NativePlaybackReference)) {
+      throw new TypeError('reference must be an explicit NativePlaybackReference');
+    }
+    nativeCallSync(() => this.#native.nativeAec(
+      microphone._nativeHandle(),
+      reference.playbackDeviceId,
+    ));
   }
 
   /** Declare one instance of an externally registered Source. */

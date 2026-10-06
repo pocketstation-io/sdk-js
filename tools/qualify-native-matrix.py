@@ -139,7 +139,7 @@ def consume(identity, node_cell, directory, output):
         run(['node', str(tooling / 'typescript/bin/tsc'), '-p', 'tsconfig.json'], work)
         shutil.copy2(ROOT / 'tools/native-matrix-consumer.mjs', work / 'consumer.mjs')
         shutil.copy2(ROOT / 'tools/aec-consumer.mjs', work / 'aec-consumer.mjs')
-        result = json.loads(run(['node', 'consumer.mjs', identity, native['nativeSha256'], root['version'], '1.1.12'], work))
+        result = json.loads(run(['node', 'consumer.mjs', identity, native['nativeSha256'], root['version'], '1.1.13'], work))
     result.update({'schema': 1, 'typesPassed': True, 'nodeCell': node_cell, 'sourceCommit': root['sourceCommit'],
                    'rootSha256': root['sha256'], 'nativeArchiveSha256': native['sha256']})
     validate_consumer(result, row, node_cell, root, native)
@@ -157,11 +157,23 @@ def validate_consumer(result, row, node_cell, root, native):
     assert result['rootSha256'] == root['sha256'] and result['nativeArchiveSha256'] == native['sha256']
     assert result['nativeSha256'] == native['nativeSha256']
     assert result['sdkVersion'] == root['version'] == native['version']
-    assert result['coreVersion'] == '1.1.12'
+    assert result['coreVersion'] == '1.1.13'
     assert result['frames'] == 1 and result['samples'] == 480
     assert all(result[k] is True for k in ['sourceIdentity', 'outputCancellation', 'stopSuccess'])
-    aec = result['aec']
+    # The shipping matrix builds ordinary engine-free addons. Positive engine
+    # measurements cannot stand in for proving this artifact omits the engine.
+    validate_aec(result['aec'], expected_available=False)
+    assert result['exports'] == ['pocketstation', *[f'pocketstation/{n}' for n in ['node', 'browser', 'control', 'demo', 'voice']]]
+    if row['platform'] == 'linux':
+        assert result['glibc'] == '2.34', 'The claimed libc floor must actually execute'
+
+
+def validate_aec(aec, *, expected_available=True):
     assert isinstance(aec, dict)
+    if not expected_available:
+        assert set(aec) == {'available', 'unavailableErrorVerified'}
+        assert aec['available'] is False and aec['unavailableErrorVerified'] is True
+        return
     assert type(aec['processedFramesTotal']) is int and aec['processedFramesTotal'] == 400
     assert type(aec['discardedOutputFramesTotal']) is int and aec['discardedOutputFramesTotal'] == 0
     assert aec['rawStemUnchanged'] is True and aec['observationsRetained'] is True
@@ -175,9 +187,6 @@ def validate_consumer(result, row, node_cell, root, native):
             assert minimum <= value < maximum
         else:
             assert minimum < value < maximum
-    assert result['exports'] == ['pocketstation', *[f'pocketstation/{n}' for n in ['node', 'browser', 'control', 'demo', 'voice']]]
-    if row['platform'] == 'linux':
-        assert result['glibc'] == '2.34', 'The claimed libc floor must actually execute'
 
 
 def verify(directory, commit, output):

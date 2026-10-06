@@ -13,6 +13,7 @@ build/
 coverage/
 *.log
 .cache/
+__pycache__/
 .vscode/
 .idea/
 .claude/

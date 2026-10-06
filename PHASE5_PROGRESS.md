@@ -1967,3 +1967,40 @@ production bindings and controlled conformance tests, no new runtime stub.
 Scaffold inventory: LOOPBACK-ONLY Lab fixture, no physical claim. Staff component
 review: PASS. No release/version/publication change; unrelated native-AEC and
 release work remains uncommitted and excluded from this commit.
+
+### 2026-10-06 — existing clip/history release candidate qualification
+
+The user authorizes publication of the existing Core 1.1.13 and corresponding
+Python 0.1.6 / Node 0.1.5 candidates when required gates pass. Release metadata,
+version assertions and compatibility declarations now agree. The installed
+consumer already distinguishes default engine-free builds from explicit AEC
+builds; the matrix validator now requires the matching negative availability
+proof for shipping default artifacts. Positive cancellation/tail/provenance
+checks remain for enabled-engine evidence; no physical claim follows from them.
+Adversarial matrix tests reject mismatched or incomplete availability evidence.
+
+Candidate149 receipts record passed local metadata/protocol checks and historical
+failures separately. Same-source registry dependency locks, clean production
+artifacts and cloud distribution qualification are still pending Core release.
+The installed-artifact Lab result in candidate148 remains LOOPBACK-ONLY; it does
+not replace those release gates. No new dependency/package/fork, implicit capture,
+default processing or model is introduced. Native macOS/Linux AEC remains
+unsupported and acoustic Windows qualification remains in progress.
+
+Registry-source qualification now passes for Core1.1.13 checksum
+37b4ca82d96d1d1755fd51ba3c81282baba9b5de8837c84ea9dad1da692a454e;
+the backed-up local override is removed and all other lock entries stay fixed.
+47 suites / 626 tests PASS, six enabled-AEC cases skipped in the lean artifact.
+Native formatting/strict Clippy/23 native tests, all public API reports, docs,
+notices, types, archive installation/assembly and package exports pass. The
+production addon is rebuilt without conformance-fixtures. Lab149 installs
+the frozen root/native archives and Python wheel, proving exact independent
+stereo live/finalized PCM, 128 concurrent reads per SDK, retention limits and
+zero recording drops. This controlled-input proof remains LOOPBACK-ONLY.
+
+Staff source review: PASS / SAFE-TO-TEST. Purpose: prepare existing 0.1.5 and
+expose Core's explicit native-device request without bundling default AEC.
+No algorithm, model/provider or new runtime scaffold is added. Native macOS/
+Linux availability and physical Windows qualification are not claimed.
+Cloud same-source native/runtime matrix and npm publication remain pending.
+Candidate149 receipts preserve all failed attempts and package hashes.

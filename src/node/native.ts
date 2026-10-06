@@ -1340,6 +1340,7 @@ export interface NativeStartResultHandle {
 export interface NativeSessionHandle {
   audioHistory(retentionNs: string, maxPcmBytes: number, maxBuffers: number): NativeAudioHistoryHandle;
   readonly id: string;
+  nativeAec(microphone: NativeStemHandle, playbackDeviceId: string): void;
   echoCancel(
     microphone: NativeStemHandle | NativeSourceOutputHandle | NativeDerivedStreamHandle,
     reference: NativeStemHandle | NativeSourceOutputHandle | NativeDerivedStreamHandle,

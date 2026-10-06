@@ -1,6 +1,6 @@
 {
   "name": "@pocketstation/native-linux-arm64-gnu",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "PocketStation native Node-API addon for linux-arm64-gnu",
   "main": "pocketstation-js.linux-arm64-gnu.node",
   "files": [

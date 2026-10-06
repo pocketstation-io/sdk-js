@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 
 const node = await import('pocketstation/node');
 assert.equal(typeof node.RuntimeCompatibility, 'function');
-assert.equal(node.runtimeCompatibility.sdkVersion, '0.1.4');
-assert.equal(node.runtimeCompatibility.coreVersion, '1.1.12');
+assert.equal(node.runtimeCompatibility.sdkVersion, '0.1.5');
+assert.equal(node.runtimeCompatibility.coreVersion, '1.1.13');
 for (const identity of [
   node.ClockDomainId,
   node.ConnectorId,
@@ -157,7 +157,7 @@ assert.deepEqual(Object.keys(root), [
   'runtimeCompatibility',
   'version',
 ]);
-assert.equal(root.version, '0.1.4');
+assert.equal(root.version, '0.1.5');
 assert.equal(root.runtimeCompatibility.sdkVersion, root.version);
 assert.equal(root.runtimeCompatibility.nativeAbi, 'napi8');
 
