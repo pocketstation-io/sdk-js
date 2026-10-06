@@ -2038,3 +2038,17 @@ Production packed-consumer and cloud source checks must pass before merge.
 The ordinary production rebuild, isolated packed-package execution and archive
 assembly now pass locally; default AEC remains unavailable as required. Staff
 assertion review: PASS / SAFE-TO-TEST. Full corrected source CI remains pending.
+
+### 2026-10-06 — Linux qualification container interpreter
+
+Python's exact-main qualification exposed a shared setup error in the manylinux
+containers: system Python has no pip, while `/opt/python/cp313-cp313` is the
+documented Python build toolchain. The equivalent JavaScript Linux setup now
+uses that interpreter for the existing pinned Ninja installation and exposes
+its bin directory to subsequent build steps. This changes build setup only;
+no runtime dependency/API/version, archive assertion or physical claim changes.
+Existing native matrix/release checks and real container builds remain required.
+
+Local nine native-matrix tests and whitespace review pass. Staff setup review: PASS /
+SAFE-TO-TEST; corrected container builds and full source CI remain pending.
+Scaffold inventory: n/a; no runtime path or acceptance claim is introduced.
