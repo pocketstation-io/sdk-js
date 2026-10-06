@@ -150,19 +150,21 @@ describe('Operator authoring', () => {
   });
 
   it('closes an Operator node that resolves after the native creation deadline', async () => {
+    let creates = 0;
     let closes = 0;
+    let completeCreation!: (node: OperatorNode) => void;
+    const creation = new Promise<OperatorNode>((resolve) => { completeCreation = resolve; });
     const text = SignalSpec.text();
     const delayed = defineOperator({
       id: 'org.example.operator.native-create-deadline.v1',
       inputs: [PortSpec.input('text', text)],
       outputs: [PortSpec.output('text', text)],
-      deadlineMs: 10,
-      create: async () => {
-        await delay(40);
-        return {
-          process: () => [],
-          close: () => { closes += 1; },
-        };
+      // Allow admission/validation to finish, then hold creation until the
+      // native deadline expires. A validation timeout never allocates a node.
+      deadlineMs: 250,
+      create: () => {
+        creates += 1;
+        return creation;
       },
     });
     const feed = defineSource({
@@ -175,7 +177,13 @@ describe('Operator authoring', () => {
     session.source(feed).output('text').connect(instance.input('text'));
     session.subscribe(instance.output('text'), { signal: text });
 
-    await expect(session.start()).rejects.toBeInstanceOf(Error);
+    try {
+      await expect(session.start()).rejects.toThrow('JavaScript provider promise exceeded its deadline');
+      expect(creates).toBe(1);
+      expect(closes).toBe(0);
+    } finally {
+      completeCreation({ process: () => [], close: () => { closes += 1; } });
+    }
     await waitFor(() => closes === 1);
 
     expect(closes).toBe(1);
