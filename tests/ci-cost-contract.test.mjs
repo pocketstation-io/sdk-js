@@ -91,3 +91,18 @@ test('source and archive builds reject private files before installs and pin onl
   assert.ok(publishing.some((step) => step.run === 'npm install --global npm@11.9.0 --ignore-scripts'),
     'publishing keeps its OIDC-capable CLI');
 });
+
+test('Linux container jobs trust only their checkout before source verification and archive use', () => {
+  const qualification = workflow('qualify-distribution');
+  const command = 'git config --global --add safe.directory "$GITHUB_WORKSPACE"';
+  for (const name of ['native', 'consumers']) {
+    const steps = qualification.jobs[name].steps;
+    const trust = steps.findIndex((step) => (step.run ?? '').split('\n').includes(command));
+    const firstUse = steps.findIndex((step) => /check-public-source\.mjs|qualify-native-matrix\.py/.test(step.run ?? ''));
+    assert.ok(trust >= 0 && trust < firstUse, `${name} needs its container checkout before Git checks`);
+    assert.equal(steps[trust].if, "runner.os == 'Linux'");
+    const configurations = steps.flatMap((step) => (step.run ?? '').split('\n'))
+      .filter((line) => line.includes('safe.directory'));
+    assert.deepEqual(configurations, [command], 'never disable ownership checks for all directories');
+  }
+});
