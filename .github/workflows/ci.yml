@@ -99,6 +99,6 @@ jobs:
           npm run build:native:aec
           npm run build:typescript
           node tools/test-packed-consumer.mjs
-          node --experimental-vm-modules node_modules/.bin/jest src/__tests__/node-aec.test.ts --runInBand
+          node --experimental-vm-modules node_modules/jest/bin/jest.js src/__tests__/node-aec.test.ts --runInBand
           cargo test --manifest-path native/Cargo.toml --all-features --locked
           cargo clippy --manifest-path native/Cargo.toml --all-targets --all-features --locked -- -D warnings
