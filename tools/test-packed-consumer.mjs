@@ -244,10 +244,10 @@ export type { DemoBoundary };
       microphonePermissionObservation,
       runtimeCompatibility,
     } from 'pocketstation/node';
-    if (runtimeCompatibility.sdkVersion !== '0.1.4') {
+    if (runtimeCompatibility.sdkVersion !== '0.1.5') {
       throw new Error('packed compatibility report has the wrong SDK version');
     }
-    if (runtimeCompatibility.coreVersion !== '1.1.12') {
+    if (runtimeCompatibility.coreVersion !== '1.1.13') {
       throw new Error('packed compatibility report has the wrong Core version');
     }
     if (SampleRepresentation.SIGNED_INTEGER_16 !== 'signed-integer-16') {
@@ -879,8 +879,8 @@ export type { DemoBoundary };
     const root = await import('pocketstation');
     if (
       typeof root.RuntimeCompatibility !== 'function' ||
-      root.runtimeCompatibility.sdkVersion !== '0.1.4' ||
-      root.runtimeCompatibility.coreVersion !== '1.1.12' ||
+      root.runtimeCompatibility.sdkVersion !== '0.1.5' ||
+      root.runtimeCompatibility.coreVersion !== '1.1.13' ||
       root.runtimeCompatibility.relayConnectorVersion !== '0.1.5' ||
       root.runtimeCompatibility.nativeAbi !== 'napi8'
     ) {
@@ -896,7 +896,7 @@ export type { DemoBoundary };
   const installedManifest = JSON.parse(
     readFileSync(join(consumer, 'node_modules/pocketstation/package.json'), 'utf8'),
   );
-  assert.equal(installedManifest.version, '0.1.4');
+  assert.equal(installedManifest.version, '0.1.5');
   assert.equal(installedManifest.peerDependencies.ws, '8.18.3');
   assert.equal(installedManifest.peerDependenciesMeta.ws.optional, true);
   assert.equal(

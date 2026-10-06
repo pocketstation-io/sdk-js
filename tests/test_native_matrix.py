@@ -12,15 +12,15 @@ spec.loader.exec_module(module)
 class ConsumerVerificationTests(unittest.TestCase):
     def setUp(self):
         self.row = module.target('linux-arm64-gnu')
-        self.root = {'sourceCommit': 'a' * 40, 'sha256': 'b' * 64, 'version': '0.1.4'}
+        self.root = {'sourceCommit': 'a' * 40, 'sha256': 'b' * 64, 'version': '0.1.5'}
         self.native = {'sourceCommit': 'a' * 40, 'sha256': 'c' * 64,
-                       'nativeSha256': 'd' * 64, 'version': '0.1.4'}
+                       'nativeSha256': 'd' * 64, 'version': '0.1.5'}
         self.report = {
             'passed': True, 'typesPassed': True, 'target': self.row['id'], 'platform': 'linux', 'arch': 'arm64',
             'nodeCell': '20.17.0', 'node': '20.17.0', 'napi': '8', 'glibc': '2.34',
             'sourceCommit': self.root['sourceCommit'], 'rootSha256': self.root['sha256'],
             'nativeArchiveSha256': self.native['sha256'], 'nativeSha256': self.native['nativeSha256'],
-            'sdkVersion': '0.1.4', 'coreVersion': '1.1.12', 'frames': 1, 'samples': 480,
+            'sdkVersion': '0.1.5', 'coreVersion': '1.1.13', 'frames': 1, 'samples': 480,
             'sourceIdentity': True, 'outputCancellation': True, 'stopSuccess': True,
             'aec': {'processedFramesTotal': 400, 'discardedOutputFramesTotal': 0,
                     'echoPowerRatio': 0.01, 'voicePowerRatio': 0.9,
@@ -30,6 +30,7 @@ class ConsumerVerificationTests(unittest.TestCase):
         }
 
     def test_complete_component_report_passes(self):
+        self.report['aec'] = {'available': False, 'unavailableErrorVerified': True}
         module.validate_consumer(self.report, self.row, '20.17.0', self.root, self.native)
 
     def test_cross_compilation_cannot_substitute_for_target_execution(self):
@@ -71,12 +72,12 @@ class ConsumerVerificationTests(unittest.TestCase):
                 report = copy.deepcopy(self.report)
                 report['aec'][key] = value
                 with self.assertRaises(AssertionError):
-                    module.validate_consumer(report, self.row, '20.17.0', self.root, self.native)
+                    module.validate_aec(report['aec'])
             with self.subTest(key=key, mutation='missing'):
                 report = copy.deepcopy(self.report)
                 del report['aec'][key]
                 with self.assertRaises(KeyError):
-                    module.validate_consumer(report, self.row, '20.17.0', self.root, self.native)
+                    module.validate_aec(report['aec'])
 
     def test_given_pass_through_muted_or_nonfinite_signal_when_validating_then_rejected(self):
         for key, values in [
@@ -88,11 +89,23 @@ class ConsumerVerificationTests(unittest.TestCase):
                     report = copy.deepcopy(self.report)
                     report['aec'][key] = value
                     with self.assertRaises(AssertionError):
-                        module.validate_consumer(report, self.row, '20.17.0', self.root, self.native)
+                        module.validate_aec(report['aec'])
             report = copy.deepcopy(self.report)
             del report['aec'][key]
             with self.assertRaises(KeyError):
-                module.validate_consumer(report, self.row, '20.17.0', self.root, self.native)
+                module.validate_aec(report['aec'])
+
+    def test_lean_build_requires_unavailable_error_and_rejects_engine_claim(self):
+        evidence = {'available': False, 'unavailableErrorVerified': True}
+        module.validate_aec(evidence, expected_available=False)
+        for key, value in [('available', True), ('available', 0),
+                           ('unavailableErrorVerified', False), ('unavailableErrorVerified', 1)]:
+            with self.subTest(key=key, value=value), self.assertRaises(AssertionError):
+                module.validate_aec(dict(evidence, **{key: value}), expected_available=False)
+        with self.assertRaises(AssertionError):
+            module.validate_aec(self.report['aec'], expected_available=False)
+        with self.assertRaises(KeyError):
+            module.validate_aec(evidence, expected_available=True)
 
     def test_given_no_aec_report_when_validating_then_rejected(self):
         del self.report['aec']

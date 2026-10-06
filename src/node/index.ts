@@ -6,6 +6,7 @@
 export {
   aecAvailable,
   EchoCancelledAudio,
+  NativePlaybackReference,
   PlaybackReference,
   type EchoAudioInput,
   type EchoCancellationObservations,

@@ -613,6 +613,20 @@ impl NativeSession {
     }
 
     #[napi]
+    pub fn native_aec(&self, microphone: &NativeStem, playback_device_id: String) -> Result<()> {
+        self.with_session(|session| {
+            session
+                .native_aec(
+                    &microphone.handle,
+                    pocketstation::NativePlaybackReference::output(pocketstation::DeviceId::new(
+                        playback_device_id,
+                    )),
+                )
+                .map_err(|failure| error("session.invalid_operator", failure.to_string()))
+        })
+    }
+
+    #[napi]
     pub fn audio_input(
         &self,
         sample_rate_hz: u32,

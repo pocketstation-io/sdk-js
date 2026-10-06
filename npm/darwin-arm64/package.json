@@ -1,6 +1,6 @@
 {
   "name": "@pocketstation/native-darwin-arm64",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "PocketStation native Node-API addon for darwin-arm64",
   "main": "pocketstation-js.darwin-arm64.node",
   "files": [

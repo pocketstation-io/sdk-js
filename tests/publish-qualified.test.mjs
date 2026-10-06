@@ -16,10 +16,10 @@ test('publication rejects reordered, replaced or incomplete qualified archives',
     const packages = names.map((name, index) => {
       const archive = `${index}.tgz`;
       writeFileSync(join(directory, archive), data);
-      return { name, version: '0.1.4', archive, sha256: createHash('sha256').update(data).digest('hex') };
+      return { name, version: '0.1.5', archive, sha256: createHash('sha256').update(data).digest('hex') };
     });
     const plan = { schema: 1, sourceCommit: 'a'.repeat(40), manifestSha256: 'b'.repeat(64),
-      version: '0.1.4', packages };
+      version: '0.1.5', packages };
     assert.doesNotThrow(() => validatePlan(plan, directory));
     for (const mutate of [
       (p) => p.packages.reverse(),

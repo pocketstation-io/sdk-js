@@ -6,6 +6,24 @@ import type { DerivedStream, SourceOutput, Stem } from './session.js';
 /** An already-declared audio stream; AudioInput callers use its output. */
 export type EchoAudioInput = Stem | SourceOutput | DerivedStream;
 
+/** One explicitly selected playback device for OS-provided microphone processing. */
+export class NativePlaybackReference {
+  public readonly playbackDeviceId: string;
+
+  private constructor(playbackDeviceId: string) {
+    this.playbackDeviceId = playbackDeviceId;
+    Object.freeze(this);
+  }
+
+  /** Select the exact output device; selection does not open or record its audio. */
+  public static output(playbackDeviceId: string): NativePlaybackReference {
+    if (typeof playbackDeviceId !== 'string' || playbackDeviceId.trim().length === 0) {
+      throw new TypeError('playbackDeviceId must identify one output device');
+    }
+    return new NativePlaybackReference(playbackDeviceId);
+  }
+}
+
 /** Which previously authorized audio the caller provides to the processor. */
 export type PlaybackReferenceCoverage =
   | 'selected-application'

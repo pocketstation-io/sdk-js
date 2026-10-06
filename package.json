@@ -1,6 +1,6 @@
 {
   "name": "pocketstation",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Native desktop audio Sessions for Node.js",
   "type": "module",
   "main": "./dist/cjs/index.js",
@@ -166,11 +166,11 @@
     }
   },
   "optionalDependencies": {
-    "@pocketstation/native-darwin-arm64": "0.1.4",
-    "@pocketstation/native-darwin-x64": "0.1.4",
-    "@pocketstation/native-win32-arm64-msvc": "0.1.4",
-    "@pocketstation/native-win32-x64-msvc": "0.1.4",
-    "@pocketstation/native-linux-arm64-gnu": "0.1.4",
-    "@pocketstation/native-linux-x64-gnu": "0.1.4"
+    "@pocketstation/native-darwin-arm64": "0.1.5",
+    "@pocketstation/native-darwin-x64": "0.1.5",
+    "@pocketstation/native-win32-arm64-msvc": "0.1.5",
+    "@pocketstation/native-win32-x64-msvc": "0.1.5",
+    "@pocketstation/native-linux-arm64-gnu": "0.1.5",
+    "@pocketstation/native-linux-x64-gnu": "0.1.5"
   }
 }

@@ -2,11 +2,37 @@ import {
   aecAvailable,
   EchoCancelledAudio,
   END_OF_STREAM,
+  NativePlaybackReference,
   PlaybackReference,
   Session,
   SessionDeclarationError,
   Source,
 } from '../node/index.js';
+
+describe('explicit native microphone AEC selection', () => {
+  it('records one exact output-device request without enabling the optional engine', () => {
+    const session = new Session();
+    const microphone = session.capture(Source.defaultMicrophone());
+    const application = session.capture(Source.application('not-opened-by-declaration'));
+    const reference = NativePlaybackReference.output('output-exact');
+    expect(reference.playbackDeviceId).toBe('output-exact');
+    expect(Object.isFrozen(reference)).toBe(true);
+    expect(() => session.nativeAec(microphone, reference)).not.toThrow();
+    expect(() => session.nativeAec(microphone, reference)).toThrow(SessionDeclarationError);
+    expect(() => session.nativeAec(application, reference)).toThrow(SessionDeclarationError);
+    expect(() => new Session().nativeAec(microphone, reference)).toThrow(SessionDeclarationError);
+    expect(() => NativePlaybackReference.output(' ')).toThrow(TypeError);
+  });
+
+  it('requires an explicit native reference, leaving the draft usable after rejection', () => {
+    const session = new Session();
+    const microphone = session.capture(Source.defaultMicrophone());
+    expect(() => session.nativeAec(microphone, undefined as unknown as NativePlaybackReference))
+      .toThrow(TypeError);
+    expect(() => session.nativeAec(microphone, NativePlaybackReference.output('output-exact')))
+      .not.toThrow();
+  });
+});
 
 (aecAvailable() ? describe : describe.skip)('built-in Session echo cancellation', () => {
   it('given explicit reference scopes when declaring then preserves inputs and retained observations', () => {
