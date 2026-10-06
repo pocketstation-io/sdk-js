@@ -154,6 +154,17 @@ impl NativeSourceOutput {
             })
             .map_err(|failure| error("session.invalid_recording", failure.to_string()))
     }
+
+    #[napi]
+    pub fn retain_audio(&self) -> Result<NativeEndpoint> {
+        self.handle
+            .retain_audio()
+            .map(|handle| NativeEndpoint {
+                session_id: self.session_id,
+                handle,
+            })
+            .map_err(|failure| error("session.invalid_endpoint", failure.to_string()))
+    }
 }
 
 #[napi(js_name = "NativeAudioInput")]

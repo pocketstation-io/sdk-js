@@ -418,6 +418,16 @@ impl NativeStem {
             })
             .map_err(|failure| error("session.invalid_recording", failure.to_string()))
     }
+    #[napi]
+    pub fn retain_audio(&self) -> Result<NativeEndpoint> {
+        self.handle
+            .retain_audio()
+            .map(|handle| NativeEndpoint {
+                session_id: self.session_id,
+                handle,
+            })
+            .map_err(|failure| error("session.invalid_endpoint", failure.to_string()))
+    }
 }
 
 #[napi(js_name = "NativeSession")]
@@ -433,6 +443,42 @@ pub struct NativeSession {
 
 #[napi]
 impl NativeSession {
+    #[napi]
+    pub fn audio_history(
+        &self,
+        retention_ns: String,
+        max_pcm_bytes: u32,
+        max_buffers: u32,
+    ) -> Result<crate::recording::NativeAudioHistory> {
+        let retention_ns = retention_ns.parse().map_err(|_| {
+            error(
+                "recording.history_invalid_limits",
+                "retentionNs must be an unsigned 64-bit integer",
+            )
+        })?;
+        self.with_session(|session| {
+            session
+                .audio_history(pocketstation::AudioHistoryConfig {
+                    retention_ns,
+                    max_pcm_bytes: max_pcm_bytes as usize,
+                    max_buffers: max_buffers as usize,
+                })
+                .map(|inner| crate::recording::NativeAudioHistory { inner })
+                .map_err(|failure| {
+                    error(
+                        match &failure {
+                            pocketstation::AudioHistoryDeclarationError::History(reason) => {
+                                reason.code()
+                            }
+                            pocketstation::AudioHistoryDeclarationError::Session(_) => {
+                                "session.invalid_endpoint"
+                            }
+                        },
+                        failure.to_string(),
+                    )
+                })
+        })
+    }
     #[napi(constructor)]
     pub fn new(options: Option<NativeSessionOptions>) -> Result<Self> {
         let options = options.unwrap_or(NativeSessionOptions {

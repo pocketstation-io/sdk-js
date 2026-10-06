@@ -5,6 +5,14 @@ import type { OperatorInstanceId } from './identity.js';
 
 export { PocketStationError } from '../errors.js';
 
+/** Core refused a live history window, identity or retention limit. */
+export class AudioHistoryError extends PocketStationError {
+  public constructor(code: string, message: string, cause?: unknown) {
+    super(code, message, { cause });
+    this.name = 'AudioHistoryError';
+  }
+}
+
 /** Core refused a recording interval, identity, format or integrity check. */
 export class RecordingClipError extends PocketStationError {
   public constructor(code: string, message: string, cause?: unknown) {
@@ -365,6 +373,9 @@ export function fromNativeError(failure: unknown): PocketStationError {
   }
   const code = message.slice(0, separator);
   const detail = message.slice(separator + NATIVE_ERROR_SEPARATOR.length);
+  if (code.startsWith('recording.history_')) {
+    return new AudioHistoryError(code, detail, failure);
+  }
   if (code.startsWith('recording.clip_')) {
     return new RecordingClipError(code, detail, failure);
   }

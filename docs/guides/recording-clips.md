@@ -50,7 +50,37 @@ The recorder checksum detects corruption and is not cryptographic authenticity.
 Callers authorize directories and prevent hostile concurrent writers. The reader
 checks the manifest and selected WAV on each read; it never widens capture scope.
 
-This is finalized-recording extraction. Live rolling retention and wake-word
-recognition are separate capabilities; detector models and provider integrations
-remain outside Core. A detector can supply intervals without making Core depend
-on that detector.
+For recent audio during capture, configure history before starting and explicitly
+route authorized source outputs:
+
+```typescript
+import { Session } from 'pocketstation/node';
+
+const session = new Session();
+const history = session.audioHistory({ retentionNs: 30000000000n });
+const input = session.audioInput('authorized-audio');
+input.output.retainAudio();
+const running = await session.start();
+// Feed/capture audio; metadata appears after its first real frame.
+// const clip = await history.readClip(exactStemId, detectorWindow);
+input.close();
+await running.stop();
+```
+
+Default shared limits: 30 seconds, 16 MiB PCM, 4096 buffers and at most 64 stems.
+`maxPcmBytes` and `maxBuffers` configure the two memory-related caps separately.
+`getStems()`, `observations()`, `readClip()` and `clear()` are asynchronous native
+worker operations. Declaration and `retainAudio()` are synchronous. Continuous
+PCM preserves exact sample indexes; source resets discard that stem's older
+generation. Clear discards retained audio while other destinations continue.
+Graceful stop keeps the bounded tail; cancellation purges history.
+
+`AudioHistoryError.code` distinguishes future post-context (`recording.history_not_ready`),
+expired context, missing/discontinuous context, ended capture, cancellation and
+failure. Live history does not invent silence or shorten missing context. Bound
+retries and concurrent reads in your app; abandoning a Promise does not interrupt
+an already started native operation. All u64 observations use bigint.
+
+These APIs are qualified against matching local native builds. Registry
+publication and physical capture qualification are separate. Detector models,
+wake-word recognition and provider integrations remain outside Core.

@@ -1942,3 +1942,28 @@ edits. The API report also reflects the pre-existing uncommitted native AEC API;
 only recording additions belong to this scoped commit. Staff review PASS for
 recording semantics; formal clean-owner/release acceptance pending. Receipts:
 factory evidence/W21-RECORDING-TRIGGER-CLIPS/sdk-parity-147.
+
+### W21 live audio history — candidate 148, 2026-10-06
+
+REAL Node bindings; LOOPBACK-ONLY installed-artifact proof. Session audio history
+and source/stem retainAudio delegate to Core. Native reads run on workers; public
+limits, states, observations and error codes are typed. u64 identities, ns,
+sample counts and counters remain bigint; original-channel WAV is an owned
+Buffer. SourceOutput history destinations participate in delivery accounting.
+No browser filesystem API, detector, duplicate retention algorithm or dependency
+was introduced.
+
+626 Jest tests pass, 6 enabled-AEC skips with the proper conformance addon;
+22 focused tests also pass against the ordinary production addon. Type checking,
+all six API reports, native Clippy and neutral export boundaries pass. Lab
+installs the actual root/native npm archives: 288 buffers and 128 concurrent
+reads, event-loop progress, hard history caps, zero recorder drops and exact
+live/finalized/Python PCM. A source-only tarball accidentally packed during a
+TypeScript rebuild is preserved as failed Lab04; the Lab now checks every
+declared package entry point before install. Final complete archive is separate.
+
+Evidence: factory W21-RECORDING-TRIGGER-CLIPS/live-history-148. New files are normal
+production bindings and controlled conformance tests, no new runtime stub.
+Scaffold inventory: LOOPBACK-ONLY Lab fixture, no physical claim. Staff component
+review: PASS. No release/version/publication change; unrelated native-AEC and
+release work remains uncommitted and excluded from this commit.
