@@ -2023,3 +2023,18 @@ runtime scaffold, new Core implementation or physical claim. Initial cloud
 failures remain preserved in candidate149; superseded remaining jobs are
 canceled to release runner capacity. Staff fix review: PASS / SAFE-TO-TEST.
 Full cloud source CI must pass on this corrected source before merge.
+
+### 2026-10-06 — headless Linux packed-consumer startup failure
+
+Corrected source CI passes the runtime suite on Linux, macOS and the explicit
+AEC lane. Its Linux packed-consumer gate still rejects Core's concrete
+`capture.unsupported` result before resolving the intentionally missing app.
+The isolated installed-package check now accepts that exact code on Linux,
+alongside `capture.backend_failed`; other platforms retain their existing
+expectation. Unexpected successful startup and other error codes still fail.
+This changes the consumer assertion only, with no runtime/API/dependency change
+or physical capture claim. Both failed Linux logs remain in candidate149.
+Production packed-consumer and cloud source checks must pass before merge.
+The ordinary production rebuild, isolated packed-package execution and archive
+assembly now pass locally; default AEC remains unavailable as required. Staff
+assertion review: PASS / SAFE-TO-TEST. Full corrected source CI remains pending.

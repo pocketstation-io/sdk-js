@@ -718,7 +718,11 @@ export type { DemoBoundary };
       await session.start();
       throw new Error('missing application unexpectedly started');
     } catch (error) {
-      if (error?.code !== 'capture.backend_failed') throw error;
+      // Headless Linux can reject application capture before resolving its name.
+      const allowedCodes = process.platform === 'linux'
+        ? ['capture.backend_failed', 'capture.unsupported']
+        : ['capture.backend_failed'];
+      if (!allowedCodes.includes(error?.code)) throw error;
     }
     const invalid = new Session();
     const desktop = invalid.capture(Source.systemAudio());
