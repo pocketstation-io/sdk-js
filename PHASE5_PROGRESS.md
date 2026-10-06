@@ -2052,3 +2052,18 @@ Existing native matrix/release checks and real container builds remain required.
 Local nine native-matrix tests and whitespace review pass. Staff setup review: PASS /
 SAFE-TO-TEST; corrected container builds and full source CI remain pending.
 Scaffold inventory: n/a; no runtime path or acceptance claim is introduced.
+
+### 2026-10-06 — platform-independent Jest launcher
+
+The Windows source job built its production and conformance addons, then failed
+before testing because Node was given npm's POSIX `.bin/jest` shell shim. The
+ordinary and Relay test scripts now invoke Jest's installed JavaScript entry
+directly; the opt-in AEC CI command uses the same entry. This preserves all test
+selection/assertions and runtime code, dependencies, versions and package APIs.
+The failed Windows log and its hash remain in candidate149.
+
+All 47 suites / 626 tests pass locally through the direct JavaScript launcher;
+six enabled-AEC cases remain explicitly skipped in the lean build. Corrected
+Windows source jobs and the complete source CI must pass before merge.
+Staff launcher review: PASS / SAFE-TO-TEST. Scaffold inventory: n/a; no new
+runtime path, platform qualification or acoustic claim is introduced.
