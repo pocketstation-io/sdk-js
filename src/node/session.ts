@@ -1,4 +1,6 @@
+import { AudioHistory, type AudioHistoryConfig } from './recording.js';
 import {
+  AudioHistoryError,
   SessionCompileDiagnostic,
   SessionDeclarationError,
   SessionStartError,
@@ -478,6 +480,14 @@ export class Stem {
     );
   }
 
+  /** Retain this independent Stem in the Session's declared bounded history. */
+  public retainAudio(): Endpoint {
+    return Endpoint._create(
+      this.#session,
+      nativeCallSync(() => this.#native.retainAudio()),
+    );
+  }
+
   /** Record this Stem under a stable name in the Session recording directory. */
   public record(name: string): Endpoint {
     return Endpoint._create(
@@ -585,6 +595,16 @@ export class SourceOutput {
         ),
       ),
     );
+  }
+
+  /** Retain this source-aware output in the Session's declared bounded history. */
+  public retainAudio(): Endpoint {
+    const endpoint = Endpoint._create(
+      this.#session,
+      nativeCallSync(() => this.#native.retainAudio()),
+    );
+    this.#conversationEndpointIds.add(endpoint.id);
+    return endpoint;
   }
 
   /** Record this output under a stable name in the Session recording directory. */
@@ -1275,6 +1295,20 @@ export class Session {
   /** Native Session identity. */
   public get id(): RuntimeSessionId {
     return RuntimeSessionId(BigInt(this.#native.id));
+  }
+
+  public audioHistory(config: AudioHistoryConfig = {}): AudioHistory {
+    const retentionNs = config.retentionNs ?? 30_000_000_000n;
+    const maxPcmBytes = config.maxPcmBytes ?? 16 * 1024 * 1024;
+    const maxBuffers = config.maxBuffers ?? 4096;
+    if (typeof retentionNs !== 'bigint' || retentionNs < 0n || retentionNs > 0xffff_ffff_ffff_ffffn
+      || !Number.isSafeInteger(maxPcmBytes) || maxPcmBytes < 0 || maxPcmBytes > 0xffff_ffff
+      || !Number.isSafeInteger(maxBuffers) || maxBuffers < 0 || maxBuffers > 0xffff_ffff) {
+      throw new AudioHistoryError('recording.history_invalid_limits', 'Invalid history integer limits');
+    }
+    return AudioHistory._create(nativeCallSync(() => this.#native.audioHistory(
+      retentionNs.toString(), maxPcmBytes, maxBuffers,
+    )));
   }
 
   /** Add a Source and return its source-aware Stem. */

@@ -338,6 +338,7 @@ export interface NativeSourceOutputHandle {
     inputPort?: string,
     outputPort?: string,
   ): NativeDerivedStreamHandle;
+  retainAudio(): NativeEndpointHandle;
   record(name: string): NativeEndpointHandle;
 }
 
@@ -467,6 +468,7 @@ export interface NativeStemHandle {
     inputPort?: string,
     outputPort?: string,
   ): NativeDerivedStreamHandle;
+  retainAudio(): NativeEndpointHandle;
   record(name: string): NativeEndpointHandle;
 }
 
@@ -1336,6 +1338,7 @@ export interface NativeStartResultHandle {
 }
 
 export interface NativeSessionHandle {
+  audioHistory(retentionNs: string, maxPcmBytes: number, maxBuffers: number): NativeAudioHistoryHandle;
   readonly id: string;
   echoCancel(
     microphone: NativeStemHandle | NativeSourceOutputHandle | NativeDerivedStreamHandle,
@@ -1497,4 +1500,22 @@ export function nativeAddon(): NativeAddon {
   }
   loadedAddon = loadNativePackage() as NativeAddon;
   return loadedAddon;
+}
+
+export interface NativeAudioHistoryObservations {
+  readonly state: string;
+  readonly retainedPcmBytes: number;
+  readonly retainedBuffers: number;
+  readonly receivedBuffersTotal: string;
+  readonly evictedBuffersTotal: string;
+  readonly rejectedBuffersTotal: string;
+  readonly discontinuitiesTotal: string;
+  readonly sourceResetsTotal: string;
+}
+
+export interface NativeAudioHistoryHandle {
+  stems(): Promise<NativeRecordedStem[]>;
+  readClip(stemId: string, startNs: string, endNs: string): Promise<NativeRecordingClip>;
+  clear(): Promise<void>;
+  observations(): Promise<NativeAudioHistoryObservations>;
 }

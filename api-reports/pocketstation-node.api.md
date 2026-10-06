@@ -94,6 +94,56 @@ export interface AudioFrame {
 }
 
 // @public
+export class AudioHistory {
+    // (undocumented)
+    clear(): Promise<void>;
+    // (undocumented)
+    getStems(): Promise<readonly RecordedStem[]>;
+    // (undocumented)
+    observations(): Promise<AudioHistoryObservations>;
+    // (undocumented)
+    readClip(stemId: StemId, window: RecordingClipWindow): Promise<RecordingClip>;
+}
+
+// @public (undocumented)
+export interface AudioHistoryConfig {
+    // (undocumented)
+    readonly maxBuffers?: number;
+    // (undocumented)
+    readonly maxPcmBytes?: number;
+    // (undocumented)
+    readonly retentionNs?: bigint;
+}
+
+// @public
+export class AudioHistoryError extends PocketStationError {
+    constructor(code: string, message: string, cause?: unknown);
+}
+
+// @public (undocumented)
+export interface AudioHistoryObservations {
+    // (undocumented)
+    readonly discontinuitiesTotal: bigint;
+    // (undocumented)
+    readonly evictedBuffersTotal: bigint;
+    // (undocumented)
+    readonly receivedBuffersTotal: bigint;
+    // (undocumented)
+    readonly rejectedBuffersTotal: bigint;
+    // (undocumented)
+    readonly retainedBuffers: number;
+    // (undocumented)
+    readonly retainedPcmBytes: number;
+    // (undocumented)
+    readonly sourceResetsTotal: bigint;
+    // (undocumented)
+    readonly state: AudioHistoryState;
+}
+
+// @public (undocumented)
+export type AudioHistoryState = 'preparing' | 'running' | 'complete' | 'cancelled' | 'failed';
+
+// @public
 export class AudioInput implements PcmSource {
     [Symbol.dispose](): void;
     beginOutput(): OutputGeneration;
@@ -3603,6 +3653,8 @@ export type SelectorPersistenceScope = (typeof SelectorPersistenceScope)[keyof t
 export class Session {
     constructor(options?: SessionOptions);
     audio(route?: RouteSettings): Endpoint;
+    // (undocumented)
+    audioHistory(config?: AudioHistoryConfig): AudioHistory;
     audioInput(name: string, options?: AudioInputOptions): AudioInput;
     browser(receiverUri: string): Endpoint;
     capture(source: Source): Stem;
@@ -4905,6 +4957,7 @@ export class SourceOutput {
     get outputPort(): string;
     publish(publisher: RelayPublisher, busId: string): RelayRoute;
     record(name: string): Endpoint;
+    retainAudio(): Endpoint;
     send(endpoint: Endpoint, options?: RouteInputOptions): RouteId;
     sendTo(connector: Connector): RouteId;
     get sessionId(): RuntimeSessionId;
@@ -5191,6 +5244,7 @@ export class Stem {
     get id(): StemId;
     publish(publisher: RelayPublisher, busId: string): RelayRoute;
     record(name: string): Endpoint;
+    retainAudio(): Endpoint;
     send(endpoint: Endpoint, options?: RouteInputOptions): RouteId;
     sendTo(connector: Connector): RouteId;
     get sessionId(): RuntimeSessionId;

@@ -179,3 +179,99 @@ impl NativeRecordedAudio {
             .map(Into::into)
     }
 }
+
+#[napi]
+pub struct NativeAudioHistory {
+    pub(crate) inner: pocketstation::AudioHistory,
+}
+
+#[napi(object)]
+pub struct NativeAudioHistoryObservations {
+    pub state: String,
+    pub retained_pcm_bytes: u32,
+    pub retained_buffers: u32,
+    pub received_buffers_total: String,
+    pub evicted_buffers_total: String,
+    pub rejected_buffers_total: String,
+    pub discontinuities_total: String,
+    pub source_resets_total: String,
+}
+
+fn history_error(failure: pocketstation::AudioHistoryError) -> napi::Error {
+    error(failure.code(), failure.to_string())
+}
+
+#[napi]
+impl NativeAudioHistory {
+    #[napi]
+    pub async fn stems(&self) -> Result<Vec<NativeRecordedStem>> {
+        let history = self.inner.clone();
+        spawn_blocking(move || {
+            history
+                .stems()
+                .map_err(history_error)
+                .map(|stems| stems.into_iter().map(Into::into).collect())
+        })
+        .await
+        .map_err(|failure| error("recording.history_worker", failure.to_string()))?
+    }
+
+    #[napi]
+    pub async fn read_clip(
+        &self,
+        stem_id: String,
+        start_ns: String,
+        end_ns: String,
+    ) -> Result<NativeRecordingClip> {
+        let stem = StemId::new(u64_value(&stem_id, "recording.history_unknown_stem")?);
+        let window = RecordingClipWindow::new(
+            u64_value(&start_ns, "recording.clip_invalid_window")?,
+            u64_value(&end_ns, "recording.clip_invalid_window")?,
+        )
+        .map_err(clip_error)?;
+        let history = self.inner.clone();
+        spawn_blocking(move || {
+            history
+                .read_clip(stem, window)
+                .map(Into::into)
+                .map_err(history_error)
+        })
+        .await
+        .map_err(|failure| error("recording.history_worker", failure.to_string()))?
+    }
+
+    #[napi]
+    pub async fn clear(&self) -> Result<()> {
+        let history = self.inner.clone();
+        spawn_blocking(move || history.clear().map_err(history_error))
+            .await
+            .map_err(|failure| error("recording.history_worker", failure.to_string()))?
+    }
+
+    #[napi]
+    pub async fn observations(&self) -> Result<NativeAudioHistoryObservations> {
+        let history = self.inner.clone();
+        spawn_blocking(move || {
+            let value = history.observations().map_err(history_error)?;
+            let state = match value.state {
+                pocketstation::AudioHistoryState::Preparing => "preparing",
+                pocketstation::AudioHistoryState::Running => "running",
+                pocketstation::AudioHistoryState::Complete => "complete",
+                pocketstation::AudioHistoryState::Cancelled => "cancelled",
+                pocketstation::AudioHistoryState::Failed => "failed",
+            };
+            Ok(NativeAudioHistoryObservations {
+                state: state.into(),
+                retained_pcm_bytes: value.retained_pcm_bytes as u32,
+                retained_buffers: value.retained_buffers as u32,
+                received_buffers_total: value.received_buffers_total.to_string(),
+                evicted_buffers_total: value.evicted_buffers_total.to_string(),
+                rejected_buffers_total: value.rejected_buffers_total.to_string(),
+                discontinuities_total: value.discontinuities_total.to_string(),
+                source_resets_total: value.source_resets_total.to_string(),
+            })
+        })
+        .await
+        .map_err(|failure| error("recording.history_worker", failure.to_string()))?
+    }
+}
