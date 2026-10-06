@@ -2092,3 +2092,27 @@ Focused real-native tests pass (recover 618ms, abort 498ms). All 47 suites /
 cloud CI remains required before merge/publication.
 Scaffold inventory: no new runtime stub; the held model callback remains MOCKED.
 Staff fixture review: SAFE-TO-TEST; final cloud acceptance remains pending.
+
+### 2026-10-06 — Windows fixture portability and owned DLL cleanup
+
+The completed Windows jobs exposed test infrastructure failures: Unix shebang
+model scripts cannot be launched as Windows executables, converting a URL's
+pathname duplicates its drive letter, and Rust/Node canonical strings can name
+the same DLL through different Windows aliases. Removing that DLL before its
+owning process exits also fails on Windows.
+
+CLI protocol tests now compile one small standard-library executable on each
+host. Its model output is explicitly MOCKED; literal arguments, PID ownership,
+kill/join and temporary audio cleanup still exercise the production CLI runner.
+Native extension integration runs in a bounded child that exits before parent
+cleanup. It checks real file identity, registrations, emitted bytes/lineage,
+Endpoint consumption, successful stop and duplicate rejection. The process-exit
+test imports the existing file URL directly. No runtime/API/dependency/version,
+production deadline or acceptance criterion changes.
+
+All four focused suites / 26 tests pass locally. Windows cloud execution is
+still required. GitHub refused all seven corrected-source jobs before any step,
+with an account payment/spending-limit annotation; that external blocker and
+all preceding failed Windows logs are retained in candidate149. No rejected
+job counts as passing qualification. Scaffold inventory: existing test-only
+MOCKED model protocol, no new live stub. Staff review: SAFE-TO-TEST.
