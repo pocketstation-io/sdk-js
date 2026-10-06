@@ -20,3 +20,20 @@ __pycache__/
 npm/*/*.node
 npm/*/LICENSE
 npm/*/README.md
+
+# Private engineering records remain local; never add them to public Git history.
+/AGENTS.md
+/CLAUDE.md
+/GEMINI.md
+/PHASE*_PROGRESS.md
+/PHASE*_QUEUE.md
+/docs/REPO_CONTRACT.md
+/docs/JAVASCRIPT_CAPABILITY_MATRIX.md
+/docs/JAVASCRIPT_SDK_DESIGN.md
+/docs/adr/
+/docs/architecture/
+/docs/development/
+/docs/internal/
+/docs/execution/
+/docs/reports/
+/docs/standards/

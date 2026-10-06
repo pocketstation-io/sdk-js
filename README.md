@@ -519,9 +519,9 @@ if (value === undefined) {
 
 ## Current API status
 
-The [capability status](docs/JAVASCRIPT_CAPABILITY_MATRIX.md) records what works
-today and what remains. The [SDK design](docs/JAVASCRIPT_SDK_DESIGN.md) explains
-native ownership, frame copying, cancellation, and browser separation.
+Read [platform support](docs/operations/platform-support.md) for supported
+environments and limitations, and [Session lifecycle](docs/concepts/session-lifecycle.md)
+for native ownership, cancellation and shutdown.
 
 Browser Relay receiving is exposed from `pocketstation/browser`. It stays
 separate so browser builds never load a native addon:
