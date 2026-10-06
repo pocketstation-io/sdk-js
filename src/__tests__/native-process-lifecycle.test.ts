@@ -1,11 +1,8 @@
 import { execFileSync } from 'node:child_process';
-import { pathToFileURL } from 'node:url';
 
 describe('native process lifecycle', () => {
   it('does not keep Node alive for an unstarted JavaScript Endpoint registration', () => {
-    const installedEntry = pathToFileURL(
-      new URL('../../dist/node/index.js', import.meta.url).pathname,
-    ).href;
+    const installedEntry = new URL('../../dist/node/index.js', import.meta.url).href;
     const script = `
       import {
         EndpointManifest,

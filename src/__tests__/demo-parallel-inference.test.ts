@@ -1,10 +1,11 @@
 /** Native graph/recording with finite MOCKED models; no device or service access. */
-import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { EndOfStream, Session } from '../node/index.js';
 import { WhisperCliModel, WhisperTranscriber, WhisperTranscriberConfiguration } from '../demo/faster-whisper.js';
+import { createWhisperCliExecutable } from '../../tests/fixtures/whisper-cli-executable.js';
 
 test.each([0, 9, 1.5, NaN, null])('rejects invalid inferenceConcurrency %p', value => {
   expect(() => new WhisperTranscriberConfiguration({ inferenceConcurrency: value as number })).toThrow();
@@ -31,9 +32,7 @@ test('encoder context preserves defaults and cannot truncate configured windows'
 
 test('CLI model maps seconds to encoder positions and rejects oversized direct input', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'pks-context-model-'));
-  const executable = join(directory, 'mock-whisper.mjs');
-  await writeFile(executable, `#!${process.execPath}\nimport fs from 'node:fs';\nconst a=process.argv;\nconst context=a.includes('-ac')?a[a.indexOf('-ac')+1]:'default';\nfs.writeFileSync(a[a.indexOf('-of')+1]+'.json',JSON.stringify({transcription:[{text:context,offsets:{from:0,to:10}}],result:{language:'en'}}));\n`);
-  await chmod(executable, 0o700);
+  const executable = await createWhisperCliExecutable(directory);
   try {
     for (const audioContextSeconds of [undefined, 10, 10.01]) {
       const model = new WhisperCliModel(new WhisperTranscriberConfiguration({ model: 'mock',
@@ -52,9 +51,7 @@ test('CLI model maps seconds to encoder positions and rejects oversized direct i
 
 test('CLI model forwards configured context literally to an owned executable', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'pks-prompt-model-'));
-  const executable = join(directory, 'mock-whisper.mjs');
-  await writeFile(executable, `#!${process.execPath}\nimport fs from 'node:fs';\nconst a=process.argv;\nconst prompt=a[a.indexOf('--prompt')+1];\nfs.writeFileSync(a[a.indexOf('-of')+1]+'.json',JSON.stringify({transcription:[{text:prompt,offsets:{from:0,to:10}}],result:{language:'en'}}));\n`);
-  await chmod(executable, 0o700);
+  const executable = await createWhisperCliExecutable(directory);
   const model = new WhisperCliModel(new WhisperTranscriberConfiguration({
     model: 'mock', whisperCliExecutable: executable, initialPrompt: 'Café application vocabulary',
   }));

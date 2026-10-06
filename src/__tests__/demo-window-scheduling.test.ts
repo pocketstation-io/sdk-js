@@ -1,9 +1,10 @@
-import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { EndOfStream, Session } from '../node/index.js';
 import { WhisperCliModel, WhisperTranscriber, WhisperTranscriberConfiguration } from '../demo/faster-whisper.js';
+import { createWhisperCliExecutable } from '../../tests/fixtures/whisper-cli-executable.js';
 
 test('slow inference leaves frame readers independent and EOF tails source-aware', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'pks-model-isolation-'));
@@ -60,10 +61,8 @@ test('slow inference leaves frame readers independent and EOF tails source-aware
 
 test('closing a CLI model kills and joins its owned child and clears temporary audio', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'pks-model-child-'));
-  const executable = join(directory, 'fake-whisper');
   const statePath = join(directory, 'state.json');
-  await writeFile(executable, `#!${process.execPath}\nimport fs from 'node:fs';\nfs.writeFileSync(${JSON.stringify(statePath)}, JSON.stringify({pid:process.pid,input:process.argv[process.argv.indexOf('-f')+1]}));\nsetInterval(()=>{},1000);\n`);
-  await chmod(executable, 0o700);
+  const executable = await createWhisperCliExecutable(directory, statePath);
   const model = new WhisperCliModel(new WhisperTranscriberConfiguration({ model: 'mock-model', whisperCliExecutable: executable }));
   const inference = model.transcribe(new Float32Array(16000), { beamSize: 1, language: 'en' });
   const observed = inference.then(() => null, (error: unknown) => error);
@@ -82,5 +81,4 @@ test('closing a CLI model kills and joins its owned child and clears temporary a
     await expect(model.transcribe(new Float32Array(1), { beamSize: 1, language: 'en' })).rejects.toThrow('closed');
   } finally { await model.close(); await rm(directory, { recursive: true, force: true }); }
 });
-
 
