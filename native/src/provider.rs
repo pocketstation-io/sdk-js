@@ -426,6 +426,7 @@ impl ProviderBridge {
         request: NativeProviderCall,
     ) -> std::result::Result<NativeProviderResult, String> {
         let deadline_notification = self.deadline_notification(&request);
+        let started = std::time::Instant::now();
         let (sender, receiver) = sync_channel(1);
         let status = self.dispatch.call_with_return_value(
             request,
@@ -456,10 +457,24 @@ impl ProviderBridge {
                 )
             }
         };
+        let remaining = self.deadline.saturating_sub(started.elapsed());
+        if remaining.is_zero() {
+            return Err(self.deadline_failure(
+                "JavaScript provider promise exceeded its deadline",
+                deadline_notification,
+            ));
+        }
         futures::executor::block_on(async {
             let promise = Box::pin(promise);
-            let deadline = Box::pin(futures_timer::Delay::new(self.deadline));
+            let deadline = Box::pin(futures_timer::Delay::new(remaining));
+            // Both futures can become ready before a delayed worker polls.
+            // A ready result must still obey the original admission deadline.
             match select(promise, deadline).await {
+                Either::Left((_, _)) if started.elapsed() >= self.deadline => Err(self
+                    .deadline_failure(
+                        "JavaScript provider promise exceeded its deadline",
+                        deadline_notification,
+                    )),
                 Either::Left((result, _)) => {
                     result.map_err(|failure| bounded_message(failure.to_string()))
                 }
@@ -499,7 +514,13 @@ impl ProviderBridge {
         }
         let promise = Box::pin(promise);
         let deadline = Box::pin(futures_timer::Delay::new(remaining));
+        // Timer wakeup order cannot extend the original monotonic deadline.
         match select(promise, deadline).await {
+            Either::Left((_, _)) if started.elapsed() >= self.deadline => Err(self
+                .deadline_failure(
+                    "JavaScript provider promise exceeded its deadline",
+                    deadline_notification,
+                )),
             Either::Left((result, _)) => {
                 result.map_err(|failure| bounded_message(failure.to_string()))
             }

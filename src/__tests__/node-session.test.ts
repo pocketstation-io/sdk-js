@@ -98,7 +98,12 @@ describe('native Node Session', () => {
       failure = error;
     }
     expect(failure).toBeInstanceOf(PocketStationError);
-    expect((failure as PocketStationError).code).toBe('capture.backend_failed');
+    // A headless Linux runner can reject capture before resolving an app.
+    // Both outcomes must stay coded startup failures, without a running Session.
+    const allowedCodes = process.platform === 'linux'
+      ? ['capture.backend_failed', 'capture.unsupported']
+      : ['capture.backend_failed'];
+    expect(allowedCodes).toContain((failure as PocketStationError).code);
   });
 
   it('Given a non-PocketStation Endpoint When sent Then it is rejected before native code', () => {

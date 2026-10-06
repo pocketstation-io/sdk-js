@@ -84,7 +84,9 @@ describe('concise capture workflow', () => {
 
   test('opens the concise function in one awaited call', async () => {
     await expect(capture('__pks_missing_application__')).rejects.toMatchObject({
-      code: 'capture.backend_failed',
+      code: process.platform === 'linux'
+        ? expect.stringMatching(/^capture\.(backend_failed|unsupported)$/)
+        : 'capture.backend_failed',
     });
   });
 });
