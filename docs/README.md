@@ -24,11 +24,9 @@ so browser-safe packages do not load native code.
 - [Understand Session lifecycle and limits](concepts/session-lifecycle.md)
 - [Choose Sources and handle permissions](concepts/sources-and-permissions.md)
 - [Understand delivery, failures, recordings, and traces](guides/observe-a-session.md)
-- [Understand native ownership and shutdown](JAVASCRIPT_SDK_DESIGN.md)
 
 ## Operate and troubleshoot
 
-- [Capability status](JAVASCRIPT_CAPABILITY_MATRIX.md)
 - [Platform support](operations/platform-support.md)
 - [Troubleshooting](troubleshooting.md)
 - [API map](reference/api-map.md)

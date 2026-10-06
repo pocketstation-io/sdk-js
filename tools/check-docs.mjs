@@ -1,26 +1,23 @@
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const forbiddenPublicDirectories = ['docs/architecture', 'docs/adr', 'docs/standards'];
+const tracked = execFileSync('git', ['ls-files', '-z'], {
+  cwd: root, encoding: 'utf8',
+}).split('\0').filter(Boolean);
 
 for (const directory of forbiddenPublicDirectories) {
-  const path = join(root, directory);
-  if (existsSync(path) && readdirSync(path).length !== 0) {
+  if (tracked.some((path) => path.startsWith(`${directory}/`))) {
     throw new Error(`${directory} contains maintainer material in the public documentation set`);
   }
 }
 
-function markdownFiles(directory) {
-  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
-    const path = join(directory, entry.name);
-    if (entry.isDirectory()) return markdownFiles(path);
-    return entry.name.endsWith('.md') ? [path] : [];
-  });
-}
-
-const files = [join(root, 'README.md'), ...markdownFiles(join(root, 'docs'))];
+// Local ignored engineering records are not the public documentation set.
+const files = tracked.filter((path) => path === 'README.md'
+  || (path.startsWith('docs/') && path.endsWith('.md'))).map((path) => join(root, path));
 const failures = [];
 
 for (const file of files) {
@@ -30,7 +27,11 @@ for (const file of files) {
     if (/^(?:https?:|mailto:|#)/.test(target)) continue;
     const path = target.split('#', 1)[0];
     if (path.length === 0) continue;
-    if (!existsSync(resolve(dirname(file), path))) {
+    const resolved = resolve(dirname(file), path);
+    const relative = resolved.slice(root.length + 1);
+    const published = tracked.includes(relative)
+      || tracked.some((entry) => entry.startsWith(`${relative}/`));
+    if (!existsSync(resolved) || !published) {
       failures.push(`${file.slice(root.length + 1)} -> ${target}`);
     }
   }

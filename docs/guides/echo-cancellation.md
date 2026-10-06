@@ -31,10 +31,10 @@ Declare the microphone and playback reference in one `Session`, then route the
 processed microphone to ordinary audio, recording or Connector destinations.
 The original application and microphone streams remain available independently.
 
-This API requires a native build containing Core's built-in AEC. It is not yet
-available in the published Core 1.1.12 dependency. The current source integration
-is under qualification; it does not establish physical acoustic quality or
-Windows/Linux support. See [capability status](../JAVASCRIPT_CAPABILITY_MATRIX.md).
+Core 1.1.13 provides this Session API. Processing requires an explicitly enabled
+native build; ordinary JavaScript binaries omit the portable engine. Component
+tests do not establish acoustic quality for a particular microphone and playback
+route. See [platform support](../operations/platform-support.md).
 
 ```ts
 import { PlaybackReference, Session, Source } from 'pocketstation/node';
