@@ -2004,3 +2004,22 @@ No algorithm, model/provider or new runtime scaffold is added. Native macOS/
 Linux availability and physical Windows qualification are not claimed.
 Cloud same-source native/runtime matrix and npm publication remain pending.
 Candidate149 receipts preserve all failed attempts and package hashes.
+
+### 2026-10-06 — original provider deadline under delayed timer polling
+
+PR8 source CI exposed overdue Source/Operator creation results accepted when
+the native timer worker was polled after the JavaScript Promise became ready.
+Synchronous dispatch admission and Promise completion now share one monotonic
+budget; both synchronous and asynchronous calls reject a ready result after
+that original deadline and send the existing instance cleanup notification.
+Late-created resource closure is still tested exactly once. Headless Linux
+startup checks permit only the explicit unsupported/backend-failed codes,
+while supported desktop expectations remain unchanged.
+
+All 47 suites / 626 tests pass locally, including the two late-creation cases;
+six explicit enabled-AEC skips remain in the lean build. Native formatting,
+strict Clippy and all 23 native tests pass. No API/dependency/version changes,
+runtime scaffold, new Core implementation or physical claim. Initial cloud
+failures remain preserved in candidate149; superseded remaining jobs are
+canceled to release runner capacity. Staff fix review: PASS / SAFE-TO-TEST.
+Full cloud source CI must pass on this corrected source before merge.
