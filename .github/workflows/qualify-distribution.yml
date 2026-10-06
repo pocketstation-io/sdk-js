@@ -64,6 +64,7 @@ jobs:
       - name: Install Linux build prerequisites
         if: runner.os == 'Linux'
         run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           dnf install -y alsa-lib-devel openssl-devel opus-devel pipewire-devel clang cmake ninja-build pkgconfig
           # The container's system Python has no pip; use its CPython toolchain.
           /opt/python/cp313-cp313/bin/python -m pip install 'ninja==1.11.1.4'
@@ -116,7 +117,9 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - name: Install Linux runtime dependencies
         if: runner.os == 'Linux'
-        run: dnf install -y alsa-lib openssl-libs opus pipewire-libs
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          dnf install -y alsa-lib openssl-libs opus pipewire-libs
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: ${{ matrix.node }}
