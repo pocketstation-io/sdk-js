@@ -2116,3 +2116,32 @@ with an account payment/spending-limit annotation; that external blocker and
 all preceding failed Windows logs are retained in candidate149. No rejected
 job counts as passing qualification. Scaffold inventory: existing test-only
 MOCKED model protocol, no new live stub. Staff review: SAFE-TO-TEST.
+
+
+### 2026-10-06 — local Actions cost correction
+
+The user reports repeated GitHub credit consumption. Source CI compiled the
+ordinary addon three times and conformance once per Node/OS job. The revised
+sequence builds each variant once and runs the same626 tests, exports and
+isolated package checks against those builds. Four locked build invocations
+become two; six ordinary matrix cells and the separate enabled-AEC gate remain.
+Windows consumers still run through npm to supply the CLI path. Source runs
+cancel obsolete candidates, matrix failures stop siblings, and jobs have a
+25-minute cap. The existing pinned Rust dependency-cache action is reused. Old
+automatic candidate archive triggers are removed; final target/runtime checks
+and publisher hash/source verification remain required.
+
+Local macOS-arm64 validation:626 PASS /6 explicit enabled-feature skips; CLI,
+statistics, production package exports, installed consumer, assembly,23 Rust
+tests, formatting, strict Clippy and all API reports PASS. Three cost-regression
+tests and actionlint PASS. The initial regression test accidentally counted
+Clippy/test feature flags as addon builds; its correction is retained in the
+evidence. Ordinary production output is restored. No dependency/version/API
+or audio callback behavior changes; no live scaffold introduced (inventory n/a).
+
+These edits are local only. No cloud run, push or npm publication is performed.
+The cost audit observes22727 JS job seconds in the release window, not billed
+credits; exact Windows/Linux execution remains pending. Runtime source fixes
+are committed separately atdade14f. Factory candidate149 contains all local
+terminal receipts and a machine-enforced cloud hold. Staff review: PASS for
+local cost controls / SAFE-TO-TEST, not cloud acceptance or SAFE-TO-MERGE.

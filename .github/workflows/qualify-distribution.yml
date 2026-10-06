@@ -1,8 +1,6 @@
 name: qualify-javascript-distribution
 
 'on':
-  push:
-    branches: [candidate/javascript-performance-115]
   workflow_dispatch:
 
 permissions:
@@ -53,7 +51,7 @@ jobs:
     container: ${{ matrix.container || null }}
     timeout-minutes: 45
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix: ${{ fromJSON(needs.root.outputs.build) }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -103,7 +101,7 @@ jobs:
     container: ${{ matrix.container || null }}
     timeout-minutes: 15
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix: ${{ fromJSON(needs.root.outputs.consume) }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
