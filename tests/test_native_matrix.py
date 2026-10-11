@@ -20,8 +20,9 @@ class ConsumerVerificationTests(unittest.TestCase):
             'nodeCell': '20.17.0', 'node': '20.17.0', 'napi': '8', 'glibc': '2.34',
             'sourceCommit': self.root['sourceCommit'], 'rootSha256': self.root['sha256'],
             'nativeArchiveSha256': self.native['sha256'], 'nativeSha256': self.native['nativeSha256'],
-            'sdkVersion': '0.1.5', 'coreVersion': '1.1.13', 'frames': 1, 'samples': 480,
+            'sdkVersion': '0.1.5', 'coreVersion': '1.1.14', 'frames': 1, 'samples': 480,
             'sourceIdentity': True, 'outputCancellation': True, 'stopSuccess': True,
+            'relayWebsocketAvailable': True,
             'aec': {'processedFramesTotal': 400, 'discardedOutputFramesTotal': 0,
                     'echoPowerRatio': 0.01, 'voicePowerRatio': 0.9,
                     'rawStemUnchanged': True, 'observationsRetained': True, 'terminalState': 'stopped',
@@ -50,7 +51,7 @@ class ConsumerVerificationTests(unittest.TestCase):
     def test_missing_runtime_observations_are_rejected(self):
         for key, value in [('passed', False), ('typesPassed', False), ('frames', 0), ('samples', 0), ('node', '24.0.0'),
                            ('napi', '7'), ('sourceIdentity', False), ('outputCancellation', False),
-                           ('stopSuccess', False), ('coreVersion', '1.1.11'), ('exports', [])]:
+                           ('stopSuccess', False), ('relayWebsocketAvailable', False), ('coreVersion', '1.1.11'), ('exports', [])]:
             with self.subTest(key=key):
                 report = copy.deepcopy(self.report)
                 report[key] = value

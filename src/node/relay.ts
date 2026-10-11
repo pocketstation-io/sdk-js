@@ -13,6 +13,7 @@ import {
 } from '../control/index.js';
 import {
   RelayPublisher,
+  relayWebsocketAvailable,
   type RelayIceServer,
   type Session,
 } from './session.js';
@@ -105,6 +106,8 @@ export class ReceiverInvitation {
 /** Options for creating one remote Relay Session. */
 export interface RelaySessionOptions {
   readonly controlPlaneUrl: string;
+  /** Static native publication transport. Defaults to WebRTC. */
+  readonly transport?: 'webrtc' | 'websocket';
   /**
    * Optional Relay origin override for an older control plane that omits media
    * endpoints. Modern control planes are authoritative through WHIP/WHEP.
@@ -141,6 +144,7 @@ export class RelaySession {
   readonly #ownsControl: boolean;
   readonly #requestTimeoutMs: number;
   readonly #iceServers: readonly RelayIceServer[];
+  readonly #transport: 'webrtc' | 'websocket';
   #publisherActivation: PublisherActivation | null = null;
   #invitation: ReceiverInvitation | null = null;
   #receiverActivation: ReceiverActivation | null = null;
@@ -154,6 +158,7 @@ export class RelaySession {
     ownsControl: boolean;
     requestTimeoutMs: number;
     iceServers: readonly RelayIceServer[];
+    transport: 'webrtc' | 'websocket';
   }) {
     this.relayUrl = options.relayUrl;
     this.#owner = options.owner;
@@ -161,10 +166,28 @@ export class RelaySession {
     this.#ownsControl = options.ownsControl;
     this.#requestTimeoutMs = options.requestTimeoutMs;
     this.#iceServers = options.iceServers;
+    this.#transport = options.transport;
   }
 
   /** Create one remote Session through the control plane. */
   public static async create(options: RelaySessionOptions): Promise<RelaySession> {
+    if (
+      options.transport !== undefined
+      && options.transport !== 'webrtc'
+      && options.transport !== 'websocket'
+    ) {
+      throw new RelayError(
+        'relay.invalid_transport',
+        'Relay transport must be webrtc or websocket',
+      );
+    }
+    const transport = options.transport ?? 'webrtc';
+    if (transport === 'websocket' && !relayWebsocketAvailable()) {
+      throw new RelayError(
+        'relay.transport_unavailable',
+        'This native build does not include WebSocket Relay publication; use WebRTC or a compatible native build',
+      );
+    }
     const requestTimeoutMs = finiteTimeout(
       options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
       'requestTimeoutMs',
@@ -185,7 +208,10 @@ export class RelaySession {
         signal: options.signal,
       });
       const relayUrl = resolveRelayOrigin(credentials, requestedRelayUrl);
-      const iceServers = relayPublisherIceServers(credentials);
+      // ControlClient has already bounded and decoded the response. WebSocket
+      // publication does not use its advertised ICE metadata.
+      const iceServers = transport === 'websocket'
+        ? Object.freeze([]) : relayPublisherIceServers(credentials);
       const owner = await SessionOwner.maintain(control, credentials, { timeoutMs: requestTimeoutMs, signal: options.signal });
       return new RelaySession({
         relayUrl,
@@ -194,6 +220,7 @@ export class RelaySession {
         ownsControl,
         requestTimeoutMs,
         iceServers,
+        transport,
       });
     } catch (error) {
       if (credentials !== undefined) {
@@ -249,6 +276,7 @@ export class RelaySession {
       url: this.relayUrl,
       sessionId: this.sessionId.toString(),
       sourceToken: this.credentials.sourceToken.exposeSecret(),
+      transport: this.#transport,
       iceServers: this.#iceServers,
     });
   }

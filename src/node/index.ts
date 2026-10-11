@@ -397,6 +397,7 @@ export {
   OperatorInput,
   OperatorInstance,
   RelayPublisher,
+  relayWebsocketAvailable,
   RelayRoute,
   RunningSession,
   Session,

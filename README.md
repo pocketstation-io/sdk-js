@@ -234,6 +234,25 @@ and signaling. JavaScript does not encode audio or maintain another media
 queue. Relay startup completes before `session.start()` returns, uses a finite
 deadline, and closes with the Session.
 
+`transport: 'webrtc'` is the default on both `RelaySession.create()` and
+`session.relay()`. Ordinary native builds use the released
+`pocketstation-relay 0.1.6` Connector and include WebSocket publication by default.
+Check `relayWebsocketAvailable()` from `pocketstation/node` before selecting
+`transport: 'websocket'`. Older addons and builds without the `relay-websocket`
+feature report `false`; selection then fails with `relay.transport_unavailable`
+before creating a remote Session or declaring a publisher. It never falls back
+to another transport automatically.
+
+Static WebSocket publication uses the same Connector. It ignores unused
+advertised ICE metadata after bounded response validation; WebRTC still rejects
+TURN and credential-bearing ICE configuration. The
+[integration guide](docs/guides/integrations.md#select-a-static-relay-transport)
+describes this capability boundary. Owner credential renewal does not replace a
+credential already attached to a native publisher; automatic media renewal and
+reconnect are separate capabilities.
+Native WebSocket proxy settings do not configure JavaScript management HTTP;
+an appropriate `ControlClient` fetch implementation remains application-owned.
+
 The microphone remains opt-in. A selected application can be the only
 published source when that is all the receiver needs. See the
 [runnable Relay example](examples/publish-to-relay.ts) for configuration.
