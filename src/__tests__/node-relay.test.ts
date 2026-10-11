@@ -1,4 +1,5 @@
-import { Session, Source } from '../node/index.js';
+import { relayWebsocketAvailable, Session, Source } from '../node/index.js';
+import { nativeAddon } from '../node/native.js';
 
 const connection = {
   url: 'http://127.0.0.1:4800',
@@ -7,6 +8,50 @@ const connection = {
 } as const;
 
 describe('native Relay destinations', () => {
+  it('reports the expected qualified build capability', () => {
+    expect(relayWebsocketAvailable()).toBe(true);
+  });
+
+  it.each([null, 7, {}, 'unknown-private-mode'])('rejects invalid transport before consuming the publisher declaration: %p', (transport) => {
+    const session = new Session();
+    expect(() => session.relay({ ...connection, transport } as never)).toThrow(
+      expect.objectContaining({ code: 'relay.invalid_transport' }),
+    );
+    expect(() => session.relay(connection)).not.toThrow();
+  });
+
+  it('refuses WebSocket when an older addon lacks the availability export', () => {
+    const addon = nativeAddon();
+    const descriptor = Object.getOwnPropertyDescriptor(addon, 'relayWebsocketAvailable');
+    Object.defineProperty(addon, 'relayWebsocketAvailable', { configurable: true, value: undefined });
+    try {
+      const session = new Session();
+      expect(relayWebsocketAvailable()).toBe(false);
+      expect(() => session.relay({ ...connection, transport: 'websocket' })).toThrow(
+        expect.objectContaining({ code: 'relay.transport_unavailable' }),
+      );
+      expect(() => session.relay(connection)).not.toThrow();
+    } finally {
+      if (descriptor) Object.defineProperty(addon, 'relayWebsocketAvailable', descriptor);
+      else Reflect.deleteProperty(addon, 'relayWebsocketAvailable');
+    }
+  });
+
+  it('uses WebSocket only when the installed native capability permits both buses', () => {
+    const session = new Session();
+    if (!relayWebsocketAvailable()) {
+      expect(() => session.relay({ ...connection, transport: 'websocket' })).toThrow(
+        expect.objectContaining({ code: 'relay.transport_unavailable' }),
+      );
+      return;
+    }
+    const relay = session.relay({ ...connection, transport: 'websocket', iceServers: [{ urls: 'turn:unused.example:3478' }] });
+    const application = session.audioInput('application PCM').output.publish(relay, 'application');
+    const microphone = session.audioInput('microphone PCM').output.publish(relay, 'microphone');
+    expect(application.busId).toBe('application');
+    expect(microphone.busId).toBe('microphone');
+    expect(application.routeId).not.toBe(microphone.routeId);
+  });
   it('shares one publisher while keeping AudioBus destinations distinct', () => {
     const session = Session._conformance();
     const relay = session.relay(connection);

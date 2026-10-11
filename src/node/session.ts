@@ -331,12 +331,24 @@ export interface RelayPublisherOptions {
   readonly sessionId: string;
   /** Source credential returned with the RelaySession. */
   readonly sourceToken: string;
+  /** Static publication transport. Defaults to WebRTC. */
+  readonly transport?: 'webrtc' | 'websocket';
   /** Prefer fresh speech audio over preserving a growing queue. */
   readonly lowLatency?: boolean;
   /** Complete signaling, ICE, and DTLS startup deadline. Defaults to 30 seconds. */
   readonly startupTimeoutMs?: number;
   /** STUN servers returned by the control plane, when needed. */
   readonly iceServers?: readonly RelayIceServer[];
+}
+
+/** Whether the installed native addon includes WebSocket Relay publication. */
+export function relayWebsocketAvailable(): boolean {
+  const addon = nativeAddon();
+  const available = addon.relayWebsocketAvailable;
+  // Older compatible addons have no capability export and must not silently
+  // ignore the new transport field.
+  return typeof available === 'function'
+    && nativeCallSync(() => available.call(addon)) === true;
 }
 
 /** Named audio destinations published through one shared Relay connection. */
@@ -1545,6 +1557,7 @@ export class Session {
       url: options.url,
       sessionId: options.sessionId,
       sourceToken: options.sourceToken,
+      transport: options.transport,
       busId,
       lowLatency: options.lowLatency,
       startupTimeoutMs: options.startupTimeoutMs,
@@ -1864,6 +1877,22 @@ export class Session {
 }
 
 function validateRelayPublisherOptions(options: RelayPublisherOptions): void {
+  if (
+    options.transport !== undefined
+    && options.transport !== 'webrtc'
+    && options.transport !== 'websocket'
+  ) {
+    throw new SessionDeclarationError(
+      'relay.invalid_transport',
+      'Relay transport must be webrtc or websocket',
+    );
+  }
+  if (options.transport === 'websocket' && !relayWebsocketAvailable()) {
+    throw new SessionDeclarationError(
+      'relay.transport_unavailable',
+      'This native build does not include WebSocket Relay publication; use WebRTC or a compatible native build',
+    );
+  }
   for (const [name, value] of [
     ['url', options.url],
     ['sessionId', options.sessionId],

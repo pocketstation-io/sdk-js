@@ -4,6 +4,50 @@ Use a `Connector` when PocketStation should deliver source-aware audio to code
 your application owns. Use an `Operator` when the processing result must return
 to the Session as another typed signal or generated-audio Stem.
 
+## Select a static Relay transport
+
+The installed native addon determines which publication transports are
+available. Ordinary native builds include WebSocket publication through the
+released `pocketstation-relay 0.1.6` Connector. WebRTC is the default. Query
+availability before choosing WebSocket:
+
+```ts
+import { relayWebsocketAvailable, RelaySession } from 'pocketstation/node';
+
+const transport = relayWebsocketAvailable() ? 'websocket' : 'webrtc';
+const remote = await RelaySession.create({
+  controlPlaneUrl: 'https://service.example',
+  requiredBuses: ['application', 'microphone'],
+  transport,
+});
+// Declare both buses through remote.publisher(session), then start the Session.
+// Close remote when the application has finished using it.
+```
+
+This example makes an explicit application choice. Requesting WebSocket on an
+unavailable build raises `relay.transport_unavailable` before remote creation;
+there is no automatic transport fallback. The lower-level `session.relay()`
+accepts the same `transport` option when the caller owns the static credential.
+
+The `relay-websocket` native feature is enabled by default and uses the locked
+published Connector. No private source-qualified build input is required. Builds
+that explicitly disable this feature and older addons report WebSocket
+unavailable and reject its selection before remote creation. The availability
+query reports the actual addon capability; it does not authenticate a gateway
+or prove a successful media connection.
+
+WebRTC uses the bounded advertised STUN metadata and rejects unsupported TURN
+or credentials. WebSocket does not use ICE; it bypasses only that unused
+metadata after the control response has been bounded and decoded. Both modes
+preserve the Relay Session and named bus identities through the same Connector.
+Static transport selection does not reconnect native media with the owner
+credential renewed by `RelaySession`; attached media can expire while owner
+renewal continues. Stop the Core Session and declare a publisher with a fresh
+capability on a new Core Session when needed. Long-lived renewed-media support
+is separate. Native WebSocket proxy settings also do not configure JavaScript
+management HTTPS; pass an appropriate application-owned `ControlClient` fetch
+implementation separately when required.
+
 ## Send audio to an existing client
 
 Install the package, then pass each immutable frame to your existing client:

@@ -11,6 +11,7 @@ use napi_derive::napi;
 use pocketstation::connector::{ConnectorSecret, RegisteredConnector};
 use pocketstation_relay::{
     RelayConnector, RelayIceServer, RelayPublishReceiptKey, RelayRouteConfiguration,
+    MAX_ICE_SERVERS, MAX_ICE_SERVER_URLS,
 };
 
 use crate::application_audio::NativeAudioInput;
@@ -226,6 +227,88 @@ pub struct NativeRelayDestinationOptions {
     pub low_latency: Option<bool>,
     pub startup_timeout_ms: Option<u32>,
     pub ice_servers: Option<Vec<NativeRelayIceServer>>,
+    pub transport: Option<String>,
+}
+
+/// Whether this native build includes WebSocket Relay publication.
+#[cfg_attr(test, allow(dead_code))]
+#[napi]
+pub fn relay_websocket_available() -> bool {
+    cfg!(feature = "relay-websocket")
+}
+
+fn relay_configuration(options: NativeRelayDestinationOptions) -> Result<RelayRouteConfiguration> {
+    let transport = options.transport.as_deref().unwrap_or("webrtc");
+    match transport {
+        "webrtc" => {}
+        "websocket" if relay_websocket_available() => {}
+        "websocket" => {
+            return Err(error(
+                "relay.transport_unavailable",
+                "This native build does not include WebSocket Relay publication; use WebRTC or a compatible native build",
+            ));
+        }
+        _ => {
+            return Err(error(
+                "relay.invalid_transport",
+                "Relay transport must be webrtc or websocket",
+            ));
+        }
+    }
+    let source_token = ConnectorSecret::new(options.source_token)
+        .map_err(|failure| error("relay.invalid_source_token", failure.to_string()))?;
+    let mut configuration = RelayRouteConfiguration::new(
+        options.url,
+        options.session_id,
+        source_token,
+        options.bus_id,
+    )
+    .map_err(|failure| error("relay.invalid_configuration", failure.to_string()))?;
+    if options.low_latency.unwrap_or(false) {
+        configuration = configuration.with_low_latency();
+    }
+    if let Some(timeout_ms) = options.startup_timeout_ms {
+        configuration = configuration
+            .with_startup_timeout(Duration::from_millis(u64::from(timeout_ms)))
+            .map_err(|failure| error("relay.invalid_configuration", failure.to_string()))?;
+    }
+    if transport == "websocket" {
+        #[cfg(feature = "relay-websocket")]
+        {
+            configuration = configuration
+                .with_websocket_ingress()
+                .map_err(|failure| error("relay.invalid_configuration", failure.to_string()))?;
+        }
+        if let Some(servers) = options.ice_servers {
+            // ICE is unused by this transport, but user-supplied metadata
+            // still has a finite shape. STUN/TURN semantics are not consulted.
+            if servers.len() > MAX_ICE_SERVERS
+                || servers.iter().any(|server| {
+                    server.urls.is_empty()
+                        || server.urls.len() > MAX_ICE_SERVER_URLS
+                        || server
+                            .urls
+                            .iter()
+                            .any(|url| url.is_empty() || url.len() > 2_048)
+                })
+            {
+                return Err(error(
+                    "relay.invalid_configuration",
+                    "Unused Relay ICE metadata exceeds its finite limits",
+                ));
+            }
+        }
+    } else if let Some(servers) = options.ice_servers {
+        let servers = servers
+            .into_iter()
+            .map(|server| RelayIceServer::new(server.urls))
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(|failure| error("relay.invalid_configuration", failure.to_string()))?;
+        configuration = configuration
+            .with_ice_servers(servers)
+            .map_err(|failure| error("relay.invalid_configuration", failure.to_string()))?;
+    }
+    Ok(configuration)
 }
 
 #[napi(object)]
@@ -727,34 +810,7 @@ impl NativeSession {
 
     #[napi]
     pub fn relay_audio(&self, options: NativeRelayDestinationOptions) -> Result<NativeEndpoint> {
-        let source_token = ConnectorSecret::new(options.source_token)
-            .map_err(|failure| error("relay.invalid_source_token", failure.to_string()))?;
-        let mut configuration = RelayRouteConfiguration::new(
-            options.url,
-            options.session_id,
-            source_token,
-            options.bus_id,
-        )
-        .map_err(|failure| error("relay.invalid_configuration", failure.to_string()))?;
-        if options.low_latency.unwrap_or(false) {
-            configuration = configuration.with_low_latency();
-        }
-        if let Some(timeout_ms) = options.startup_timeout_ms {
-            configuration = configuration
-                .with_startup_timeout(Duration::from_millis(u64::from(timeout_ms)))
-                .map_err(|failure| error("relay.invalid_configuration", failure.to_string()))?;
-        }
-        if let Some(servers) = options.ice_servers {
-            let servers = servers
-                .into_iter()
-                .map(|server| RelayIceServer::new(server.urls))
-                .collect::<std::result::Result<Vec<_>, _>>()
-                .map_err(|failure| error("relay.invalid_configuration", failure.to_string()))?;
-            configuration = configuration
-                .with_ice_servers(servers)
-                .map_err(|failure| error("relay.invalid_configuration", failure.to_string()))?;
-        }
-        let configuration = configuration
+        let configuration = relay_configuration(options)?
             .connector_configuration()
             .map_err(|failure| error("relay.invalid_configuration", failure.to_string()))?;
 
@@ -2478,8 +2534,147 @@ mod tests {
         SessionCommand,
     };
     use futures::channel::oneshot;
+    use pocketstation::connector::ConnectorConfigurationValue;
     use pocketstation::{CaptureError, SessionSourceReplacementError, StemId};
     use std::sync::mpsc::sync_channel;
+
+    fn relay_options(
+        transport: Option<&str>,
+        bus_id: &str,
+    ) -> super::NativeRelayDestinationOptions {
+        super::NativeRelayDestinationOptions {
+            url: "https://relay.example".to_owned(),
+            session_id: "session-001".to_owned(),
+            source_token: "private-source-capability".to_owned(),
+            bus_id: bus_id.to_owned(),
+            low_latency: Some(true),
+            startup_timeout_ms: Some(12_345),
+            ice_servers: None,
+            transport: transport.map(str::to_owned),
+        }
+    }
+
+    #[test]
+    fn given_legacy_transport_when_configuration_is_built_then_explicit_webrtc_is_identical() {
+        let legacy = super::relay_configuration(relay_options(None, "application"))
+            .unwrap()
+            .connector_configuration()
+            .unwrap();
+        let explicit = super::relay_configuration(relay_options(Some("webrtc"), "application"))
+            .unwrap()
+            .connector_configuration()
+            .unwrap();
+        assert_eq!(legacy, explicit);
+        assert_eq!(
+            legacy.get("relay_session_id"),
+            Some(&ConnectorConfigurationValue::Text("session-001".to_owned()))
+        );
+        assert_eq!(
+            legacy.get("publisher_group_id"),
+            Some(&ConnectorConfigurationValue::Text("session-001".to_owned()))
+        );
+        assert_eq!(
+            legacy.get("startup_timeout_ms"),
+            Some(&ConnectorConfigurationValue::DurationMilliseconds(12_345))
+        );
+        assert!(!format!("{legacy:?}").contains("private-source-capability"));
+    }
+
+    #[test]
+    fn given_unknown_transport_when_configuration_is_built_then_static_error_precedes_credentials()
+    {
+        let Err(failure) =
+            super::relay_configuration(relay_options(Some("unknown-private-mode"), "application"))
+        else {
+            panic!("unknown transport must fail");
+        };
+        assert!(failure.reason.starts_with("relay.invalid_transport|"));
+        assert!(!failure.reason.contains("unknown-private-mode"));
+        assert!(!failure.reason.contains("private-source-capability"));
+    }
+
+    #[test]
+    fn given_webrtc_turn_when_configuration_is_built_then_shared_validation_refuses_it() {
+        let mut options = relay_options(Some("webrtc"), "application");
+        options.ice_servers = Some(vec![super::NativeRelayIceServer {
+            urls: vec!["turn:private-turn.example:3478".to_owned()],
+        }]);
+        let Err(failure) = super::relay_configuration(options) else {
+            panic!("TURN is unsupported by the WebRTC publisher");
+        };
+        assert!(failure.reason.starts_with("relay.invalid_configuration|"));
+        assert!(!failure.reason.contains("private-turn"));
+    }
+
+    #[cfg(not(feature = "relay-websocket"))]
+    #[test]
+    fn given_build_without_websocket_feature_when_selected_then_it_is_unavailable() {
+        assert!(!super::relay_websocket_available());
+        let Err(failure) =
+            super::relay_configuration(relay_options(Some("websocket"), "application"))
+        else {
+            panic!("WebSocket publication without its feature must fail");
+        };
+        assert!(failure.reason.starts_with("relay.transport_unavailable|"));
+        assert!(!failure.reason.contains("private-source-capability"));
+    }
+
+    #[cfg(feature = "relay-websocket")]
+    #[test]
+    fn given_websocket_feature_when_two_buses_select_it_then_shared_identity_is_preserved() {
+        assert!(super::relay_websocket_available());
+        let mut configurations = Vec::new();
+        for bus_id in ["application", "microphone"] {
+            let mut options = relay_options(Some("websocket"), bus_id);
+            options.ice_servers = Some(vec![super::NativeRelayIceServer {
+                urls: vec!["turn:private-turn.example:3478".to_owned()],
+            }]);
+            let configuration = super::relay_configuration(options)
+                .unwrap()
+                .connector_configuration()
+                .unwrap();
+            assert_eq!(
+                configuration.get("transport"),
+                Some(&ConnectorConfigurationValue::Text("websocket".to_owned()))
+            );
+            assert_eq!(
+                configuration.get("bus_id"),
+                Some(&ConnectorConfigurationValue::Text(bus_id.to_owned()))
+            );
+            assert!(configuration.get("ice_servers").is_none());
+            assert_eq!(
+                configuration.get("startup_timeout_ms"),
+                Some(&ConnectorConfigurationValue::DurationMilliseconds(12_345))
+            );
+            configurations.push(configuration);
+        }
+        for key in [
+            "relay_url",
+            "relay_session_id",
+            "publisher_group_id",
+            "source_token",
+        ] {
+            assert_eq!(configurations[0].get(key), configurations[1].get(key));
+        }
+    }
+
+    #[cfg(feature = "relay-websocket")]
+    #[test]
+    fn given_unused_oversized_ice_when_websocket_is_selected_then_it_is_rejected() {
+        for urls in [
+            Vec::new(),
+            vec!["turn:private".repeat(256)],
+            vec!["turn:private".to_owned(); super::MAX_ICE_SERVER_URLS + 1],
+        ] {
+            let mut options = relay_options(Some("websocket"), "application");
+            options.ice_servers = Some(vec![super::NativeRelayIceServer { urls }]);
+            let Err(failure) = super::relay_configuration(options) else {
+                panic!("ICE bounds must hold even when unused");
+            };
+            assert!(failure.reason.starts_with("relay.invalid_configuration|"));
+            assert!(!failure.reason.contains("private"));
+        }
+    }
 
     #[test]
     fn replacement_errors_use_the_source_semantic_namespace() {

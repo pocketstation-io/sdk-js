@@ -5,9 +5,11 @@ import {
   RelayError,
   RelaySession,
   RelayTimeoutError,
+  relayWebsocketAvailable,
   Session,
   Source,
 } from '../node/index.js';
+import { nativeAddon } from '../node/native.js';
 
 const createResponse = {
   session_id: 'session_123',
@@ -17,6 +19,89 @@ const createResponse = {
   whep_url: 'https://relay.example/v1/sessions/session_123/whep',
   ice_servers: [],
 };
+
+describe('static hosted Relay transport', () => {
+  it.each([null, 7, {}, 'unknown-private-mode'])('rejects invalid transport before creating remote state: %p', async (transport) => {
+    let requests = 0;
+    const control = new ControlClient('https://control.example', {
+      fetch: async () => { requests += 1; return json(201, createResponse); },
+    });
+    try {
+      await expect(RelaySession.create({ controlPlaneUrl: 'https://control.example', controlClient: control, transport } as never))
+        .rejects.toMatchObject({ code: 'relay.invalid_transport' });
+      expect(requests).toBe(0);
+    } finally { control.close(); }
+  });
+
+  it('refuses an older addon before remote state or renewal exists', async () => {
+    const addon = nativeAddon();
+    const descriptor = Object.getOwnPropertyDescriptor(addon, 'relayWebsocketAvailable');
+    Object.defineProperty(addon, 'relayWebsocketAvailable', { configurable: true, value: undefined });
+    let requests = 0;
+    const control = new ControlClient('https://control.example', {
+      fetch: async () => { requests += 1; return json(201, createResponse); },
+    });
+    try {
+      await expect(RelaySession.create({ controlPlaneUrl: 'https://control.example', controlClient: control, transport: 'websocket' }))
+        .rejects.toMatchObject({ code: 'relay.transport_unavailable' });
+      expect(requests).toBe(0);
+    } finally {
+      control.close();
+      if (descriptor) Object.defineProperty(addon, 'relayWebsocketAvailable', descriptor);
+      else Reflect.deleteProperty(addon, 'relayWebsocketAvailable');
+    }
+  });
+
+  it('selects static WebSocket for both buses while ignoring bounded advertised TURN', async () => {
+    const requests: string[] = [];
+    const control = new ControlClient('https://control.example', {
+      fetch: async (input, init) => {
+        const request = new Request(input, init);
+        const path = new URL(request.url).pathname;
+        requests.push(`${request.method} ${path}`);
+        if (path.endsWith('/renew')) return json(200, { source_token: 'renewed-private-capability', expires_at: new Date(Date.now() + 60_000).toISOString() });
+        if (request.method === 'POST') return json(201, { ...createResponse, ice_servers: [{ urls: ['turn:unused.example:3478'], username: 'private-user', credential: 'private-turn-secret' }] });
+        return new Response(null, { status: 204 });
+      },
+    });
+    if (!relayWebsocketAvailable()) {
+      try {
+        await expect(RelaySession.create({ controlPlaneUrl: 'https://control.example', controlClient: control, transport: 'websocket' }))
+          .rejects.toMatchObject({ code: 'relay.transport_unavailable' });
+        expect(requests).toEqual([]);
+      } finally { control.close(); }
+      return;
+    }
+    const remote = await RelaySession.create({ controlPlaneUrl: 'https://control.example', controlClient: control, transport: 'websocket' });
+    try {
+      let forwarded: unknown;
+      const session = new Session();
+      const publisher = remote.publisher({ relay: (options: Parameters<Session['relay']>[0]) => {
+        forwarded = options;
+        return session.relay(options);
+      } } as unknown as Session);
+      const application = session.audioInput('application PCM').output.publish(publisher, 'application');
+      const microphone = session.audioInput('microphone PCM').output.publish(publisher, 'microphone');
+      expect(forwarded).toEqual({ url: 'https://relay.example', sessionId: 'session_123', sourceToken: 'renewed-private-capability', transport: 'websocket', iceServers: [] });
+      expect(application.busId).toBe('application');
+      expect(microphone.busId).toBe('microphone');
+      expect(application.routeId).not.toBe(microphone.routeId);
+      expect(inspect(remote)).not.toContain('private-turn-secret');
+      expect(remote.toString()).not.toContain('renewed-private-capability');
+    } finally { await remote.close(); control.close(); }
+  });
+
+  it('keeps control response ICE bounds even when WebSocket does not use ICE', async () => {
+    if (!relayWebsocketAvailable()) return;
+    const control = new ControlClient('https://control.example', {
+      fetch: async () => json(201, { ...createResponse, ice_servers: Array.from({ length: 33 }, () => ({ urls: ['turn:private.example:3478'], username: null, credential: null })) }),
+    });
+    try {
+      await expect(RelaySession.create({ controlPlaneUrl: 'https://control.example', controlClient: control, transport: 'websocket' }))
+        .rejects.toMatchObject({ code: 'control.response_too_large' });
+    } finally { control.close(); }
+  });
+});
 
 const privateInvitationResponse = {
   join_code: '4a54c6b9-fdc2-4e0c-a740-715efdcf03de',

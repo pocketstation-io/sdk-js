@@ -173,6 +173,7 @@ export interface NativeRelayDestinationOptions {
   lowLatency?: boolean;
   startupTimeoutMs?: number;
   iceServers?: { urls: string[] }[];
+  transport?: 'webrtc' | 'websocket';
 }
 
 export interface NativeProviderAudio {
@@ -1448,6 +1449,7 @@ export interface NativeAddon {
   openRecordedAudio(directory: string, sessionId: string): Promise<NativeRecordedAudioHandle>;
 
   aecAvailable(): boolean;
+  relayWebsocketAvailable?(): boolean;
   NativeSource: NativeSourceConstructor;
   NativeSourceManifest: NativeSourceManifestConstructor;
   NativeSession: NativeSessionConstructor;

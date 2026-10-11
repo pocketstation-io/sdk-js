@@ -3256,6 +3256,7 @@ export interface RelayPublisherOptions {
     readonly sessionId: string;
     readonly sourceToken: string;
     readonly startupTimeoutMs?: number;
+    readonly transport?: 'webrtc' | 'websocket';
     readonly url: string;
 }
 
@@ -3338,12 +3339,16 @@ export interface RelaySessionOptions {
     readonly requiredBuses?: readonly string[];
     // (undocumented)
     readonly signal?: AbortSignal;
+    readonly transport?: 'webrtc' | 'websocket';
 }
 
 // @public
 export class RelayTimeoutError extends RelayError {
     constructor(code: string, message: string);
 }
+
+// @public
+export function relayWebsocketAvailable(): boolean;
 
 // @public @deprecated (undocumented)
 export type RollbackFailureStage = SessionRollbackStage;
