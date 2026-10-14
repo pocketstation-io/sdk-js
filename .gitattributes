@@ -1,0 +1,5 @@
+/.github/workflows/qualify-distribution.yml text eol=lf
+/tests/test_native_matrix.py text eol=lf
+/tools/qualify-native-matrix.py text eol=lf
+/tools/native-matrix-consumer.mjs text eol=lf
+/tools/aec-consumer.mjs text eol=lf
