@@ -341,25 +341,103 @@ function untrustedFixtureCertificate() {
       + '\n-----END CERTIFICATE-----\n' };
 }
 
+// Only known diagnostic words/codes survive. URLs, credentials, unknown values
+// and numbers from error messages are redacted rather than retained as evidence.
+function safeWssDiagnosticError(error) {
+  const names = new Set(['Error', 'TypeError', 'RangeError', 'AssertionError',
+    'PocketStationError', 'SessionError', 'SessionStartError']);
+  const codes = new Set(['GenericFailure', 'ERR_ASSERTION', 'ECONNRESET', 'ECONNREFUSED',
+    'ETIMEDOUT', 'EPIPE', 'ERR_TLS_CERT_ALTNAME_INVALID', 'DEPTH_ZERO_SELF_SIGNED_CERT',
+    'SELF_SIGNED_CERT_IN_CHAIN', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+    'UNABLE_TO_GET_ISSUER_CERT_LOCALLY', 'CERT_HAS_EXPIRED',
+    'ERR_SSL_TLSV1_ALERT_UNKNOWN_CA', 'ERR_SSL_SSLV3_ALERT_BAD_CERTIFICATE',
+    'ERR_SSL_SSLV3_ALERT_CERTIFICATE_UNKNOWN', 'ERR_SSL_CERTIFICATE_VERIFY_FAILED',
+    'session.host_setup_failed', 'session.unsupported_platform', 'session.compile_failed',
+    'session.runtime_prepare_failed', 'session.endpoint_prepare_failed',
+    'session.endpoint_start_failed', 'session.runtime_start_failed', 'session.internal']);
+  const words = new Set(('fixture tls rejection close observation deadline exceeded '
+    + 'ordinary addon accepted an untrusted wss certificate session startup start failed '
+    + 'relay transport websocket connection connect reset refused timeout timed out '
+    + 'self signed in chain unable to verify leaf signature issuer locally expired '
+    + 'invalid peer unknown ca alert handshake eof error the a of for was is not '
+    + 'runtime endpoint prepare preparation').split(' '));
+  const name = String(error?.name ?? '').slice(0, 64);
+  const code = String(error?.code ?? '').slice(0, 64);
+  const message = String(error?.message ?? '').slice(0, 4096)
+    .replace(/(?:[a-z][a-z0-9+.-]*:\/\/|www\.)\S+/gi, '[redacted]')
+    .replace(/[A-Za-z0-9_.@/%+~=-]+/g, (word) => words.has(word.toLowerCase()) ? word : '[redacted]')
+    .replace(/[^A-Za-z\s\[\]:,;.!?()'-]/g, '[redacted]')
+    .slice(0, 320);
+  return { name: names.has(name) ? name : '[redacted]',
+    code: codes.has(code) ? code : (code === '' ? '' : '[redacted]'), message };
+}
+
+function createWssDiagnostic(now, write, state) {
+  const started = now();
+  const events = [];
+  let droppedEvents = 0;
+  let sequence = 0;
+  return {
+    observe(event, fields = {}) {
+      sequence += 1;
+      if (events.length < 32) events.push({ sequence, relativeMs: Math.max(0, Math.round(now() - started)),
+        event, ...fields });
+      else droppedEvents += 1;
+    },
+    emit(event, error, refusal) {
+      write('PKS_INSTALLED_WSS_DIAGNOSTIC ' + JSON.stringify({ event,
+        relativeMs: Math.max(0, Math.round(now() - started)), ...state(),
+        error: safeWssDiagnosticError(error), refusal: safeWssDiagnosticError(refusal),
+        events, droppedEvents }) + '\n');
+    },
+  };
+}
+
 async function exerciseInstalledWssTrustRefusal(Session) {
   const sockets = new Set();
+  const socketIds = new WeakMap();
   let connections = 0;
   let secureConnections = 0;
   let tlsRejections = 0;
+  let refusal;
+  const diagnostic = createWssDiagnostic(() => performance.now(),
+    (line) => process.stderr.write(line),
+    () => ({ connections, secureConnections, tlsRejections, outstandingSockets: sockets.size,
+      serverListening: server.listening }));
   const server = createTlsServer(untrustedFixtureCertificate(), (socket) => {
     secureConnections += 1;
+    diagnostic.observe('secure-connection', { socketId: socketIds.get(socket) ?? null });
     socket.destroy();
   });
   server.on('connection', (socket) => {
     connections += 1;
+    socketIds.set(socket, connections);
     sockets.add(socket);
-    socket.on('close', () => sockets.delete(socket));
-    socket.on('error', () => {});
-    socket.setTimeout(2000, () => socket.destroy());
+    diagnostic.observe('tcp-connection', { socketId: connections });
+    socket.on('end', () => diagnostic.observe('tcp-end', { socketId: socketIds.get(socket) }));
+    socket.on('close', (hadError) => {
+      sockets.delete(socket);
+      diagnostic.observe('tcp-close', { socketId: socketIds.get(socket), hadError,
+        outstandingSockets: sockets.size });
+    });
+    socket.on('error', (error) => diagnostic.observe('tcp-error',
+      { socketId: socketIds.get(socket), error: safeWssDiagnosticError(error) }));
+    socket.setTimeout(2000, () => {
+      diagnostic.observe('tcp-inactivity-timeout', { socketId: socketIds.get(socket) });
+      socket.destroy();
+    });
   });
-  server.on('tlsClientError', () => { tlsRejections += 1; });
+  server.on('tlsClientError', (error, socket) => {
+    tlsRejections += 1;
+    // Node's TLS socket need not be the raw TCP object. A missing correlation
+    // stays null; the fixture never invents an identity from event order.
+    diagnostic.observe('tls-client-error', { socketId: socketIds.get(socket) ?? null,
+      error: safeWssDiagnosticError(error) });
+  });
   const port = await listen(server);
+  diagnostic.observe('listen-ready');
   const timer = setTimeout(() => {
+    diagnostic.observe('fixture-hard-timeout', { outstandingSockets: sockets.size });
     for (const socket of sockets) socket.destroy();
   }, 5000);
   let running;
@@ -370,10 +448,14 @@ async function exerciseInstalledWssTrustRefusal(Session) {
       input.output.publish(session.relay({ url: `https://127.0.0.1:${port}`,
         sessionId: 'installed-session', sourceToken: 'fixture-source',
         transport: 'websocket', startupTimeoutMs: 2000 }), 'certificate-refusal');
-      let refusal;
-      try { running = await session.start(); } catch (error) { refusal = error; }
+      diagnostic.observe('session-start');
+      try { running = await session.start(); } catch (error) {
+        refusal = error;
+        diagnostic.observe('startup-refusal', { error: safeWssDiagnosticError(error) });
+      }
       assert.ok(refusal instanceof Error, 'ordinary addon accepted an untrusted WSS certificate');
       const observationDeadline = Date.now() + 1000;
+      diagnostic.observe('observation-start');
       while (tlsRejections < 1 || sockets.size !== 0) {
         assert.ok(Date.now() < observationDeadline, 'fixture TLS rejection/close observation deadline exceeded');
         await new Promise((resolve) => setTimeout(resolve, 10));
@@ -381,16 +463,38 @@ async function exerciseInstalledWssTrustRefusal(Session) {
       assert.equal(secureConnections, 0);
       assert.equal(connections, 1);
       assert.ok(tlsRejections >= 1);
+      diagnostic.observe('observation-complete');
       return { classification: 'LOOPBACK-ONLY', untrustedCertificateRejected: true,
         positiveTrustedWss: false, systemTrustModified: false, privateCaInjection: false };
     });
+  } catch (error) {
+    diagnostic.emit('consumer-error', error, refusal);
+    throw error;
   } finally {
-    try { if (running !== undefined) await running.stop(); } finally {
+    try {
+      if (running !== undefined) {
+        diagnostic.observe('running-stop-start');
+        await running.stop();
+        diagnostic.observe('running-stop-complete');
+      }
+    } catch (error) {
+      diagnostic.emit('running-stop-error', error, refusal);
+      throw error;
+    } finally {
       clearTimeout(timer);
-      await closeServer(server, sockets);
+      diagnostic.observe('fixture-close-start', { outstandingSockets: sockets.size });
+      try {
+        await closeServer(server, sockets);
+        diagnostic.observe('fixture-close-complete', { outstandingSockets: sockets.size });
+        diagnostic.emit('cleanup-complete', undefined, refusal);
+      } catch (error) {
+        diagnostic.emit('fixture-close-error', error, refusal);
+        throw error;
+      }
     }
   }
 }
+
 
 const require = createRequire(import.meta.url);
 const [target, expectedBinaryHash, expectedVersion, expectedCore] = process.argv.slice(2);
