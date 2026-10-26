@@ -2,7 +2,7 @@
 
 Default native builds exclude the AEC engine. The API remains importable and
 reports an explicit unavailable error when processing is requested without it.
-Version 0.1.5 uses Core 1.1.13 for these APIs.
+Version 0.1.5 uses Core 1.1.14 for these APIs.
 An AEC-enabled build of this same SDK is selected explicitly. It also requires
 a C/C++ toolchain, Meson, Ninja, pkg-config, libclang and Rust's `llvm-tools`
 component:
@@ -31,7 +31,7 @@ Declare the microphone and playback reference in one `Session`, then route the
 processed microphone to ordinary audio, recording or Connector destinations.
 The original application and microphone streams remain available independently.
 
-Core 1.1.13 provides this Session API. Processing requires an explicitly enabled
+Core 1.1.14 provides this Session API. Processing requires an explicitly enabled
 native build; ordinary JavaScript binaries omit the portable engine. Component
 tests do not establish acoustic quality for a particular microphone and playback
 route. See [platform support](../operations/platform-support.md).

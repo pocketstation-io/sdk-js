@@ -27,6 +27,7 @@ so browser-safe packages do not load native code.
 
 ## Operate and troubleshoot
 
+- [Finish and verify an npm release](operations/npm-publishing.md)
 - [Platform support](operations/platform-support.md)
 - [Troubleshooting](troubleshooting.md)
 - [API map](reference/api-map.md)
