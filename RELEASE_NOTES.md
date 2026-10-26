@@ -2,7 +2,14 @@
 
 ## Unreleased
 
-## 0.1.5 — 2026-10-06
+## 0.1.5 — 2026-10-26
+
+Ordinary native packages include Relay WebSocket publication by default through
+the released `pocketstation-relay 0.1.6` Connector. Applications can query
+availability before explicitly selecting WebSocket; unsupported addons fail
+without silently falling back to another transport. Static WebSocket sessions
+ignore unused advertised ICE metadata, while WebRTC retains its existing TURN
+and credential-bearing ICE restrictions.
 
 The Node entry point adds Core-owned live audio history and finalized recording
 clips. Declare `Session.audioHistory()`, route selected sources with
@@ -14,7 +21,7 @@ callers control request concurrency. Timestamps and sample counters preserve
 their full integer range with `bigint`. See the
 [recording guide](docs/guides/recording-clips.md).
 
-The matching Core version is 1.1.13. Default addons omit the portable AEC engine;
+The matching Core version is 1.1.14. Default addons omit the portable AEC engine;
 explicit AEC builds use the same existing package names. Session composition
 rejects two AEC stages on one microphone. Native output-device processing is an
 explicit request that requires an attested active route. Native macOS/Linux AEC
