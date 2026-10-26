@@ -351,12 +351,15 @@ describe('advanced Source authoring', () => {
     session.subscribe(instance.output('events'), { signal: text });
 
     const running = await session.start();
+    await waitFor(async () => (
+      await running.metrics()
+    ).externalSources[0]?.failureTotal === 1n);
     const stopped = await running.stop();
 
     expect(stopped.success).toBe(false);
-    expect(stopped.runtimeFailuresTotal).toBe(1n);
-    expect(stopped.metrics?.externalSources[0]?.failureTotal).toBe(1n);
-    expect(stopped.metrics?.externalSources[0]?.emittedTotal).toBe(0n);
+    expect(stopped.runtimeFailuresTotal === 1n).toBe(true);
+    expect(stopped.metrics?.externalSources[0]?.failureTotal === 1n).toBe(true);
+    expect(stopped.metrics?.externalSources[0]?.emittedTotal === 0n).toBe(true);
   });
 
   it('bounds a stalled next call, propagates cancellation, and closes exactly once', async () => {
