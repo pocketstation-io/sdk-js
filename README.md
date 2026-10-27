@@ -10,7 +10,7 @@ The package uses the PocketStation Rust engine for capture, routing, and
 shutdown. JavaScript receives audio after it leaves the realtime capture code,
 so model calls and application work do not run on an audio callback.
 
-> The Node SDK is under active development and is not published to npm yet.
+> Version 0.1.5 is published to npm; the Node SDK remains under active development.
 > The current code has a real macOS selected-application capture proof.
 > The installed macOS package also has same-host Relay receipt evidence in
 > Chromium, Firefox, and WebKit. Windows and Linux packages, WAN/TURN behavior,
