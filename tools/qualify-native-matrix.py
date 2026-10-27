@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import tarfile
 import tempfile
 
@@ -26,6 +27,23 @@ def run(args, cwd=ROOT):
     if result.returncode:
         raise RuntimeError(f'Command failed ({result.returncode}): {args}\n{result.stdout}')
     return result.stdout
+
+
+def run_json(args, cwd=ROOT):
+    result = subprocess.run(args, cwd=cwd, text=True, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, timeout=180)
+    if result.stderr:
+        sys.stderr.write(result.stderr)
+    if result.returncode:
+        raise RuntimeError(
+            f'Command failed ({result.returncode}): {args}\n'
+            f'stdout:\n{result.stdout}\nstderr:\n{result.stderr}')
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        raise RuntimeError(
+            f'Command did not emit one JSON document: {args}\n'
+            f'stdout:\n{result.stdout}\nstderr:\n{result.stderr}') from error
 
 
 def npm(args, cwd=ROOT):
@@ -139,7 +157,8 @@ def consume(identity, node_cell, directory, output):
         run(['node', str(tooling / 'typescript/bin/tsc'), '-p', 'tsconfig.json'], work)
         shutil.copy2(ROOT / 'tools/native-matrix-consumer.mjs', work / 'consumer.mjs')
         shutil.copy2(ROOT / 'tools/aec-consumer.mjs', work / 'aec-consumer.mjs')
-        result = json.loads(run(['node', 'consumer.mjs', identity, native['nativeSha256'], root['version'], '1.1.14'], work))
+        result = run_json(
+            ['node', 'consumer.mjs', identity, native['nativeSha256'], root['version'], '1.1.14'], work)
     result.update({'schema': 1, 'typesPassed': True, 'nodeCell': node_cell, 'sourceCommit': root['sourceCommit'],
                    'rootSha256': root['sha256'], 'nativeArchiveSha256': native['sha256']})
     validate_consumer(result, row, node_cell, root, native)

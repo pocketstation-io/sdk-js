@@ -1,8 +1,12 @@
 """Adversarial report tests; synthetic values here are not platform evidence."""
 import copy
+from contextlib import redirect_stderr
+import io
 import importlib.util
 from pathlib import Path
+import subprocess
 import unittest
+from unittest import mock
 
 spec = importlib.util.spec_from_file_location('native_matrix', Path(__file__).resolve().parents[1] / 'tools/qualify-native-matrix.py')
 module = importlib.util.module_from_spec(spec)
@@ -33,6 +37,16 @@ class ConsumerVerificationTests(unittest.TestCase):
     def test_complete_component_report_passes(self):
         self.report['aec'] = {'available': False, 'unavailableErrorVerified': True}
         module.validate_consumer(self.report, self.row, '20.17.0', self.root, self.native)
+
+    def test_json_command_keeps_diagnostics_out_of_machine_output(self):
+        completed = subprocess.CompletedProcess(
+            ['node', 'consumer.mjs'], 0, stdout='{"passed": true}\n',
+            stderr='PKS_SAFE_DIAGNOSTIC\n')
+        diagnostics = io.StringIO()
+        with mock.patch.object(module.subprocess, 'run', return_value=completed), \
+                redirect_stderr(diagnostics):
+            self.assertEqual(module.run_json(['node', 'consumer.mjs']), {'passed': True})
+        self.assertEqual(diagnostics.getvalue(), 'PKS_SAFE_DIAGNOSTIC\n')
 
     def test_cross_compilation_cannot_substitute_for_target_execution(self):
         for key, value in [('platform', 'darwin'), ('arch', 'x64'), ('glibc', '2.39')]:
