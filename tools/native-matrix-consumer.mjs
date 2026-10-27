@@ -393,6 +393,15 @@ function createWssDiagnostic(now, write, state) {
   };
 }
 
+function observeWssTlsSocketErrors(socket, diagnostic, socketIds, observedSockets) {
+  if (observedSockets.has(socket)) return;
+  observedSockets.add(socket);
+  socket.on('error', (error) => diagnostic.observe('tls-socket-error', {
+    socketId: socketIds.get(socket) ?? null,
+    error: safeWssDiagnosticError(error),
+  }));
+}
+
 function assertWssTlsStartupRefusal(refusal) {
   assert.ok(refusal instanceof Error, 'ordinary addon accepted an untrusted WSS certificate');
   assert.equal(refusal.name, 'SessionStartError', 'fixture expected typed Session startup refusal');
@@ -411,6 +420,7 @@ function assertWssClientClosure(state) {
 async function exerciseInstalledWssTrustRefusal(Session) {
   const sockets = new Set();
   const socketIds = new WeakMap();
+  const observedTlsSockets = new WeakSet();
   let connections = 0;
   let secureConnections = 0;
   let tlsRejections = 0;
@@ -423,6 +433,7 @@ async function exerciseInstalledWssTrustRefusal(Session) {
     () => ({ connections, secureConnections, tlsRejections, tcpCloses, tlsApplicationBytes, forcedClosures, outstandingSockets: sockets.size,
       serverListening: server.listening }));
   const server = createTlsServer(untrustedFixtureCertificate(), (socket) => {
+    observeWssTlsSocketErrors(socket, diagnostic, socketIds, observedTlsSockets);
     secureConnections += 1;
     diagnostic.observe('secure-connection', { socketId: socketIds.get(socket) ?? null });
     // Server handshake completion does not tell us whether the client trusts
@@ -454,6 +465,10 @@ async function exerciseInstalledWssTrustRefusal(Session) {
     });
   });
   server.on('tlsClientError', (error, socket) => {
+    // A TLS wrapper can emit another error after tlsClientError is reported.
+    // Retain a listener so a later reset remains evidence instead of becoming
+    // an uncaught process-level error.
+    observeWssTlsSocketErrors(socket, diagnostic, socketIds, observedTlsSockets);
     tlsRejections += 1;
     // Node's TLS socket need not be the raw TCP object. A missing correlation
     // stays null; the fixture never invents an identity from event order.
