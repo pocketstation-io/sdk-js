@@ -71,9 +71,10 @@ test.each(['recover', 'abort'] as const)('complete-window overload isolates reco
     const saturated = await running.metrics();
     const inference = saturated.operators.find(operator => operator.inputPorts.some(port => port.portName === 'window'))!;
     expect(inference).toBeDefined();
-    expect(inference.inputDelivery.framesDroppedTotal).toBeGreaterThan(0n);
-    expect(inference.inputDelivery.queueCapacityFrames).toBeLessThanOrEqual(16n);
-    expect(inference.inputDelivery.queuePeakFrames).toBeLessThanOrEqual(inference.inputDelivery.queueCapacityFrames);
+    expect(inference.inputDelivery.framesDroppedTotal > 0n).toBe(true);
+    expect(inference.inputDelivery.queueCapacityFrames <= 16n).toBe(true);
+    expect(inference.inputDelivery.queuePeakFrames
+      <= inference.inputDelivery.queueCapacityFrames).toBe(true);
     let recoveryMs = 0;
     if (mode === 'recover') {
       release(); recoveryMs = await feed(RECOVERY_FRAMES);
@@ -104,11 +105,14 @@ test.each(['recover', 'abort'] as const)('complete-window overload isolates reco
     expect(maximumActive).toBe(1);
     expect(active).toBe(0);
     for (const stem of outcome.recording!.stems) {
-      expect(stem.framesWrittenTotal).toBe(BigInt(SATURATION_FRAMES + (mode === 'recover' ? RECOVERY_FRAMES : 0)));
-      expect(stem.framesDroppedTotal).toBe(0n);
-      expect(stem.discontinuitiesTotal).toBe(0n);
+      expect(stem.framesWrittenTotal
+        === BigInt(SATURATION_FRAMES + (mode === 'recover' ? RECOVERY_FRAMES : 0))).toBe(true);
+      expect(stem.framesDroppedTotal === 0n).toBe(true);
+      expect(stem.discontinuitiesTotal === 0n).toBe(true);
     }
-    for (const route of outcome.metrics.routes) expect(route.delivery.framesDroppedTotal).toBe(0n);
+    for (const route of outcome.metrics.routes) {
+      expect(route.delivery.framesDroppedTotal === 0n).toBe(true);
+    }
     expect(outcome.metrics.operators.every(operator => operator.worker.joined)).toBe(true);
     if (mode === 'abort') {
       expect(outcome.disposition).toBe('cancelled'); expect(cancelled).toBe(true);
