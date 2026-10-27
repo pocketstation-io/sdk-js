@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { createServer, connect } from 'node:tls';
 import { createHash, generateKeyPairSync, sign } from 'node:crypto';
-import { once } from 'node:events';
+import { EventEmitter, once } from 'node:events';
 import { performance } from 'node:perf_hooks';
 import { test } from 'node:test';
 
@@ -18,8 +18,8 @@ assert.ok(prefixStart >= 0 && prefixEnd > prefixStart && fixtureStart > prefixEn
 const fixtureSource = source.slice(prefixStart, prefixEnd) + source.slice(fixtureStart, fixtureEnd);
 
 function fixture(logs) {
-  return runInNewContext(fixtureSource + '\n({ safeWssDiagnosticError, createWssDiagnostic, assertWssTlsStartupRefusal, assertWssClientClosure, exerciseInstalledWssTrustRefusal });', {
-    assert, Buffer, Error, Set, WeakMap, Map, Date, performance, setTimeout, clearTimeout,
+  return runInNewContext(fixtureSource + '\n({ safeWssDiagnosticError, createWssDiagnostic, observeWssTlsSocketErrors, assertWssTlsStartupRefusal, assertWssClientClosure, exerciseInstalledWssTrustRefusal });', {
+    assert, Buffer, Error, Set, WeakMap, WeakSet, Map, Date, performance, setTimeout, clearTimeout,
     createTlsServer: createServer, createHash, generateKeyPairSync, sign, once,
     process: { env: {}, stderr: { write: (line) => logs.push(line) } },
   });
@@ -59,6 +59,23 @@ test('diagnostics redact URL/token values and bound event retention without chan
   assert.equal(report.refusal.code, '[redacted]');
   assert.equal(JSON.stringify(report).includes('private-token'), false);
   assert.deepEqual(state, { connections: 1, secureConnections: 0, tlsRejections: 1, outstandingSockets: 0, serverListening: false });
+});
+
+test('TLS wrapper retains one diagnostic listener for a reset after handshake rejection', () => {
+  const logs = [];
+  const api = fixture(logs);
+  const socket = new EventEmitter();
+  const socketIds = new WeakMap([[socket, 7]]);
+  const observedSockets = new WeakSet();
+  const diagnostic = api.createWssDiagnostic(() => 0, (line) => logs.push(line), () => ({}));
+  api.observeWssTlsSocketErrors(socket, diagnostic, socketIds, observedSockets);
+  api.observeWssTlsSocketErrors(socket, diagnostic, socketIds, observedSockets);
+  assert.equal(socket.listenerCount('error'), 1);
+  socket.emit('error', Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' }));
+  diagnostic.emit('cleanup-complete');
+  const [report] = reports(logs);
+  assert.deepEqual(report.events, [{ sequence: 1, relativeMs: 0, event: 'tls-socket-error',
+    socketId: 7, error: { name: 'Error', code: 'ECONNRESET', message: '[redacted] [redacted]' } }]);
 });
 
 test('owned TLS fixture retains actual rejection and close order with a mocked Session', { timeout: 10000 }, async () => {
