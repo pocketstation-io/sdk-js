@@ -100,7 +100,7 @@
     "build:examples": "npm run build:typescript && tsc -p examples/tsconfig.json && tsc -p tests/fixtures/sdk-example-smoke/tsconfig.json",
     "example:capture": "npm run build && npm run build:examples && node .examples-dist/capture-application.js",
     "demo": "node bin/pocketstation-demo.mjs",
-    "docs:check": "node tools/check-docs.mjs",
+    "docs:check": "node tools/check-docs.mjs && node tools/check-readme-snippets.mjs",
     "examples:check": "npm run build && npm run build:examples && node tools/check-examples.mjs",
     "api:check": "npm run build:typescript && api-extractor run && api-extractor run --config api-extractor.browser.json && api-extractor run --config api-extractor.control.json && api-extractor run --config api-extractor.demo.json && api-extractor run --config api-extractor.voice.json && api-extractor run --config api-extractor.root.json && node tools/check-demo-api-boundary.mjs",
     "api:update": "npm run build:typescript && api-extractor run --local && api-extractor run --local --config api-extractor.browser.json && api-extractor run --local --config api-extractor.control.json && api-extractor run --local --config api-extractor.demo.json && api-extractor run --local --config api-extractor.voice.json && api-extractor run --local --config api-extractor.root.json && node tools/check-demo-api-boundary.mjs",
