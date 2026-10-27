@@ -69,6 +69,10 @@ jobs:
       - name: Verify bundled AEC notices
         run: npm run notices:check
 
+      - name: Check documentation links and README snippets
+        if: runner.os == 'Linux' && matrix.node == 20
+        run: npm run docs:check
+
       - name: Type-check and test package
         run: |
           npm run build:test-native

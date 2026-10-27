@@ -504,7 +504,7 @@ Enable a checksummed lifecycle trace when a reproducible shutdown record is
 needed:
 
 ```ts
-import { SessionTrace } from "pocketstation/node";
+import { Session, SessionTrace } from "pocketstation/node";
 
 const session = new Session({ trace: { path: "./meeting.pkstrace" } });
 // Declare Sources and destinations, then start and stop the Session.
