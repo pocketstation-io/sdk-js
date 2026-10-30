@@ -24,7 +24,7 @@ class ConsumerVerificationTests(unittest.TestCase):
             'nodeCell': '20.17.0', 'node': '20.17.0', 'napi': '8', 'glibc': '2.34',
             'sourceCommit': self.root['sourceCommit'], 'rootSha256': self.root['sha256'],
             'nativeArchiveSha256': self.native['sha256'], 'nativeSha256': self.native['nativeSha256'],
-            'sdkVersion': '0.1.5', 'coreVersion': '1.1.14', 'frames': 1, 'samples': 480,
+            'sdkVersion': '0.1.5', 'coreVersion': '1.1.15', 'frames': 1, 'samples': 480,
             'sourceIdentity': True, 'outputCancellation': True, 'stopSuccess': True,
             'relayWebsocketAvailable': True,
             'aec': {'processedFramesTotal': 400, 'discardedOutputFramesTotal': 0,

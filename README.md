@@ -10,11 +10,21 @@ The package uses the PocketStation Rust engine for capture, routing, and
 shutdown. JavaScript receives audio after it leaves the realtime capture code,
 so model calls and application work do not run on an audio callback.
 
-> Version 0.1.5 is published to npm; the Node SDK remains under active development.
-> The current code has a real macOS selected-application capture proof.
-> The installed macOS package also has same-host Relay receipt evidence in
+> The Node SDK remains under active development. Version 0.1.5 is published;
+> version 0.1.6 is unreleased and uses PocketStation Core 1.1.15.
+> Existing macOS evidence covers selected-application capture and installed
+> same-host Relay receipt in
 > Chromium, Firefox, and WebKit. Windows and Linux packages, WAN/TURN behavior,
 > and the remaining Rust/Python features still require their own proof.
+
+Version 0.1.6 adds explicit application process sets on macOS 26 and newer.
+Discover immutable process observations, select 1–32 original process instances,
+and route their shared `SourceOutput` through the existing Session API. Start
+times retain their full 64-bit range as `bigint`. Replacements are never followed
+automatically; changed membership requires a new Session. See
+[exact application process sets](docs/concepts/sources-and-permissions.md#exact-application-process-sets)
+for selection, platform and lifecycle limits. These additions do not extend the
+installed-package or physical-capture claims above to a new release.
 
 ## Package installation and module modes
 

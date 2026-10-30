@@ -42,8 +42,8 @@ export class RuntimeCompatibility {
 
 /** Compatibility facts for this exact package and native-addon build. */
 export const runtimeCompatibility = new RuntimeCompatibility({
-  sdkVersion: '0.1.5',
-  coreVersion: '1.1.14',
+  sdkVersion: '0.1.6',
+  coreVersion: '1.1.15',
   relayConnectorVersion: '0.1.6',
   nodeRequires: '>=20.17',
   nodeApiVersion: 8,
