@@ -77,6 +77,19 @@ class ConsumerVerificationTests(unittest.TestCase):
         self.assertEqual(directories, {row['id'] for row in module.MATRIX['targets']})
         self.assertEqual(len(module.MATRIX['targets']) * len(module.MATRIX['nodes']), 30)
 
+    def test_macos_builds_use_sdk_26_without_raising_runtime_floor(self):
+        builds = {row['id']: row for row in module.matrix_rows('build')
+                  if row['platform'] == 'darwin'}
+        consumers = {row['id']: row for row in module.matrix_rows('consume')
+                     if row['platform'] == 'darwin'}
+        self.assertEqual(builds['darwin-arm64']['runner'], 'macos-26')
+        self.assertEqual(builds['darwin-x64']['runner'], 'macos-26-intel')
+        self.assertEqual(consumers['darwin-arm64']['runner'], 'macos-15')
+        self.assertEqual(consumers['darwin-x64']['runner'], 'macos-15-intel')
+        for row in builds.values():
+            self.assertEqual(row['deploymentTarget'], '11.0')
+            self.assertEqual(row['sdkMajor'], 26)
+
     def test_given_missing_echo_observations_when_validating_then_report_is_rejected(self):
         for key, value in [('processedFramesTotal', 0), ('processedFramesTotal', True),
                            ('discardedOutputFramesTotal', 1), ('discardedOutputFramesTotal', False),

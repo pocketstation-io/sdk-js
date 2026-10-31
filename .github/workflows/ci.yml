@@ -74,12 +74,16 @@ jobs:
         run: npm run docs:check
 
       - name: Type-check and test package
+        env:
+          MACOSX_DEPLOYMENT_TARGET: '11.0'
         run: |
           npm run build:test-native
           npm run build:typescript
           npm run test:built
 
       - name: Build the ordinary addon once for both package checks
+        env:
+          MACOSX_DEPLOYMENT_TARGET: '11.0'
         run: npm run build:native
 
       - name: Verify public package exports
@@ -124,6 +128,7 @@ jobs:
           key: source-aec
       - name: Build and test explicitly enabled artifact
         env:
+          MACOSX_DEPLOYMENT_TARGET: '11.0'
           PKS_EXPECT_AEC: '1'
         run: |
           python -m pip install 'meson==1.7.2' 'ninja==1.11.1.4'
