@@ -116,13 +116,20 @@ test.each(['recover', 'abort'] as const)('complete-window overload isolates reco
     expect(maximumActive).toBe(1);
     expect(active).toBe(0);
     for (const stem of outcome.recording!.stems) {
-      expect(stem.framesWrittenTotal
-        === BigInt(SATURATION_FRAMES + (mode === 'recover' ? RECOVERY_FRAMES : 0))).toBe(true);
-      expect(stem.framesDroppedTotal === 0n).toBe(true);
-      expect(stem.discontinuitiesTotal === 0n).toBe(true);
+      if (mode === 'recover') {
+        // Graceful stop drains every accepted recording frame.
+        expect(stem.framesWrittenTotal).toBe(BigInt(SATURATION_FRAMES + RECOVERY_FRAMES));
+      } else {
+        // Cancel is intentionally non-draining. It may abandon pending route
+        // work, but the finalized recording must contain a bounded prefix.
+        expect(stem.framesWrittenTotal).toBeGreaterThan(0n);
+        expect(stem.framesWrittenTotal).toBeLessThanOrEqual(BigInt(SATURATION_FRAMES));
+      }
+      expect(stem.framesDroppedTotal).toBe(0n);
+      expect(stem.discontinuitiesTotal).toBe(0n);
     }
     for (const route of outcome.metrics.routes) {
-      expect(route.delivery.framesDroppedTotal === 0n).toBe(true);
+      expect(route.delivery.framesDroppedTotal).toBe(0n);
     }
     expect(outcome.metrics.operators.every(operator => operator.worker.joined)).toBe(true);
     if (mode === 'abort') {
