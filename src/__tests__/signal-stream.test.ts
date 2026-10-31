@@ -191,6 +191,17 @@ describe('typed signal streams', () => {
     expect(result.success).toBe(true);
     expect(STREAM_EOF).toBe(END_OF_STREAM);
     for (const stream of streams) {
+      const capacity = (await stream.metrics()).capacitySignals;
+      let reachedEnd = false;
+      for (let reads = 0n; reads <= capacity; reads += 1n) {
+        const value = await stream.read({ timeoutMs: 1_000 });
+        expect(value).toBeDefined();
+        if (value === END_OF_STREAM) {
+          reachedEnd = true;
+          break;
+        }
+      }
+      expect(reachedEnd).toBe(true);
       await expect(stream.read({ timeoutMs: 0 })).resolves.toBe(END_OF_STREAM);
     }
   });
