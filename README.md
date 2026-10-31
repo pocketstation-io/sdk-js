@@ -10,8 +10,8 @@ The package uses the PocketStation Rust engine for capture, routing, and
 shutdown. JavaScript receives audio after it leaves the realtime capture code,
 so model calls and application work do not run on an audio callback.
 
-> The Node SDK remains under active development. Version 0.1.5 is published;
-> version 0.1.6 is unreleased and uses PocketStation Core 1.1.15.
+> The Node SDK remains under active development. Version 0.1.6 is published
+> and uses PocketStation Core 1.1.15.
 > Existing macOS evidence covers selected-application capture and installed
 > same-host Relay receipt in
 > Chromium, Firefox, and WebKit. Windows and Linux packages, WAN/TURN behavior,
@@ -23,8 +23,9 @@ and route their shared `SourceOutput` through the existing Session API. Start
 times retain their full 64-bit range as `bigint`. Replacements are never followed
 automatically; changed membership requires a new Session. See
 [exact application process sets](docs/concepts/sources-and-permissions.md#exact-application-process-sets)
-for selection, platform and lifecycle limits. These additions do not extend the
-installed-package or physical-capture claims above to a new release.
+for selection, platform and lifecycle limits. The 0.1.6 distribution qualifies
+installed component execution on all six native targets; it does not extend the
+physical-capture claims above to additional hosts or operating systems.
 
 ## Package installation and module modes
 

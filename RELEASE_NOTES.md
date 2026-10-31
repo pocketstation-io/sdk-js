@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-### 0.1.6
+## 0.1.6 — 2026-10-31
 
 The native binding uses published PocketStation Core 1.1.15. The Node API adds
 immutable process observations with exact `bigint` start times and explicit
@@ -17,8 +17,9 @@ explicitly, and selecting fresh membership requires a new Session. There is no
 microphone, application or system-audio fallback.
 
 Ordinary native packages continue to omit AEC and retain Relay connector 0.1.6.
-Package qualification and platform evidence for this release remain separate
-from earlier same-host capture and Relay results.
+All six native archives and the root package passed installed-consumer
+qualification across Node 20.17.0, 20, 22, 24 and 26 before publication.
+Physical capture and Relay evidence remain separate from that component proof.
 
 ## 0.1.5 — 2026-10-26
 

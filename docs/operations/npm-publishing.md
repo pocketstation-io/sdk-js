@@ -173,6 +173,26 @@ release status. Installed loads do not prove capture permissions, physical
 signal quality, WAN/TURN, phone playback or useful model output; preserve the
 README's platform and evidence limits.
 
+## 0.1.6 release record
+
+Version 0.1.6 was published on 2026-10-31 from source commit
+`219211785d438611efcbe55e856d9133b2cdb2d1` and tag `v0.1.6`.
+The [38-job qualification run](https://github.com/pocketstation-io/sdk-js/actions/runs/41164128837)
+passed with release-manifest SHA-256
+`d4466e868ae9ef596186fdfba9dad9063bc9c13ec99d4b20b76779309c87dcd8`.
+The [final publisher run](https://github.com/pocketstation-io/sdk-js/actions/runs/41166890074)
+verified all seven npm versions as byte-identical and retained a
+`complete: true` receipt. npm processing exceeded the publisher's bounded
+visibility wait after each successful upload; the retained retries used only
+the same qualified archives and the final run performed no replacement builds.
+
+A clean public-registry install on macOS arm64 loaded SDK 0.1.6, Core 1.1.15,
+Relay connector 0.1.6 and N-API 8 through ESM. CommonJS exposed both
+`discoverProcessInstances()` and `Session.prototype.captureProcessSet`; npm
+reported zero vulnerabilities. The corresponding
+[GitHub release](https://github.com/pocketstation-io/sdk-js/releases/tag/v0.1.6)
+is public.
+
 For an operator continuing on another machine: use this same source and these
 maintained workflows, inspect existing runs before dispatching, and report the
 actual values and failures. No private build tree, copied native fallback,
