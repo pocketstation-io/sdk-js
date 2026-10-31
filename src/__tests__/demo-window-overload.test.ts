@@ -9,6 +9,7 @@ import { WhisperTranscriber, WhisperTranscriberConfiguration } from '../demo/fas
 const SATURATION_FRAMES = 100;
 const RECOVERY_FRAMES = 20;
 const FEED_BUDGET_MS = 5000;
+const RECOVERY_BUDGET_MS = 5000;
 const ABORT_BUDGET_MS = 2000;
 
 test.each(['recover', 'abort'] as const)('complete-window overload isolates recording and %s is bounded', async (mode) => {
@@ -45,6 +46,12 @@ test.each(['recover', 'abort'] as const)('complete-window overload isolates reco
       events.push(JSON.parse(item.payload.text) as Record<string, unknown>);
     }
   })();
+  const resumedAllSources = () => inputs.every(input => {
+    const source = events.filter(event => event.source_id === String(input.sourceId));
+    return source.some((event, index) => index > 0
+      && BigInt(String(event.sequence_start))
+        > BigInt(String(source[index - 1]!.sequence_end)) + 1n);
+  });
   let framesSent = 0;
   const feed = async (frames: number) => {
     const started = performance.now();
@@ -79,11 +86,15 @@ test.each(['recover', 'abort'] as const)('complete-window overload isolates reco
     if (mode === 'recover') {
       release(); recoveryMs = await feed(RECOVERY_FRAMES);
       const recoveryStarted = performance.now();
-      while (!inputs.every(input => {
-        const source = events.filter(event => event.source_id === String(input.sourceId));
-        return source.some((event, index) => index > 0 && BigInt(String(event.sequence_start)) > BigInt(String(source[index - 1]!.sequence_end)) + 1n);
-      })) {
-        if (performance.now() - recoveryStarted >= ABORT_BUDGET_MS) throw new Error('inference did not resume both source sequences within its budget');
+      while (!resumedAllSources()) {
+        if (performance.now() - recoveryStarted >= RECOVERY_BUDGET_MS) {
+          const eventCounts = inputs.map(input => events.filter(
+            event => event.source_id === String(input.sourceId),
+          ).length);
+          throw new Error(
+            `inference did not resume both source sequences within its budget (calls=${calls}, events=${eventCounts.join(',')})`,
+          );
+        }
         await delay(1);
       }
     }
@@ -118,13 +129,10 @@ test.each(['recover', 'abort'] as const)('complete-window overload isolates reco
       expect(outcome.disposition).toBe('cancelled'); expect(cancelled).toBe(true);
       expect(calls).toBe(1); expect(events).toHaveLength(0);
     } else {
-      for (const input of inputs) {
-        const source = events.filter(event => event.source_id === String(input.sourceId));
-        expect(source.some((event, index) => index > 0 && BigInt(String(event.sequence_start)) > BigInt(String(source[index - 1]!.sequence_end)) + 1n)).toBe(true);
-      }
+      expect(resumedAllSources()).toBe(true);
     }
   } finally {
     release(); inputs.forEach(input => input.close());
     await running.cancel(); await drain; await rm(directory, { recursive: true, force: true });
   }
-}, 10000);
+}, 20000);

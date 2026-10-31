@@ -190,8 +190,8 @@ describe('typed signal streams', () => {
     }
     expect(result.success).toBe(true);
     expect(STREAM_EOF).toBe(END_OF_STREAM);
-    for (const stream of streams) {
-      const capacity = (await stream.metrics()).capacitySignals;
+    for (const [index, stream] of streams.entries()) {
+      const capacity = metrics[index]!.capacitySignals;
       let reachedEnd = false;
       for (let reads = 0n; reads <= capacity; reads += 1n) {
         const value = await stream.read({ timeoutMs: 1_000 });
