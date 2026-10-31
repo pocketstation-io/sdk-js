@@ -39,6 +39,14 @@ export interface NativeEchoCancelledAudioHandle {
 
 export interface NativeSourceHandle {}
 
+export interface NativeObservedProcessInstance {
+  processId: number;
+  platform: string;
+  kind: string;
+  stableKey: string;
+  processStartTimeNs: string;
+}
+
 export interface NativeSourceManifestHandle {}
 
 interface NativeSourceManifestConstructor {
@@ -1348,6 +1356,7 @@ export interface NativeSessionHandle {
     coverage: PlaybackReferenceCoverage,
   ): NativeEchoCancelledAudioHandle;
   capture(source: NativeSourceHandle): NativeStemHandle;
+  captureProcessSet?(members: readonly NativeObservedProcessInstance[]): NativeSourceOutputHandle;
   audioInput(
     sampleRateHz: number,
     channels: number,
@@ -1490,6 +1499,7 @@ export interface NativeAddon {
     queryKind?: string,
     value?: string,
   ): Promise<NativeDiscoveredSourceHandle[]>;
+  discoverProcessInstances?: () => Promise<NativeObservedProcessInstance[]>;
   applicationCaptureAvailable(): boolean;
   microphonePermissionObservation(): Promise<string>;
   conformanceSourceReplacementError?: (caseName: string) => void;

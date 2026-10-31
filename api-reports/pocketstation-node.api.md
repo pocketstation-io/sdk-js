@@ -1457,6 +1457,9 @@ export class DiscoveredSource {
 }
 
 // @public
+export function discoverProcessInstances(): Promise<readonly ObservedProcessInstance[]>;
+
+// @public
 export function discoverSources(query?: SourceQuery | SourceQueryInput): Promise<readonly DiscoveredSource[]>;
 
 // @public
@@ -2365,6 +2368,11 @@ export class NativePlaybackReference {
     static output(playbackDeviceId: string): NativePlaybackReference;
     // (undocumented)
     readonly playbackDeviceId: string;
+}
+
+// @public
+export interface ObservedProcessInstance extends ProcessInstanceSelector {
+    readonly processStartTimeNs: bigint;
 }
 
 // @public
@@ -3670,6 +3678,7 @@ export class Session {
     audioInput(name: string, options?: AudioInputOptions): AudioInput;
     browser(receiverUri: string): Endpoint;
     capture(source: Source): Stem;
+    captureProcessSet(members: readonly ObservedProcessInstance[]): SourceOutput;
     // Warning: (ae-forgotten-export) The symbol "ConversationDeclarationOptions" needs to be exported by the entry point index.d.ts
     // Warning: (ae-forgotten-export) The symbol "Conversation" needs to be exported by the entry point index.d.ts
     conversation<TInput>(options: Omit<ConversationDeclarationOptions<Session, TInput, BusSubscription, AudioInputSamples, SignalEnvelope, RunningSession>, 'session'>): Conversation<BusSubscription, AudioInputSamples, SignalEnvelope>;

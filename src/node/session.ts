@@ -1,6 +1,7 @@
 import { AudioHistory, type AudioHistoryConfig } from './recording.js';
 import {
   AudioHistoryError,
+  CaptureError,
   SessionCompileDiagnostic,
   SessionDeclarationError,
   SessionStartError,
@@ -74,7 +75,13 @@ import {
   SourceConfiguration,
   type SourceConfigurationInput,
 } from './graph.js';
-import { Source, SourceSelectorKind, nativeSource } from './sources.js';
+import {
+  Source,
+  SourceSelectorKind,
+  nativeSource,
+  nativeProcessSetMembers,
+  type ObservedProcessInstance,
+} from './sources.js';
 import { _captureNativeFormatFromNative, type OpenedNativeFormat } from './observations.js';
 
 /** One explicit microphone change; the logical Stem and its routes remain unchanged. */
@@ -1333,6 +1340,21 @@ export class Session {
     return Stem._create(
       this,
       nativeCallSync(() => this.#native.capture(nativeSource(source))),
+    );
+  }
+
+  /** Capture only 1–32 observed application process instances; never follow replacements. */
+  public captureProcessSet(members: readonly ObservedProcessInstance[]): SourceOutput {
+    const selected = nativeProcessSetMembers(members);
+    if (typeof this.#native.captureProcessSet !== 'function') {
+      throw new CaptureError(
+        'capture.unsupported',
+        'This native addon cannot capture exact application process sets',
+      );
+    }
+    return SourceOutput._create(
+      this,
+      nativeCallSync(() => this.#native.captureProcessSet!(selected)),
     );
   }
 

@@ -158,7 +158,7 @@ def consume(identity, node_cell, directory, output):
         shutil.copy2(ROOT / 'tools/native-matrix-consumer.mjs', work / 'consumer.mjs')
         shutil.copy2(ROOT / 'tools/aec-consumer.mjs', work / 'aec-consumer.mjs')
         result = run_json(
-            ['node', 'consumer.mjs', identity, native['nativeSha256'], root['version'], '1.1.14'], work)
+            ['node', 'consumer.mjs', identity, native['nativeSha256'], root['version'], '1.1.15'], work)
     result.update({'schema': 1, 'typesPassed': True, 'nodeCell': node_cell, 'sourceCommit': root['sourceCommit'],
                    'rootSha256': root['sha256'], 'nativeArchiveSha256': native['sha256']})
     validate_consumer(result, row, node_cell, root, native)
@@ -177,7 +177,7 @@ def validate_consumer(result, row, node_cell, root, native):
     assert result['nativeSha256'] == native['nativeSha256']
     assert result['relayWebsocketAvailable'] is True
     assert result['sdkVersion'] == root['version'] == native['version']
-    assert result['coreVersion'] == '1.1.14'
+    assert result['coreVersion'] == '1.1.15'
     assert result['frames'] == 1 and result['samples'] == 480
     assert all(result[k] is True for k in ['sourceIdentity', 'outputCancellation', 'stopSuccess'])
     # The shipping matrix builds ordinary engine-free addons. Positive engine

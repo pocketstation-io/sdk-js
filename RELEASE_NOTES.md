@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### 0.1.6
+
+The native binding uses published PocketStation Core 1.1.15. The Node API adds
+immutable process observations with exact `bigint` start times and explicit
+capture of 1–32 original application process instances. `captureProcessSet()`
+returns the existing `SourceOutput`, so selected audio can fan out through the
+same Session routes.
+
+Exact process sets require macOS 26 or newer; unsupported platforms return a
+typed error. Surviving original members may continue after another exits, but
+replacement processes are never followed. Losing every original member fails
+explicitly, and selecting fresh membership requires a new Session. There is no
+microphone, application or system-audio fallback.
+
+Ordinary native packages continue to omit AEC and retain Relay connector 0.1.6.
+Package qualification and platform evidence for this release remain separate
+from earlier same-host capture and Relay results.
+
 ## 0.1.5 — 2026-10-26
 
 Ordinary native packages include Relay WebSocket publication by default through

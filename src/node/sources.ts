@@ -11,6 +11,7 @@ import {
   type NativeCaptureAuthorizationSnapshot,
   type NativeCapturePermissionLifecycleHandle,
   type NativeDiscoveredSourceHandle,
+  type NativeObservedProcessInstance,
   type NativeSourceHandle,
 } from './native.js';
 
@@ -203,6 +204,12 @@ export interface ProcessInstanceSelector {
   readonly processId: number;
   /** Stable identity observed for that exact process instance. */
   readonly stableId: StableSourceId;
+}
+
+/** One application process and the native start time observed for that incarnation. */
+export interface ObservedProcessInstance extends ProcessInstanceSelector {
+  /** Native process start time in nanoseconds; rediscover after the process exits. */
+  readonly processStartTimeNs: bigint;
 }
 
 /** Typed native source disappearance or backend-failure observation. */
@@ -660,6 +667,93 @@ export async function discoverSources(
   const [queryKind, value] = nativeQuery(query);
   const sources = await nativeCall(() => nativeAddon().discoverSources(queryKind, value));
   return Object.freeze(sources.map((source) => new DiscoveredSource(source)));
+}
+
+/** Observe application process incarnations for an explicit process-set capture. */
+export async function discoverProcessInstances(): Promise<readonly ObservedProcessInstance[]> {
+  const addon = nativeAddon();
+  if (typeof addon.discoverProcessInstances !== 'function') {
+    throw new CaptureError(
+      'capture.unsupported',
+      'This native addon cannot observe exact application process sets',
+    );
+  }
+  const members = await nativeCall(() => addon.discoverProcessInstances!());
+  if (!Array.isArray(members)) throw invalidSelector('native process observations must be an array');
+  return Object.freeze(Array.from(members, (member) => {
+    if (
+      typeof member !== 'object' || member === null ||
+      typeof member.processStartTimeNs !== 'string' ||
+      !/^[0-9]+$/.test(member.processStartTimeNs)
+    ) {
+      throw invalidSelector('native process start time must be an unsigned 64-bit decimal string');
+    }
+    return freezeObservedProcessInstance({
+      processId: member.processId,
+      stableId: { platform: member.platform, kind: member.kind, stableKey: member.stableKey },
+      processStartTimeNs: BigInt(member.processStartTimeNs),
+    });
+  }));
+}
+
+/** @internal */
+export function nativeProcessSetMembers(
+  members: readonly ObservedProcessInstance[],
+): readonly NativeObservedProcessInstance[] {
+  if (!Array.isArray(members)) {
+    throw invalidSelector('an application process set must contain 1 through 32 members');
+  }
+  const count = members.length;
+  if (!Number.isInteger(count) || count < 1 || count > 32) {
+    throw invalidSelector('an application process set must contain 1 through 32 members');
+  }
+  const selected: ObservedProcessInstance[] = [];
+  for (let index = 0; index < count; index += 1) {
+    selected.push(freezeObservedProcessInstance(members[index]));
+  }
+  const processIds = new Set<number>();
+  const platform = selected[0]!.stableId.platform;
+  for (const member of selected) {
+    if (member.stableId.platform !== platform) {
+      throw invalidSelector('process-set members must use the same platform');
+    }
+    if (processIds.has(member.processId)) {
+      throw invalidSelector('process-set members must have distinct process identifiers');
+    }
+    processIds.add(member.processId);
+  }
+  selected.sort((left, right) => left.processId - right.processId);
+  return Object.freeze(selected.map((member) => Object.freeze({
+    processId: member.processId,
+    platform: member.stableId.platform,
+    kind: member.stableId.kind,
+    stableKey: member.stableId.stableKey,
+    processStartTimeNs: member.processStartTimeNs.toString(),
+  })));
+}
+
+function freezeObservedProcessInstance(input: unknown): ObservedProcessInstance {
+  if (typeof input !== 'object' || input === null || Array.isArray(input)) {
+    throw invalidSelector('a process-set member must be an observed application process instance');
+  }
+  const member = input as Partial<ObservedProcessInstance>;
+  const processId = member.processId;
+  const processStartTimeNs = member.processStartTimeNs;
+  requireProcessId(processId!);
+  if (processId! > 0x7fff_ffff) {
+    throw invalidSelector('an exact process-set identifier must not exceed 2147483647');
+  }
+  const stableId = freezeStableId(member.stableId);
+  requireApplicationIdentity(stableId);
+  if (
+    typeof processStartTimeNs !== 'bigint' ||
+    processStartTimeNs < 1n || processStartTimeNs > MAX_UNSIGNED_64
+  ) {
+    throw invalidSelector('processStartTimeNs must be a positive unsigned 64-bit bigint');
+  }
+  return Object.freeze({
+    processId: processId!, stableId, processStartTimeNs,
+  });
 }
 
 /** Check whether application capture is available without opening a source. */

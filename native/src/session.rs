@@ -39,7 +39,10 @@ use crate::signals::{
     subscribe_derived, subscribe_source_output, validate_subscription, NativeBusSubscription,
     NativeSignalMetrics, NativeSignalRead, SignalReceipts,
 };
-use crate::sources::{platform_name, source_kind_name, NativeSource};
+use crate::sources::{
+    platform_name, process_set, process_set_error, source_kind_name, NativeObservedProcessInstance,
+    NativeSource,
+};
 use crate::streams::{copy_audio, copy_retained_audio, NativeAudioRead};
 
 const COMMAND_CAPACITY_COUNT: usize = 8;
@@ -659,6 +662,23 @@ impl NativeSession {
                     handle,
                 })
                 .map_err(|failure| error("session.invalid_source", failure.to_string()))
+        })
+    }
+
+    #[napi]
+    pub fn capture_process_set(
+        &self,
+        members: Vec<NativeObservedProcessInstance>,
+    ) -> Result<crate::application_audio::NativeSourceOutput> {
+        let selected = process_set(members)?;
+        self.with_session(|session| {
+            session
+                .capture_process_set(selected)
+                .map(|handle| crate::application_audio::NativeSourceOutput {
+                    session_id: self.session_id,
+                    handle,
+                })
+                .map_err(process_set_error)
         })
     }
 

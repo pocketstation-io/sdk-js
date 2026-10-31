@@ -4,11 +4,12 @@ use napi::bindgen_prelude::AsyncTask;
 use napi::{Env, Result, Task};
 use napi_derive::napi;
 use pocketstation::{
-    ApplicationPolicyObservation, ApplicationSelector, CaptureAuthorizationSnapshot,
-    CaptureOpenOutcome, CapturePermissionLifecycle, CaptureScope, CaptureSessionGrant,
-    CaptureSource, DeviceId, DeviceSelector, PermissionEpoch, PermissionObservation, Platform,
-    ProcessId, ProcessTreeScope, SelectorPersistenceScope, SourceIdentityStrength, SourceKind,
-    SourceLifecycleEventKind, SourceQuery, SourceState, StableSourceId,
+    ApplicationPolicyObservation, ApplicationProcessSet, ApplicationSelector,
+    CaptureAuthorizationSnapshot, CaptureOpenOutcome, CapturePermissionLifecycle, CaptureScope,
+    CaptureSessionGrant, CaptureSource, DeviceId, DeviceSelector, ObservedProcessInstance,
+    PermissionEpoch, PermissionObservation, Platform, ProcessId, ProcessSetError, ProcessTreeScope,
+    SelectorPersistenceScope, SourceIdentityStrength, SourceKind, SourceLifecycleEventKind,
+    SourceQuery, SourceState, StableSourceId, MAX_APPLICATION_PROCESS_SET_MEMBERS,
 };
 
 use crate::errors::{error, state_unavailable};
@@ -311,6 +312,96 @@ pub fn discover_sources(
         Some(kind) => Some(parse_source_query(&kind, value)?),
     };
     Ok(AsyncTask::new(DiscoverSourcesTask { query }))
+}
+
+/// Wire values preserve the observed u64 start time without JavaScript rounding.
+#[napi(object)]
+pub struct NativeObservedProcessInstance {
+    pub process_id: u32,
+    pub platform: String,
+    pub kind: String,
+    pub stable_key: String,
+    pub process_start_time_ns: String,
+}
+
+fn project_process_instance(member: ObservedProcessInstance) -> NativeObservedProcessInstance {
+    NativeObservedProcessInstance {
+        process_id: member.process_id().get(),
+        platform: platform_name(member.stable_id().platform).to_owned(),
+        kind: source_kind_name(member.stable_id().kind).to_owned(),
+        stable_key: member.stable_id().stable_key.clone(),
+        process_start_time_ns: member.process_start_time_ns().to_string(),
+    }
+}
+
+pub(crate) fn process_set_error(failure: ProcessSetError) -> napi::Error {
+    let code = match failure.code() {
+        "session.invalid_process_set" => "session.invalid_selector",
+        code => code,
+    };
+    error(code, failure.to_string())
+}
+
+pub(crate) fn process_set(
+    members: Vec<NativeObservedProcessInstance>,
+) -> Result<ApplicationProcessSet> {
+    if members.is_empty() {
+        return Err(process_set_error(ProcessSetError::Empty));
+    }
+    if members.len() > MAX_APPLICATION_PROCESS_SET_MEMBERS {
+        return Err(process_set_error(ProcessSetError::TooManyMembers {
+            actual_count: members.len(),
+        }));
+    }
+    let members = members
+        .into_iter()
+        .map(|member| {
+            if member.kind != "application" {
+                return Err(error(
+                    "session.invalid_selector",
+                    "exact process-set members must identify applications",
+                ));
+            }
+            ObservedProcessInstance::new(
+                ProcessId::new(member.process_id),
+                StableSourceId::new(
+                    parse_platform(&member.platform)?,
+                    SourceKind::Application,
+                    member.stable_key,
+                ),
+                parse_u64(
+                    "process start time in nanoseconds",
+                    &member.process_start_time_ns,
+                )?,
+            )
+            .map_err(process_set_error)
+        })
+        .collect::<Result<Vec<_>>>()?;
+    ApplicationProcessSet::new(members).map_err(process_set_error)
+}
+
+#[allow(dead_code)]
+pub struct DiscoverProcessInstancesTask;
+
+impl Task for DiscoverProcessInstancesTask {
+    type Output = Vec<NativeObservedProcessInstance>;
+    type JsValue = Vec<NativeObservedProcessInstance>;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        pocketstation::discover_process_instances()
+            .map(|members| members.into_iter().map(project_process_instance).collect())
+            .map_err(process_set_error)
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output)
+    }
+}
+
+#[napi]
+#[allow(dead_code)]
+pub fn discover_process_instances() -> AsyncTask<DiscoverProcessInstancesTask> {
+    AsyncTask::new(DiscoverProcessInstancesTask)
 }
 
 #[napi]
@@ -681,5 +772,45 @@ mod tests {
             parse_source_query("kind", Some("input-device".to_owned())).expect("typed query"),
             SourceQuery::ByKind(SourceKind::InputDevice),
         );
+    }
+
+    #[test]
+    fn process_set_projection_keeps_original_start_and_every_exact_member() {
+        let member = ObservedProcessInstance::new(
+            ProcessId::new(42),
+            StableSourceId::new(Platform::Macos, SourceKind::Application, "helper"),
+            u64::MAX,
+        )
+        .expect("valid observation");
+        let projected = project_process_instance(member.clone());
+        assert_eq!(projected.process_start_time_ns, "18446744073709551615");
+        let selected = process_set(vec![projected]).expect("exact set");
+        assert_eq!(selected.members(), &[member]);
+    }
+
+    #[test]
+    fn process_set_wire_validation_rejects_widening_or_missing_incarnations() {
+        let member = || NativeObservedProcessInstance {
+            process_id: 42,
+            platform: "macos".to_owned(),
+            kind: "application".to_owned(),
+            stable_key: "helper".to_owned(),
+            process_start_time_ns: "1".to_owned(),
+        };
+        assert!(process_set(vec![]).is_err());
+        assert!(process_set((0..33).map(|_| member()).collect()).is_err());
+        assert!(process_set(vec![member(), member()]).is_err());
+        let mut device = member();
+        device.kind = "input-device".to_owned();
+        assert!(process_set(vec![device]).is_err());
+        let mut missing_start = member();
+        missing_start.process_start_time_ns = "0".to_owned();
+        assert!(process_set(vec![missing_start]).is_err());
+        let mut overflow = member();
+        overflow.process_start_time_ns = "18446744073709551616".to_owned();
+        assert!(process_set(vec![overflow]).is_err());
+        let mut unsupported_pid = member();
+        unsupported_pid.process_id = i32::MAX as u32 + 1;
+        assert!(process_set(vec![unsupported_pid]).is_err());
     }
 }
