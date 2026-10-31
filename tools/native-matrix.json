@@ -11,16 +11,22 @@
     {
       "id": "darwin-arm64",
       "runner": "macos-15",
+      "buildRunner": "macos-26",
       "platform": "darwin",
       "arch": "arm64",
-      "container": ""
+      "container": "",
+      "deploymentTarget": "11.0",
+      "sdkMajor": 26
     },
     {
       "id": "darwin-x64",
       "runner": "macos-15-intel",
+      "buildRunner": "macos-26-intel",
       "platform": "darwin",
       "arch": "x64",
-      "container": ""
+      "container": "",
+      "deploymentTarget": "11.0",
+      "sdkMajor": 26
     },
     {
       "id": "win32-arm64-msvc",

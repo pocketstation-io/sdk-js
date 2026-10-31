@@ -43,6 +43,17 @@ test('source CI compiles each addon variant once and keeps every package gate', 
   assert.ok(job.steps.some((step) => step.run === 'npm run native:check'));
   assert.ok(job.steps.some((step) => step.run === 'npm run api:check'));
   assert.ok(job.steps.some((step) => step.run === 'npm audit --omit=dev'));
+  for (const name of [
+    'Type-check and test package',
+    'Build the ordinary addon once for both package checks',
+  ]) {
+    const step = job.steps.find((candidate) => candidate.name === name);
+    assert.equal(step.env.MACOSX_DEPLOYMENT_TARGET, '11.0');
+  }
+  const aec = ci.jobs.aec.steps.find(
+    (step) => step.name === 'Build and test explicitly enabled artifact',
+  );
+  assert.equal(aec.env.MACOSX_DEPLOYMENT_TARGET, '11.0');
   for (const name of ['build:native', 'build:test-native', 'build:native:aec', 'build:test-native:aec']) {
     assert.match(manifest.scripts[name], /-- --locked &&/);
   }
@@ -71,6 +82,10 @@ test('archive qualification is deliberate and publication still verifies frozen 
   assert.match(commands, /prepare-npm-release\.py/);
   assert.match(commands, /--manifest-sha256/);
   assert.match(commands, /publish-qualified\.mjs/);
+  const nativeBuild = qualification.jobs.native.steps.find(
+    (step) => step.name === 'Build the production addon from locked dependencies',
+  );
+  assert.equal(nativeBuild.env.MACOSX_DEPLOYMENT_TARGET, '${{ matrix.deploymentTarget }}');
 });
 
 test('source and archive builds reject private files before installs and pin only the build CLI', () => {

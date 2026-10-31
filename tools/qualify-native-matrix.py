@@ -66,6 +66,15 @@ def target(identity):
     return next(row for row in MATRIX['targets'] if row['id'] == identity)
 
 
+def matrix_rows(kind):
+    rows = [{key: value for key, value in row.items() if key != 'buildRunner'}
+            for row in MATRIX['targets']]
+    if kind == 'build':
+        return [dict(row, runner=source.get('buildRunner', row['runner']))
+                for source, row in zip(MATRIX['targets'], rows)]
+    return [dict(row, node=node) for row in rows for node in MATRIX['nodes']]
+
+
 def archive(path):
     with tarfile.open(path, 'r:gz') as handle:
         members = handle.getmembers()
@@ -112,6 +121,16 @@ def freeze(kind, identity, output):
             assert 'not found' not in report['dynamicDependencies']
         elif row['platform'] == 'darwin':
             report['dynamicDependencies'] = run(['otool', '-L', str(binary)])
+            build_metadata = run(['otool', '-l', str(binary)])
+            minimums = re.findall(r'^\s+minos\s+([0-9.]+)\s*$', build_metadata, re.MULTILINE)
+            sdks = re.findall(r'^\s+sdk\s+([0-9.]+)\s*$', build_metadata, re.MULTILINE)
+            assert minimums == [row['deploymentTarget']], (
+                f"Darwin archive changed its deployment target: {minimums}")
+            assert len(sdks) == 1 and int(sdks[0].split('.')[0]) >= row['sdkMajor'], (
+                f"Darwin archive was not built with the required SDK: {sdks}")
+            report['deploymentTarget'] = minimums[0]
+            report['sdk'] = sdks[0]
+            report['buildMetadata'] = build_metadata
         else:
             report['dynamicDependencies'] = 'Windows loader resolution is exercised by the installed consumer.'
     write(output / f'{kind}.json', report)
@@ -250,8 +269,7 @@ def main():
     v.add_argument('--output', required=True)
     args = parser.parse_args()
     if args.command == 'matrix':
-        rows = MATRIX['targets'] if args.kind == 'build' else [dict(row, node=node) for row in MATRIX['targets'] for node in MATRIX['nodes']]
-        print(json.dumps({'include': rows}, separators=(',', ':')))
+        print(json.dumps({'include': matrix_rows(args.kind)}, separators=(',', ':')))
     elif args.command == 'freeze':
         freeze(args.kind, args.target, args.output)
     elif args.command == 'consume':

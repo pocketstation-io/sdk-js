@@ -73,6 +73,13 @@ socket-closure and timeout assertions. Required failures need diagnosis and a
 passing result; skipped or cancelled jobs do not count. Build each native
 variant once per job and reuse its bytes for exports and installed consumers.
 
+Core 1.1.15 process-set capture requires the macOS 26 SDK at compile time. The
+Darwin build rows therefore use the `macos-26` and `macos-26-intel` runners
+with `MACOSX_DEPLOYMENT_TARGET=11.0`; installed consumers continue to execute
+on the macOS 15 runners. The archive freezer verifies both the SDK and final
+Mach-O deployment target. Do not move the build rows to an older SDK or let the
+runner's current OS version raise the package's runtime floor.
+
 After the reviewed change merges, obtain the actual final main commit:
 
 ```sh
