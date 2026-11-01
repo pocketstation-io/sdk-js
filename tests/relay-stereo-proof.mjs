@@ -13,10 +13,11 @@ export async function stereoBrowserProof(page, access, settings, timeoutMs, priv
   const limits = { sampleRateHz: 48_000, windowSamples: 48_000, settleMs: 750,
     minimumRms: 0.05, minimumToneAmplitude: 0.08, minimumSeparationDb: 25, silenceRms: 0.001 };
   const result = { limits, controls: [], windows: [], phaseChanges: [], executionError: null,
-    cleanup: null, negotiations: [], passed: false, defaultIsDescriptive: true };
+    cleanup: null, negotiations: [], rendererActivations: [], passed: false, defaultIsDescriptive: true,
+    rendererActivationHypothesis: 'An owned quiet HTML renderer may activate remote decode; this is an instrument hypothesis, not a product repair or established cause.' };
   try {
     const setup = await page.evaluate(async ({ access, workletSource, limits, timeoutMs }) => {
-      const proof = { arms: [], controls: [], negotiations: [], privateSdp: [], peerConnections: [], activeArm: null,
+      const proof = { arms: [], controls: [], negotiations: [], privateSdp: [], peerConnections: [], rendererActivations: [], activeArm: null,
         originalPeerConnection: globalThis.RTCPeerConnection, originalWebSocket: globalThis.WebSocket };
       globalThis.__relayStereoProof = proof;
       const safeSdp = (sdp) => (sdp ?? '').split(/(?=^m=)/m).flatMap((section) => {
@@ -66,6 +67,68 @@ export async function stereoBrowserProof(page, access, settings, timeoutMs, priv
         node.port.onmessage = ({ data }) => { clearTimeout(timer); node.port.onmessage = null; resolve(data); };
         if (start) node.port.postMessage('measure');
       });
+      proof.rendererState = (arm, event, error = null) => {
+        const renderer = arm.renderer;
+        const audio = renderer?.audio;
+        return { arm: arm.name, sequence: arm.rendererSequence, event, observedAtMs: performance.now(),
+          contextState: arm.context.state, paused: audio?.paused ?? null,
+          readyState: audio?.readyState ?? null, currentTimeSeconds: audio?.currentTime ?? null,
+          muted: audio?.muted ?? null, volume: audio?.volume ?? null,
+          quietGain: renderer?.gain?.gain.value ?? null, mediaErrorCode: audio?.error?.code ?? null,
+          trackId: renderer?.trackId ?? null, error };
+      };
+      proof.detachRenderer = (arm) => {
+        const renderer = arm.renderer;
+        if (!renderer) return [];
+        const errors = [];
+        for (const [name, close] of [
+          ['pause', () => renderer.audio.pause()],
+          ['detach', () => { renderer.audio.srcObject = null; }],
+          ['source', () => renderer.source?.disconnect()],
+          ['gain', () => renderer.gain?.disconnect()],
+        ]) {
+          try { close(); } catch (error) { errors.push({ operation: `${arm.name}:renderer:${name}`, error: String(error) }); }
+        }
+        proof.rendererActivations.push(proof.rendererState(arm, 'detached', errors.length ? JSON.stringify(errors) : null));
+        if (errors.length === 0) arm.renderer = null;
+        return errors;
+      };
+      const receiverSnapshot = async (arm) => {
+        const connection = proof.peerConnections.filter((item) => item.arm === arm.name).at(-1)?.connection;
+        const reports = connection ? await connection.getStats() : null;
+        const records = new Map();
+        reports?.forEach((report, id) => records.set(id, report));
+        const track = arm.stream.getAudioTracks()[0] ?? null;
+        const exactReceivers = connection?.getReceivers().filter((receiver) => receiver.track === track) ?? [];
+        const inboundCandidates = [...records.values()].filter((report) => report.type === 'inbound-rtp'
+          && (report.kind ?? report.mediaType) === 'audio');
+        const matched = inboundCandidates.filter((report) => report.trackIdentifier === track?.id);
+        const rawInbound = (report) => Object.fromEntries([
+          'id', 'timestamp', 'type', 'ssrc', 'kind', 'mediaType', 'mid', 'trackIdentifier', 'codecId', 'transportId',
+          'packetsReceived', 'bytesReceived', 'packetsLost', 'packetsDiscarded', 'jitter',
+          'jitterBufferDelay', 'jitterBufferEmittedCount', 'totalSamplesReceived', 'totalSamplesDuration',
+          'totalAudioEnergy', 'audioLevel', 'concealedSamples', 'silentConcealedSamples', 'concealmentEvents',
+          'insertedSamplesForDeceleration', 'removedSamplesForAcceleration', 'decoderImplementation', 'playoutId',
+        ].map((name) => [name, report[name] ?? null]));
+        const selected = [];
+        records.forEach((transport) => {
+          if (transport.type !== 'transport') return;
+          const pair = records.get(transport.selectedCandidatePairId);
+          const candidate = (id) => {
+            const value = records.get(id);
+            return value ? { id, type: value.type, candidateType: value.candidateType ?? null,
+              protocol: value.protocol ?? null, address: value.address ?? null, port: value.port ?? null } : null;
+          };
+          selected.push({ transportId: transport.id, selectedCandidatePairId: transport.selectedCandidatePairId ?? null,
+            pair: pair ? { id: pair.id, type: pair.type, state: pair.state ?? null, nominated: pair.nominated ?? null,
+              localCandidateId: pair.localCandidateId ?? null, remoteCandidateId: pair.remoteCandidateId ?? null } : null,
+            localCandidate: candidate(pair?.localCandidateId), remoteCandidate: candidate(pair?.remoteCandidateId) });
+        });
+        return { receiverTrackId: track?.id ?? null, exactReceiverTrackMatches: exactReceivers.length,
+          selectedInbound: exactReceivers.length === 1 && matched.length === 1 ? rawInbound(matched[0]) : null,
+          inboundCandidates: inboundCandidates.map(rawInbound),
+          selectedCandidatePairs: selected.length ? selected : null };
+      };
       try {
         for (const control of ['stereo', 'mono', 'duplicated-mono', 'swapped', 'missing-right']) {
           const count = control === 'mono' ? 1 : 2;
@@ -94,7 +157,8 @@ export async function stereoBrowserProof(page, access, settings, timeoutMs, priv
           const sdk = await import(name === 'legacy'
             ? '/baseline-pocketstation/browser/index.js' : '/pocketstation/browser/index.js');
           const context = new AudioContext({ sampleRate: limits.sampleRateHz });
-          const arm = { name, context, receiver: null, node: null, source: null, errors: [], stream: null };
+          const arm = { name, context, receiver: null, node: null, source: null, errors: [], stream: null,
+            renderer: null, rendererSequence: 0 };
           proof.arms.push(arm);
           if (context.sampleRate !== limits.sampleRateHz) throw new Error('Unexpected AudioContext sample rate');
           const options = { connectTimeoutMs: timeoutMs, disconnectTimeoutMs: 2_000,
@@ -118,8 +182,32 @@ export async function stereoBrowserProof(page, access, settings, timeoutMs, priv
       proof.attach = async (reconnect) => {
         for (const arm of proof.arms) {
           proof.activeArm = arm.name;
+          const rendererErrors = proof.detachRenderer(arm);
+          if (rendererErrors.length) throw new Error('Previous quiet renderer cleanup unconfirmed');
           arm.source?.disconnect();
           arm.stream = await (reconnect ? arm.receiver.reconnect() : arm.receiver.connect());
+          const audio = new Audio();
+          audio.volume = 1;
+          audio.muted = false;
+          arm.rendererSequence += 1;
+          arm.renderer = { audio, source: null, gain: null, trackId: arm.stream.getAudioTracks()[0]?.id ?? null };
+          // Reroute before assigning/playing the stream; the declared output graph ends at gain0.
+          arm.renderer.source = arm.context.createMediaElementSource(audio);
+          arm.renderer.gain = new GainNode(arm.context, { gain: 0 });
+          arm.renderer.source.connect(arm.renderer.gain).connect(arm.context.destination);
+          audio.srcObject = arm.stream;
+          proof.rendererActivations.push(proof.rendererState(arm, 'play-start'));
+          let timer;
+          try {
+            await Promise.race([audio.play(), new Promise((_, reject) => {
+              timer = setTimeout(() => reject(new Error('Quiet renderer play deadline')), timeoutMs);
+            })]);
+            proof.rendererActivations.push(proof.rendererState(arm, 'play-resolved'));
+            if (audio.paused) throw new Error('Quiet renderer remains paused after play');
+          } catch (error) {
+            proof.rendererActivations.push(proof.rendererState(arm, 'play-error', String(error)));
+            throw error;
+          } finally { clearTimeout(timer); }
           arm.source = new MediaStreamAudioSourceNode(arm.context, { mediaStream: arm.stream });
           arm.source.connect(arm.node);
         }
@@ -128,28 +216,14 @@ export async function stereoBrowserProof(page, access, settings, timeoutMs, priv
       proof.measure = async () => Promise.all(proof.arms.map(async (arm) => {
         if (arm.context.state !== 'running') throw new Error('AudioContext is not running');
         const before = await arm.receiver.observe();
+        const inboundBefore = await receiverSnapshot(arm);
+        const rendererBefore = proof.rendererState(arm, 'window-before');
         const raw = await receiveWindow(arm.node, true);
         const after = await arm.receiver.observe();
-        const connection = proof.peerConnections.filter((item) => item.arm === arm.name).at(-1)?.connection;
-        const reports = connection ? await connection.getStats() : null;
-        const records = new Map();
-        reports?.forEach((report, id) => records.set(id, report));
-        const selected = [];
-        records.forEach((transport) => {
-          if (transport.type !== 'transport') return;
-          const pair = records.get(transport.selectedCandidatePairId);
-          const candidate = (id) => {
-            const value = records.get(id);
-            return value ? { id, type: value.type, candidateType: value.candidateType ?? null,
-              protocol: value.protocol ?? null, address: value.address ?? null, port: value.port ?? null } : null;
-          };
-          selected.push({ transportId: transport.id, selectedCandidatePairId: transport.selectedCandidatePairId ?? null,
-            pair: pair ? { id: pair.id, type: pair.type, state: pair.state ?? null, nominated: pair.nominated ?? null,
-              localCandidateId: pair.localCandidateId ?? null, remoteCandidateId: pair.remoteCandidateId ?? null } : null,
-            localCandidate: candidate(pair?.localCandidateId), remoteCandidate: candidate(pair?.remoteCandidateId) });
-        });
+        const inboundAfter = await receiverSnapshot(arm);
         return { arm: arm.name, raw, before, after, receiverState: arm.receiver.state,
-          selectedCandidatePairs: selected.length ? selected : null,
+          inboundBefore, inboundAfter, rendererBefore, rendererAfter: proof.rendererState(arm, 'window-after'),
+          selectedCandidatePairs: inboundAfter.selectedCandidatePairs,
           audioTrackCount: arm.stream.getAudioTracks().length, contextState: arm.context.state };
       }));
       return { controls: proof.controls, userAgent: navigator.userAgent };
@@ -196,6 +270,7 @@ export async function stereoBrowserProof(page, access, settings, timeoutMs, priv
       const closed = await page.evaluate(async () => {
         const proof = globalThis.__relayStereoProof;
         if (!proof) return { errors: [], arms: [], negotiations: [] };
+        const rendererErrors = proof.arms.flatMap((arm) => proof.detachRenderer(arm));
         const operations = proof.arms.flatMap((arm) => [
           { name: `${arm.name}:context`, close: () => arm.context.close() },
           { name: `${arm.name}:receiver`, close: () => arm.receiver?.disconnect() },
@@ -206,21 +281,23 @@ export async function stereoBrowserProof(page, access, settings, timeoutMs, priv
             timer = setTimeout(() => reject(new Error('Cleanup unconfirmed after5000ms')), 5_000);
           })]); } finally { clearTimeout(timer); }
         }));
-        const errors = outcomes.flatMap((value, index) => value.status === 'rejected'
-          ? [{ operation: operations[index].name, error: String(value.reason) }] : []);
+        const errors = [...rendererErrors, ...outcomes.flatMap((value, index) => value.status === 'rejected'
+          ? [{ operation: operations[index].name, error: String(value.reason) }] : [])];
         const arms = proof.arms.map((arm) => {
           arm.source?.disconnect(); arm.node?.disconnect(); arm.node?.port.close();
           return { arm: arm.name, contextState: arm.context.state,
-            receiverState: arm.receiver?.state ?? null, errors: arm.errors };
+            receiverState: arm.receiver?.state ?? null, rendererClosed: arm.renderer === null, errors: arm.errors };
         });
         globalThis.RTCPeerConnection = proof.originalPeerConnection;
         globalThis.WebSocket = proof.originalWebSocket;
-        return { errors, arms, negotiations: proof.negotiations, controls: proof.controls, privateSdp: proof.privateSdp };
+        return { errors, arms, negotiations: proof.negotiations, rendererActivations: proof.rendererActivations,
+          controls: proof.controls, privateSdp: proof.privateSdp };
       });
       const privateBytes = JSON.stringify(closed.privateSdp ?? [], null, 2) + '\n';
       delete closed.privateSdp;
       result.cleanup = closed;
       result.negotiations = closed.negotiations;
+      result.rendererActivations = closed.rendererActivations ?? [];
       if (result.controls.length === 0) result.controls = closed.controls ?? [];
       if (Buffer.byteLength(privateBytes) > 4 * 1024 * 1024) throw new Error('Private SDP output exceeds4MiB');
       await writeFile(privateSdpPath, privateBytes, { flag: 'wx', mode: 0o600 });
@@ -234,7 +311,8 @@ export async function stereoBrowserProof(page, access, settings, timeoutMs, priv
   const expectedWindows = Object.keys(access).length * 8;
   result.passed = result.executionError === null && result.windows.length === expectedWindows
     && result.cleanup?.errors.length === 0
-    && result.cleanup.arms.every((arm) => arm.contextState === 'closed' && arm.receiverState === 'closed' && arm.errors.length === 0)
+    && result.cleanup.arms.every((arm) => arm.contextState === 'closed' && arm.receiverState === 'closed'
+      && arm.rendererClosed && arm.errors.length === 0)
     && result.windows.every((window) => window.raw.windowSamples === limits.windowSamples
       && window.receiverState === 'connected' && window.contextState === 'running' && window.audioTrackCount === 1
       && Number.isFinite(window.before.packetsReceived) && Number.isFinite(window.after.packetsReceived)
