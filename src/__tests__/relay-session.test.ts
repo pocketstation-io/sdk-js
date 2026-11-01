@@ -4,6 +4,7 @@ import { inspect } from 'node:util';
 import { PocketStationError } from '../errors.js';
 import { InvitationUnavailableError } from '../control/control-client.js';
 import { SecretToken } from '../control/types.js';
+import type { RelayReceiverOptions } from '../browser/types.js';
 import {
   RelayReceiver,
   parseRelayInvitationLocation,
@@ -24,6 +25,8 @@ const resolution = {
     },
   ],
 } as const;
+
+const stereoOffer = 'v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=mid:music\r\na=recvonly\r\na=rtpmap:111 opus/48000/2\r\na=fmtp:111 minptime=10;stereo=0\r\n';
 
 function mockFetch(body: unknown, status = 200): jest.Mock {
   const call = jest.fn(async () =>
@@ -203,8 +206,18 @@ describe('RelayReceiver connected protocol', () => {
   class FakePeerConnection {
     public static instances: FakePeerConnection[] = [];
     public static emitCandidateDuringLocalDescription = false;
+    public static offerSdp: string | undefined = 'v=0\r\n';
+    public static acceptedSdp: ((sdp: string) => string) | null = null;
+    public static omitLocalDescription = false;
+    public static onLocalDescription: (() => void) | null = null;
+    public static onCreateOffer: (() => void) | null = null;
+    public static offerOperation: Promise<RTCSessionDescriptionInit> | null = null;
+    public static localDescriptionOperation: Promise<void> | null = null;
+    public static statistics: Record<string, unknown>[] = [];
     public readonly configuration: RTCConfiguration;
     public connectionState: RTCPeerConnectionState = 'new';
+    public localDescription: RTCSessionDescription | null = null;
+    public readonly localDescriptions: RTCSessionDescriptionInit[] = [];
     public remoteDescription: RTCSessionDescription | null = null;
     public onicecandidate: ((event: RTCPeerConnectionIceEvent) => void) | null = null;
     public onconnectionstatechange: (() => void) | null = null;
@@ -218,14 +231,26 @@ describe('RelayReceiver connected protocol', () => {
     public addTransceiver(): void {}
 
     public async createOffer(): Promise<RTCSessionDescriptionInit> {
-      return { type: 'offer', sdp: 'v=0\r\n' };
+      FakePeerConnection.onCreateOffer?.();
+      return FakePeerConnection.offerOperation ?? { type: 'offer', sdp: FakePeerConnection.offerSdp };
     }
 
-    public async setLocalDescription(): Promise<void> {
+    public async setLocalDescription(description: RTCSessionDescriptionInit): Promise<void> {
+      this.localDescriptions.push(description);
+      if (!FakePeerConnection.omitLocalDescription) {
+        this.localDescription = {
+          ...description,
+          sdp: FakePeerConnection.acceptedSdp?.(description.sdp ?? '') ?? description.sdp,
+        } as RTCSessionDescription;
+      }
+      FakePeerConnection.onLocalDescription?.();
       if (FakePeerConnection.emitCandidateDuringLocalDescription) {
         this.onicecandidate?.({
           candidate: { candidate: 'candidate:early-receiver' },
         } as unknown as RTCPeerConnectionIceEvent);
+      }
+      if (FakePeerConnection.localDescriptionOperation !== null) {
+        await FakePeerConnection.localDescriptionOperation;
       }
     }
 
@@ -244,7 +269,7 @@ describe('RelayReceiver connected protocol', () => {
     public async addIceCandidate(): Promise<void> {}
 
     public async getStats(): Promise<RTCStatsReport> {
-      return { forEach(): void {} } as RTCStatsReport;
+      return new Map(FakePeerConnection.statistics.map((report) => [report.id, report])) as unknown as RTCStatsReport;
     }
 
     public close(): void {
@@ -316,6 +341,14 @@ describe('RelayReceiver connected protocol', () => {
     FakeWebSocket.instances = [];
     FakePeerConnection.instances = [];
     FakePeerConnection.emitCandidateDuringLocalDescription = false;
+    FakePeerConnection.offerSdp = 'v=0\r\n';
+    FakePeerConnection.acceptedSdp = null;
+    FakePeerConnection.omitLocalDescription = false;
+    FakePeerConnection.onLocalDescription = null;
+    FakePeerConnection.onCreateOffer = null;
+    FakePeerConnection.offerOperation = null;
+    FakePeerConnection.localDescriptionOperation = null;
+    FakePeerConnection.statistics = [];
     Object.defineProperty(globalThis, 'RTCPeerConnection', {
       configurable: true,
       value: FakePeerConnection,
@@ -335,6 +368,157 @@ describe('RelayReceiver connected protocol', () => {
     Reflect.deleteProperty(globalThis, 'MediaStream');
     Reflect.deleteProperty(globalThis, 'WebSocket');
   });
+
+  function directReceiver(options: RelayReceiverOptions = {}): RelayReceiver {
+    return new RelayReceiver({
+      signalUrl: resolution.signal_url,
+      sessionId: resolution.session_id,
+      busId: resolution.bus_id,
+      subscriberToken: new SecretToken(resolution.subscriber_token),
+    }, options);
+  }
+
+  it.each([undefined, 'default'] as const)(
+    'given profile %s when connecting then signals browser-accepted SDP without a stereo override',
+    async (audioProfile) => {
+      FakePeerConnection.offerSdp = stereoOffer;
+      FakePeerConnection.acceptedSdp = (sdp) => sdp + 'a=x-browser-accepted:yes\r\n';
+      const receiver = directReceiver({ audioProfile });
+      await receiver.connect();
+      expect(FakePeerConnection.instances[0].localDescriptions[0].sdp).toBe(stereoOffer);
+      expect(FakeWebSocket.instances[0].sent[0]).toMatchObject({
+        type: 'SUBSCRIBE', sdp_offer: stereoOffer + 'a=x-browser-accepted:yes\r\n',
+      });
+      await receiver.disconnect();
+    },
+  );
+
+  it('given music-stereo when options mutate and reconnect then retains the constructor preference', async () => {
+    FakePeerConnection.offerSdp = stereoOffer;
+    const options: { audioProfile: 'default' | 'music-stereo' } = { audioProfile: 'music-stereo' };
+    const receiver = directReceiver(options);
+    options.audioProfile = 'default';
+    await receiver.connect();
+    await receiver.reconnect();
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    for (const socket of FakeWebSocket.instances) {
+      expect(socket.sent[0]).toMatchObject({ sdp_offer: stereoOffer.replace('stereo=0', 'stereo=1') });
+    }
+    await receiver.disconnect();
+  });
+
+  it('given music-stereo when Relay requests ICE restart then reuses the same receive preference', async () => {
+    FakePeerConnection.offerSdp = stereoOffer;
+    let connectedCount = 0;
+    let ready: () => void = () => {};
+    const restarted = new Promise<void>((resolve) => { ready = resolve; });
+    const receiver = directReceiver({
+      audioProfile: 'music-stereo',
+      onStateChange: (state) => { if (state === 'connected' && ++connectedCount === 2) ready(); },
+    });
+    await receiver.connect();
+    FakeWebSocket.instances[0].receive({ type: 'ICE_RESTART' });
+    await restarted;
+    expect(FakeWebSocket.instances[1].sent[0]).toMatchObject({
+      sdp_offer: stereoOffer.replace('stereo=0', 'stereo=1'),
+    });
+    await receiver.disconnect();
+  });
+
+  it.each([null, false, 'voice-mono', '', 1])(
+    'given invalid plain-JavaScript profile %s when constructing then rejects before opening resources',
+    (audioProfile) => {
+      expect(() => directReceiver({ audioProfile } as unknown as RelayReceiverOptions))
+        .toThrow(expect.objectContaining({ code: 'relay.invalid_audio_profile' }));
+      expect(FakePeerConnection.instances).toHaveLength(0);
+      expect(FakeWebSocket.instances).toHaveLength(0);
+    },
+  );
+
+  it.each(['missing-offer', 'missing-local', 'discarded-preference', 'no-opus'])(
+    'given %s when requesting stereo then fails without subscription and closes resources',
+    async (failure) => {
+      FakePeerConnection.offerSdp = failure === 'missing-offer' ? undefined : stereoOffer;
+      FakePeerConnection.omitLocalDescription = failure === 'missing-local';
+      if (failure === 'discarded-preference') {
+        FakePeerConnection.acceptedSdp = (sdp) => sdp.replace('stereo=1', 'stereo=0');
+      }
+      if (failure === 'no-opus') FakePeerConnection.offerSdp = 'v=0\r\n';
+      const receiver = directReceiver({ audioProfile: 'music-stereo' });
+      await expect(receiver.connect()).rejects.toMatchObject({
+        code: failure.startsWith('missing') ? 'relay.sdp_offer_missing' : 'relay.stereo_receive_unsupported',
+      });
+      expect(FakeWebSocket.instances[0].sent).toHaveLength(0);
+      expect(FakePeerConnection.instances[0].connectionState).toBe('closed');
+      expect(FakeWebSocket.instances[0].readyState).toBe(FakeWebSocket.CLOSED);
+      await receiver.disconnect();
+    },
+  );
+
+  it.each(['offer', 'local-description'])(
+    'given a hanging %s when startup is cancelled then joins signaling and closes WebRTC',
+    async (stage) => {
+      FakePeerConnection.offerSdp = stereoOffer;
+      let entered: () => void = () => {};
+      const started = new Promise<void>((resolve) => { entered = resolve; });
+      if (stage === 'offer') {
+        FakePeerConnection.onCreateOffer = entered;
+        FakePeerConnection.offerOperation = new Promise(() => {});
+      } else {
+        FakePeerConnection.onLocalDescription = entered;
+        FakePeerConnection.localDescriptionOperation = new Promise(() => {});
+      }
+      const receiver = directReceiver({ audioProfile: 'music-stereo' });
+      const controller = new AbortController();
+      const connected = receiver.connect({ signal: controller.signal });
+      await started;
+      controller.abort();
+      await expect(connected).rejects.toMatchObject({ code: 'relay.connect_cancelled' });
+      expect(FakeWebSocket.instances[0].sent).toHaveLength(0);
+      expect(FakePeerConnection.instances[0].connectionState).toBe('closed');
+      expect(FakeWebSocket.instances[0].readyState).toBe(FakeWebSocket.CLOSED);
+      await receiver.disconnect();
+    },
+  );
+
+  it('given selected codec identity when observing then resolves that codec rather than report order', async () => {
+    const receiver = directReceiver();
+    await receiver.connect();
+    FakePeerConnection.statistics = [
+      { id: 'unrelated', type: 'codec', mimeType: 'audio/PCMU', channels: 1, payloadType: 0 },
+      { id: 'selected', type: 'codec', mimeType: 'audio/opus', clockRate: 48_000, channels: 2,
+        payloadType: 111, sdpFmtpLine: 'minptime=10;stereo=1' },
+      { id: 'audio', type: 'inbound-rtp', kind: 'audio', codecId: 'selected', packetsReceived: 7 },
+      { id: 'video', type: 'inbound-rtp', kind: 'video', codecId: 'unrelated' },
+    ];
+    expect(await receiver.observe()).toMatchObject({
+      codecMimeType: 'audio/opus', codecClockRateHz: 48_000, codecChannelCount: 2,
+      codecPayloadType: 111, codecSdpFmtpLine: 'minptime=10;stereo=1', packetsReceived: 7,
+      acousticOutput: 'unavailable',
+    });
+    await receiver.disconnect();
+  });
+
+  it.each(['missing', 'wrong-id', 'wrong-type', 'video-codec', 'invalid-values'])(
+    'given %s codec metadata when observing then leaves unavailable fields null',
+    async (fixture) => {
+      const receiver = directReceiver();
+      await receiver.connect();
+      FakePeerConnection.statistics = fixture === 'missing' ? [] : [
+        { id: 'audio', type: 'inbound-rtp', kind: 'audio', codecId: 'selected' },
+        { id: fixture === 'wrong-id' ? 'other' : 'selected',
+          type: fixture === 'wrong-type' ? 'candidate-pair' : 'codec',
+          mimeType: fixture === 'video-codec' ? 'video/VP8' : 'audio/opus',
+          clockRate: Number.NaN, channels: 0, payloadType: 128, sdpFmtpLine: null },
+      ];
+      expect(await receiver.observe()).toMatchObject({
+        codecMimeType: fixture === 'invalid-values' ? 'audio/opus' : null,
+        codecClockRateHz: null, codecChannelCount: null, codecPayloadType: null, codecSdpFmtpLine: null,
+        acousticOutput: 'unavailable',
+      });
+      await receiver.disconnect();
+    },
+  );
 
   it('rejects state for a different Session instead of accepting poisoned identity', async () => {
     const receiver = new RelayReceiver({

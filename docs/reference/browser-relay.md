@@ -143,6 +143,35 @@ const microphoneStream = await microphoneReceiver.connect();
 This avoids coupling WebRTC startup to browser scheduling. It does not serialize
 media after connection; both AudioBuses continue independently.
 
+## Request stereo reception for music
+
+Select `music-stereo` when the named AudioBus contains independently encoded
+left and right channels:
+
+```ts
+const receiver = new RelayReceiver(access, {
+  audioProfile: "music-stereo",
+});
+const stream = await receiver.connect();
+```
+
+Omitting `audioProfile`, or choosing `"default"`, leaves the browser's offer
+parameters unchanged. `music-stereo` requests `stereo=1` for the offered Opus
+payloads in the receiver's one active receiving audio section. It replaces an
+explicit `stereo=0` and preserves unrelated codec, ICE and security parameters.
+If that section is ambiguous, Opus is unavailable, or the browser does not retain
+the preference, startup fails with `relay.stereo_receive_unsupported` and closes
+the receiver resources. Invalid JavaScript option values fail during construction
+with `relay.invalid_audio_profile`.
+
+The constructor snapshots the profile. Explicit reconnect and Relay-requested
+ICE reattachment keep it even if the caller later mutates its options object.
+The SDK sends the local description accepted by the browser. This preference
+does not change capture processing, sender bitrate, DTX, FEC or receiver buffering,
+and it cannot turn a mono source into independent stereo. Measure the returned
+stream's decoded PCM when channel separation matters; SDP and codec metadata do
+not prove that the channels contain independent signals.
+
 ## Handle lifecycle changes
 
 Callbacks are optional and run on the browser event loop:
@@ -162,8 +191,10 @@ const receiver = new RelayReceiver(access, {
 
 The receiver reports `idle`, invitation resolution, signaling, connection,
 connection loss, failure, and final closure as distinct states. It does not
-reconnect without the application asking. Call `reconnect()` after a temporary
+retry a lost connection automatically. Call `reconnect()` after a temporary
 connection loss when the existing subscriber access is still valid.
+Relay may also request an ICE reattachment through the existing signaling
+connection; that operation uses the receiver's original options and deadlines.
 
 ## Read receiver observations
 
@@ -176,6 +207,11 @@ console.log({
   packets: observation.packetsReceived,
   lost: observation.packetsLost,
   jitterMs: observation.jitterMs,
+  codec: observation.codecMimeType,
+  codecClockRateHz: observation.codecClockRateHz,
+  codecChannelCount: observation.codecChannelCount,
+  codecPayloadType: observation.codecPayloadType,
+  codecParameters: observation.codecSdpFmtpLine,
   track: observation.trackState,
 });
 ```
@@ -184,6 +220,11 @@ Fields that the current browser does not report remain `null`. WebRTC statistics
 can show that encoded media reached the receiver and entered browser playout;
 they cannot prove that a loudspeaker emitted sound or that a person heard it.
 `acousticOutput` therefore remains `"unavailable"`.
+Codec fields come from the codec referenced by the inbound audio statistics,
+not from an unrelated codec entry or an SDP channel-count assumption. In
+particular, Opus's declared two channels do not establish independent decoded
+left and right content. Missing codec records and unsupported fields remain
+`null`.
 
 ## Why these methods are asynchronous
 
