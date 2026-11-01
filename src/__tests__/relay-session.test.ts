@@ -281,8 +281,10 @@ describe('RelayReceiver connected protocol', () => {
 
   class FakeWebSocket {
     public static readonly OPEN = 1;
+    public static readonly CLOSING = 2;
     public static readonly CLOSED = 3;
     public static instances: FakeWebSocket[] = [];
+    public static emitErrorDuringClose = false;
     public readyState = 0;
     public onmessage: ((event: MessageEvent) => void) | null = null;
     public onclose: (() => void) | null = null;
@@ -322,6 +324,8 @@ describe('RelayReceiver connected protocol', () => {
 
     public close(): void {
       if (this.readyState === FakeWebSocket.CLOSED) return;
+      this.readyState = FakeWebSocket.CLOSING;
+      if (FakeWebSocket.emitErrorDuringClose) this.onerror?.();
       this.readyState = FakeWebSocket.CLOSED;
       this.onclose?.();
       this.#emit('close');
@@ -339,6 +343,7 @@ describe('RelayReceiver connected protocol', () => {
 
   beforeEach(() => {
     FakeWebSocket.instances = [];
+    FakeWebSocket.emitErrorDuringClose = false;
     FakePeerConnection.instances = [];
     FakePeerConnection.emitCandidateDuringLocalDescription = false;
     FakePeerConnection.offerSdp = 'v=0\r\n';
@@ -377,6 +382,54 @@ describe('RelayReceiver connected protocol', () => {
       subscriberToken: new SecretToken(resolution.subscriber_token),
     }, options);
   }
+
+  it.each(['disconnect', 'reconnect'] as const)(
+    'given an owner-requested %s when the socket reports an error while closing then reports no live failure',
+    async (operation) => {
+      const failures: string[] = [];
+      const receiver = directReceiver({ onError: (error) => { failures.push(error.code); } });
+      await receiver.connect();
+      FakeWebSocket.emitErrorDuringClose = true;
+      await receiver[operation]();
+      expect(failures).toEqual([]);
+      expect(receiver.state).toBe(operation === 'reconnect' ? 'connected' : 'closed');
+      await receiver.disconnect();
+      expect(failures).toEqual([]);
+    },
+  );
+
+  it.each(['error', 'close', 'message'] as const)(
+    'given a retired socket when a late %s arrives after reconnect then keeps the new connection alive',
+    async (event) => {
+      const failures: string[] = [];
+      const receiver = directReceiver({ onError: (error) => { failures.push(error.code); } });
+      await receiver.connect();
+      const retired = FakeWebSocket.instances[0];
+      await receiver.reconnect();
+      if (event === 'error') retired.onerror?.();
+      else if (event === 'close') retired.onclose?.();
+      else retired.receive({ type: 'ERROR', code: 'stale_signal', message: 'Retired attachment' });
+      expect(failures).toEqual([]);
+      expect(receiver.state).toBe('connected');
+      expect(FakeWebSocket.instances[1].readyState).toBe(FakeWebSocket.OPEN);
+      await receiver.disconnect();
+    },
+  );
+
+  it.each(['error', 'close'] as const)(
+    'given an active socket when an unexpected %s arrives then still reports a live failure',
+    async (event) => {
+      const failures: string[] = [];
+      const receiver = directReceiver({ onError: (error) => { failures.push(error.code); } });
+      await receiver.connect();
+      const active = FakeWebSocket.instances[0];
+      if (event === 'error') active.onerror?.();
+      else active.close();
+      expect(failures).toEqual([event === 'error' ? 'relay.websocket_failed' : 'relay.websocket_closed']);
+      expect(receiver.state).toBe('failed');
+      await receiver.disconnect();
+    },
+  );
 
   it.each([undefined, 'default'] as const)(
     'given profile %s when connecting then signals browser-accepted SDP without a stereo override',
