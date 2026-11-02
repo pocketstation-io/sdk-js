@@ -1,21 +1,24 @@
 # Browser music-stereo SDK release handoff
 
-**Proposal only.** Version **0.1.7 is not approved or published by this document**.
+**Version 0.1.7 is approved for release; its source is prepared on the release branch.**
+Final tagging, archive qualification, npm publication and the GitHub release are
+delegated to the release operator on the other machine and remain pending.
 Normal verified registry reads on 2 November 2026 returned HTTP404 for all seven
-proposed versions. Recheck availability before release; this is not a reservation.
+target versions. Recheck availability before release; this is not a reservation.
 Network/authentication/proxy errors mean UNKNOWN; never disable TLS to obtain a result.
 
 ## Approval and source
 
-Before any version field or lockfile changes, and before each push, tag,
-registry publication or release creation, verify an active approval for the **exact
+Approval for all seven 0.1.7 packages was given on 2 November 2026.
+Before each push, tag,
+registry publication or release creation, verify the recorded active approval covers the **exact
 packages, stable version and actions**, or obtain it if missing. An existing
 matching approval for the same active task need not be requested again.
 “Continue”, “full mode” and “publish when
 done” do not count; approval cannot be inferred or carried across tasks or versions.
 Consumed 0.1.6 approvals cannot authorize this release.
 
-The reviewed local SDK head is `c6fa963d79e7d212d612239f5c9ef2e886201054`,
+The independently qualified runtime SDK head is `c6fa963d79e7d212d612239f5c9ef2e886201054`,
 based on public main `77af919d7227298737db42db097631d817b74b06`:
 
 - `18fe19f249531aff510c6ce2a5d526c71bffd583` — default-preserving receive profile.
@@ -23,18 +26,28 @@ based on public main `77af919d7227298737db42db097631d817b74b06`:
 - `4f8285265efa0c744b4b7a059a58da17e9a54fb9` — quiet renderer activation.
 - `c6fa963d79e7d212d612239f5c9ef2e886201054` — retired signaling callback fence.
 
-These local commits are not evidence of a public branch or release. Obtain the
-approved source bundle/branch, verify its actual HEAD and preserve newer remote
-changes before normal PR integration. Do not force-push or bypass protected main.
+Continue from the candidate branch below. Verify that the remote branch is
+available and retain its exact HEAD before normal PR integration:
+
+```sh
+git clone --branch candidate/browser-stereo-delivery-196 https://github.com/pocketstation-io/sdk-js.git
+cd sdk-js
+git rev-parse HEAD
+git log --oneline origin/main..HEAD
+```
+
+The branch includes the runtime commits above, this handoff and coupled 0.1.7
+metadata. Preserve newer remote changes. Do not force-push or bypass protected
+main. A source branch does not establish archive qualification or publication.
 
 The locally qualified root tarball is `pocketstation-0.1.6.tgz`, 726,601 bytes,
 SHA256 `44fd97861f45f10b407678685247d038cb6f159e9a4d7114da907541b99a07a4`.
 It contains the new browser code under an existing version for isolated testing.
 **Never upload it over the published 0.1.6.**
 
-## Proposed coupled packages
+## Coupled release packages
 
-| Package | Proposed version |
+| Package | Release version |
 | --- | --- |
 | `pocketstation` | 0.1.7 |
 | `@pocketstation/native-darwin-arm64` | 0.1.7 |
@@ -79,7 +92,7 @@ Paths above are placeholders. Use private0700 directories/0600 manifests and a f
 missing prerequisites or skipped browsers are not PASS. Do not add permission,
 security, autoplay or fake-device flags. See [browser receive](../reference/browser-relay.md).
 
-## Execute only after exact approval
+## Release operator steps
 
 Use [the npm guide](npm-publishing.md) and the existing
 [qualification](../../.github/workflows/qualify-distribution.yml) and

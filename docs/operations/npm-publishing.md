@@ -1,10 +1,11 @@
-# Publish PocketStation for JavaScript 0.1.6
+# Publish PocketStation for JavaScript 0.1.7
 
 This guide is the handoff for releasing the existing `pocketstation` npm package
 and its six `@pocketstation/native-*` packages from
 [`pocketstation-io/sdk-js`](https://github.com/pocketstation-io/sdk-js).
-Version 0.1.6 uses published Core 1.1.15 and Relay connector 0.1.6. It adds explicit
-application process sets; see the [release notes](../../RELEASE_NOTES.md).
+Version 0.1.7 uses published Core 1.1.15 and Relay connector 0.1.6. It adds explicit
+browser music-stereo reception and reconnect safety; see the
+[release notes](../../RELEASE_NOTES.md).
 This source preparation does not establish archive qualification or publication.
 
 Use the existing repository, workflows and package names. The ordinary addon
@@ -21,7 +22,7 @@ spending time on distribution builds:
 
 ```sh
 for package in pocketstation @pocketstation/native-darwin-arm64 @pocketstation/native-darwin-x64 @pocketstation/native-win32-arm64-msvc @pocketstation/native-win32-x64-msvc @pocketstation/native-linux-arm64-gnu @pocketstation/native-linux-x64-gnu; do
-  npm view "$package@0.1.6" --json --registry=https://registry.npmjs.org
+  npm view "$package@0.1.7" --json --registry=https://registry.npmjs.org
 done
 ```
 
@@ -45,7 +46,7 @@ local login would not authenticate the hosted job. Never imitate CI by setting
 
 Use a fresh checkout or preserve unrelated local work. Inspect the actual
 release branch and existing Actions runs. The final source must contain version
-0.1.6 consistently in the root, six native manifests, native crate,
+0.1.7 consistently in the root, six native manifests, native crate,
 compatibility values and consumer expectations, with the normal registry Core
 pin `=1.1.15`. No local Core override may enter the release.
 
@@ -135,15 +136,15 @@ gh workflow run publish.yml --repo pocketstation-io/sdk-js --ref main -f qualifi
 ```
 
 Require success and inspect `npm-publication-receipt`. Then check local and
-remote `v0.1.6` tags. Create the tag at `release_commit` only if absent; an
+remote `v0.1.7` tags. Create the tag at `release_commit` only if absent; an
 existing matching tag can be reused, and a different tag must never be moved.
 
 ```sh
-git ls-remote --tags origin refs/tags/v0.1.6 'refs/tags/v0.1.6^{}'
+git ls-remote --tags origin refs/tags/v0.1.7 'refs/tags/v0.1.7^{}'
 # Only if both local and remote tags are absent:
-git tag v0.1.6 "$release_commit"
-git push origin refs/tags/v0.1.6
-gh workflow run publish.yml --repo pocketstation-io/sdk-js --ref v0.1.6 -f qualification_run="$QUALIFICATION_RUN" -f manifest_sha256="$MANIFEST_SHA256" -F publish=true
+git tag v0.1.7 "$release_commit"
+git push origin refs/tags/v0.1.7
+gh workflow run publish.yml --repo pocketstation-io/sdk-js --ref v0.1.7 -f qualification_run="$QUALIFICATION_RUN" -f manifest_sha256="$MANIFEST_SHA256" -F publish=true
 ```
 
 The maintained publisher checks source, run and manifest again, publishes the
@@ -160,8 +161,8 @@ On a clean supported machine, use normal optional dependencies:
 consumer_dir=$(mktemp -d)
 cd "$consumer_dir"
 npm init -y
-npm install --ignore-scripts pocketstation@0.1.6 --registry=https://registry.npmjs.org
-node --input-type=module -e 'import { Session, runtimeCompatibility } from "pocketstation/node"; if (typeof Session !== "function" || runtimeCompatibility.sdkVersion !== "0.1.6" || runtimeCompatibility.coreVersion !== "1.1.15") throw new Error("SDK/native compatibility mismatch"); console.log("PocketStation native package loads")'
+npm install --ignore-scripts pocketstation@0.1.7 --registry=https://registry.npmjs.org
+node --input-type=module -e 'import { Session, runtimeCompatibility } from "pocketstation/node"; if (typeof Session !== "function" || runtimeCompatibility.sdkVersion !== "0.1.7" || runtimeCompatibility.coreVersion !== "1.1.15") throw new Error("SDK/native compatibility mismatch"); console.log("PocketStation native package loads")'
 node -e 'const { Session, discoverProcessInstances } = require("pocketstation/node"); if (typeof Session !== "function" || typeof discoverProcessInstances !== "function" || typeof Session.prototype.captureProcessSet !== "function") throw new Error("Process-set API missing")'
 ```
 

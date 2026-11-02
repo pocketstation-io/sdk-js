@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## 0.1.7 — source prepared; publication pending
+
+Browser receivers can explicitly request `audioProfile: 'music-stereo'`.
+The default profile preserves existing negotiation. The stereo preference applies
+to the accepted Opus offer and survives reconnects. Receiver diagnostics expose
+negotiated codec metadata; decoded channel independence still requires measurement.
+Retired WebSocket callbacks no longer interrupt a replacement connection.
+
+Chromium, Firefox and WebKit passed controlled independent-channel receive and
+reconnect checks through a real local Relay. These software-PCM results do not
+establish physical-device fidelity, provider playback, WAN delivery or latency.
+Core remains 1.1.15, Relay connector 0.1.6 and ordinary native packages omit AEC.
+See the [release handoff](docs/operations/browser-stereo-release.md).
+
 ## 0.1.6 — 2026-10-31
 
 The native binding uses published PocketStation Core 1.1.15. The Node API adds

@@ -44,6 +44,6 @@ export interface RuntimeCompatibilityOptions {
 }
 
 // @public
-export const version = "0.1.6";
+export const version = "0.1.7";
 
 ```
