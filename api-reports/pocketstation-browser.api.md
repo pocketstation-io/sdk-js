@@ -34,6 +34,9 @@ export class PocketStationError extends Error {
 }
 
 // @public
+export type ReceiverAudioProfile = 'default' | 'music-stereo';
+
+// @public
 export interface RelayCodecHint {
     // (undocumented)
     readonly bitrateKbps: number;
@@ -93,6 +96,13 @@ export interface RelayPlayoutObservation {
     readonly busId: string;
     // (undocumented)
     readonly bytesReceived: number | null;
+    readonly codecChannelCount: number | null;
+    // (undocumented)
+    readonly codecClockRateHz: number | null;
+    readonly codecMimeType: string | null;
+    // (undocumented)
+    readonly codecPayloadType: number | null;
+    readonly codecSdpFmtpLine: string | null;
     // (undocumented)
     readonly estimatedPlayoutTimestampMs: number | null;
     // (undocumented)
@@ -226,6 +236,7 @@ export interface RelayReceiverAccess {
 
 // @public
 export interface RelayReceiverOptions {
+    readonly audioProfile?: ReceiverAudioProfile;
     readonly connectTimeoutMs?: number;
     readonly controlPlaneUrl?: string;
     readonly disconnectTimeoutMs?: number;

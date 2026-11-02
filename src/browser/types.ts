@@ -38,8 +38,13 @@ export interface RelayInvitation {
   readonly secret?: SecretToken | null;
 }
 
+/** Select the browser's existing defaults or explicitly request Opus stereo reception. */
+export type ReceiverAudioProfile = 'default' | 'music-stereo';
+
 /** Receiver startup and shutdown settings. */
 export interface RelayReceiverOptions {
+  /** Defaults to 'default'. This preference does not prove independent decoded channels. */
+  readonly audioProfile?: ReceiverAudioProfile;
   /** Trusted control-plane origin used only for invitation inspection and redemption. */
   readonly controlPlaneUrl?: string;
   /** Complete invitation, signaling, SDP, ICE, and track deadline. Defaults to 20 seconds. */
@@ -182,6 +187,14 @@ export interface RelayPlayoutObservation {
   readonly observedAtMs: number;
   /** Browser statistics timestamp in milliseconds, when reported. */
   readonly statsTimestampMs: number | null;
+  /** Selected inbound codec metadata; unavailable browser fields remain null. */
+  readonly codecMimeType: string | null;
+  readonly codecClockRateHz: number | null;
+  /** Declared codec channels, not a decoded-PCM channel measurement. */
+  readonly codecChannelCount: number | null;
+  readonly codecPayloadType: number | null;
+  /** Codec parameters reported by the browser, without full credential-bearing SDP. */
+  readonly codecSdpFmtpLine: string | null;
   readonly packetsReceived: number | null;
   readonly packetsLost: number | null;
   readonly bytesReceived: number | null;

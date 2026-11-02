@@ -7,6 +7,7 @@ import { dirname, extname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { chromium, firefox, webkit } from '@playwright/test';
+import { stereoBrowserProof } from './relay-stereo-proof.mjs';
 
 const DEFAULT_PORT = 24_802;
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -15,9 +16,11 @@ const arguments_ = parseArguments(process.argv.slice(2));
 const packageRoot = await realpath(arguments_.packageRoot);
 const distributionRoot = await realpath(join(packageRoot, 'dist'));
 const manifest = JSON.parse(await readFile(arguments_.manifest, 'utf8'));
+const baselineDistributionRoot = manifest.stereoProof?.legacyPackageRoot === undefined
+  ? null : await realpath(join(manifest.stereoProof.legacyPackageRoot, 'dist'));
 const output = [];
 
-const server = createStaticServer(distributionRoot);
+const server = createStaticServer(distributionRoot, baselineDistributionRoot);
 server.listen(arguments_.port, '127.0.0.1');
 await once(server, 'listening');
 
@@ -39,6 +42,14 @@ try {
       await page.goto(`http://127.0.0.1:${arguments_.port}`, {
         waitUntil: 'domcontentloaded',
       });
+      if (manifest.stereoProof !== undefined) {
+        const result = await stereoBrowserProof(page, receiverAccess, manifest.stereoProof, arguments_.timeoutMs,
+          `${arguments_.output}.${name}.private-sdp.json`);
+        output.push({ browser: name, browserVersion: browser.version(), status: result.passed ? 'passed' : 'failed', ...result });
+        resultRecorded = true;
+        if (!result.passed) throw new Error(`${name} stereo proof failed; retain every recorded window`);
+        continue;
+      }
       const result = await page.evaluate(
         async ({ access, timeoutMs }) => {
           const NativePeerConnection = globalThis.RTCPeerConnection;
@@ -274,7 +285,23 @@ try {
       }
       throw cause;
     } finally {
-      await browser.close();
+      const startedAtMs = Date.now();
+      let timer;
+      try {
+        await Promise.race([browser.close(), new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error('Browser cleanup unconfirmed after10000ms')), 10_000);
+        })]);
+        if (browser.isConnected()) throw new Error('Browser cleanup unconfirmed: still connected');
+        if (output.at(-1)?.browser === name) output.at(-1).browserCleanup = {
+          startedAtMs, endedAtMs: Date.now(), closed: true,
+        };
+      } catch (error) {
+        if (output.at(-1)?.browser === name) {
+          output.at(-1).status = 'failed';
+          output.at(-1).browserCleanup = { startedAtMs, endedAtMs: Date.now(), closed: false, error: String(error) };
+        }
+        throw error;
+      } finally { clearTimeout(timer); }
     }
   }
 } finally {
@@ -338,22 +365,25 @@ function positiveInteger(value, name) {
   return parsed;
 }
 
-function createStaticServer(root) {
+function createStaticServer(root, baselineRoot) {
   return createServer(async (request, response) => {
     try {
       const url = new URL(request.url ?? '/', 'http://127.0.0.1');
       if (url.pathname === '/') {
         response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        response.end('<!doctype html><meta charset="utf-8"><title>PocketStation Relay receiver</title>');
+        response.end('<!doctype html><meta charset="utf-8"><title>PocketStation Relay receiver</title><button id="start-audio">Start audio proof</button>');
         return;
       }
-      if (!url.pathname.startsWith('/pocketstation/')) {
+      const prefix = url.pathname.startsWith('/baseline-pocketstation/') && baselineRoot !== null
+        ? '/baseline-pocketstation/' : '/pocketstation/';
+      const selectedRoot = prefix === '/baseline-pocketstation/' ? baselineRoot : root;
+      if (!url.pathname.startsWith(prefix)) {
         response.writeHead(404).end();
         return;
       }
-      const requested = resolve(root, url.pathname.slice('/pocketstation/'.length));
-      const contained = relative(root, requested);
-      if (contained.startsWith(`..${sep}`) || contained === '..' || resolve(requested) === root) {
+      const requested = resolve(selectedRoot, url.pathname.slice(prefix.length));
+      const contained = relative(selectedRoot, requested);
+      if (contained.startsWith(`..${sep}`) || contained === '..' || resolve(requested) === selectedRoot) {
         response.writeHead(404).end();
         return;
       }

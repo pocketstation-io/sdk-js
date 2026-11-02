@@ -15,6 +15,7 @@ export class SignalingTransport {
   readonly #url: string;
   #socket: WebSocket | null = null;
   #opened = false;
+  #closeRequested = false;
 
   public constructor(signalUrl: string) {
     const url = parseSignalUrl(signalUrl);
@@ -30,8 +31,10 @@ export class SignalingTransport {
     }
     const socket = new WebSocket(this.#url);
     this.#socket = socket;
+    this.#closeRequested = false;
 
     socket.onmessage = (event) => {
+      if (this.#socket !== socket || this.#closeRequested) return;
       try {
         options.onMessage(parseServerMessage(event.data));
       } catch (cause) {
@@ -47,11 +50,13 @@ export class SignalingTransport {
       }
     };
     socket.onclose = () => {
+      if (this.#socket !== socket) return;
       this.#opened = false;
-      if (this.#socket === socket) this.#socket = null;
-      options.onClose();
+      this.#socket = null;
+      if (!this.#closeRequested) options.onClose();
     };
     socket.onerror = () => {
+      if (this.#socket !== socket || this.#closeRequested) return;
       options.onError(
         new PocketStationError(
           'relay.websocket_failed',
@@ -63,6 +68,7 @@ export class SignalingTransport {
     return new Promise<void>((resolve, reject) => {
       const onAbort = (): void => {
         finish();
+        this.#closeRequested = true;
         try {
           socket.close(1000, 'connect_cancelled');
         } catch {
@@ -119,6 +125,7 @@ export class SignalingTransport {
   }
 
   public async close(timeoutMs: number): Promise<void> {
+    this.#closeRequested = true;
     const socket = this.#socket;
     if (socket === null || socket.readyState === WebSocket.CLOSED) {
       this.#socket = null;

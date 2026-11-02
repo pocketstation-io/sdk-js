@@ -4,6 +4,7 @@ import { InvitationUnavailableError } from '../control/control-client.js';
 import { SecretToken, type IceServer } from '../control/types.js';
 import { operationSignal } from './operation-signal.js';
 import { latencyReportPayload } from './latency-report.js';
+import { opusReceiveOfferSdp } from './opus-receive-sdp.js';
 import { SignalingTransport } from './signaling.js';
 import type {
   RelayInvitation,
@@ -194,6 +195,10 @@ export class RelayReceiver {
     access: RelayReceiverAccess | RelayInvitation,
     options: RelayReceiverOptions = {},
   ) {
+    const audioProfile = options.audioProfile === undefined ? 'default' : options.audioProfile;
+    if (audioProfile !== 'default' && audioProfile !== 'music-stereo') {
+      throw new PocketStationError('relay.invalid_audio_profile', 'Unknown receiver audio profile');
+    }
     const connectTimeoutMs = finiteTimeout(
       options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS,
       'connectTimeoutMs',
@@ -203,6 +208,7 @@ export class RelayReceiver {
       'disconnectTimeoutMs',
     );
     this.#options = Object.freeze({
+      audioProfile,
       connectTimeoutMs,
       disconnectTimeoutMs,
       controlPlaneUrl:
@@ -345,6 +351,14 @@ export class RelayReceiver {
       if (isInboundAudioStats(report)) inbound = report;
     });
     const report = inbound;
+    const codecId = stringField(report, 'codecId');
+    let codec: RTCStats | null = null;
+    reports.forEach((candidate: RTCStats, id: string) => {
+      if (codecId !== null && id === codecId && candidate.type === 'codec'
+        && stringField(candidate, 'mimeType')?.toLowerCase().startsWith('audio/') === true) {
+        codec = candidate;
+      }
+    });
     const emitted = numberField(report, 'jitterBufferEmittedCount');
     const delaySeconds = numberField(report, 'jitterBufferDelay');
     this.#observationRevision += 1;
@@ -354,6 +368,11 @@ export class RelayReceiver {
       busId: access.busId,
       observedAtMs: Date.now(),
       statsTimestampMs: numberField(report, 'timestamp'),
+      codecMimeType: stringField(codec, 'mimeType'),
+      codecClockRateHz: integerField(codec, 'clockRate', 1, Number.MAX_SAFE_INTEGER),
+      codecChannelCount: integerField(codec, 'channels', 1, 255),
+      codecPayloadType: integerField(codec, 'payloadType', 0, 127),
+      codecSdpFmtpLine: stringField(codec, 'sdpFmtpLine'),
       packetsReceived: numberField(report, 'packetsReceived'),
       packetsLost: numberField(report, 'packetsLost'),
       bytesReceived: numberField(report, 'bytesReceived'),
@@ -513,20 +532,28 @@ export class RelayReceiver {
     });
 
     connection.addTransceiver('audio', { direction: 'recvonly' });
-    const offer = await connection.createOffer();
-    await connection.setLocalDescription(offer);
-    if (offer.sdp === undefined) {
+    const offer = await waitWithSignal(connection.createOffer(), signal);
+    if (offer.sdp === undefined || offer.sdp === '') {
       throw new PocketStationError(
         'relay.sdp_offer_missing',
         'Browser did not create a WebRTC offer',
       );
+    }
+    const profile = this.#options.audioProfile ?? 'default';
+    await waitWithSignal(connection.setLocalDescription({ ...offer, sdp: opusReceiveOfferSdp(offer.sdp, profile) }), signal);
+    const acceptedSdp = connection.localDescription?.sdp;
+    if (acceptedSdp === undefined || acceptedSdp === '') {
+      throw new PocketStationError('relay.sdp_offer_missing', 'Browser did not accept a local WebRTC offer');
+    }
+    if (profile === 'music-stereo' && opusReceiveOfferSdp(acceptedSdp, profile) !== acceptedSdp) {
+      throw new PocketStationError('relay.stereo_receive_unsupported', 'Browser did not retain the stereo receive preference');
     }
     transport.send({
       type: 'SUBSCRIBE',
       session_id: access.sessionId,
       bus_id: access.busId,
       token: access.subscriberToken.exposeSecret(),
-      sdp_offer: offer.sdp,
+      sdp_offer: acceptedSdp,
     });
     this.#subscribeSent = true;
     for (const candidate of this.#pendingLocalIce.splice(0)) {
@@ -1114,6 +1141,17 @@ function numberField(value: RTCStats | null, name: string): number | null {
   if (value === null) return null;
   const field = Reflect.get(value, name);
   return typeof field === 'number' && Number.isFinite(field) ? field : null;
+}
+
+function stringField(value: RTCStats | null, name: string): string | null {
+  if (value === null) return null;
+  const field = Reflect.get(value, name);
+  return typeof field === 'string' && field.trim() !== '' ? field : null;
+}
+
+function integerField(value: RTCStats | null, name: string, minimum: number, maximum: number): number | null {
+  const field = numberField(value, name);
+  return field !== null && Number.isSafeInteger(field) && field >= minimum && field <= maximum ? field : null;
 }
 
 function milliseconds(seconds: number | null): number | null {

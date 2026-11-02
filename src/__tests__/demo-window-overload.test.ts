@@ -48,9 +48,10 @@ test.each(['recover', 'abort'] as const)('complete-window overload isolates reco
   })();
   const resumedAllSources = () => inputs.every(input => {
     const source = events.filter(event => event.source_id === String(input.sourceId));
-    return source.some((event, index) => index > 0
-      && BigInt(String(event.sequence_start))
-        > BigInt(String(source[index - 1]!.sequence_end)) + 1n);
+    // The shared inference queue may drop windows from either source. A source
+    // with no delivered pre-drop window has no observable pair spanning a gap.
+    // Prove recovery by requiring fresh PCM from each source after saturation.
+    return source.some(event => BigInt(String(event.sequence_start)) >= BigInt(SATURATION_FRAMES));
   });
   let framesSent = 0;
   const feed = async (frames: number) => {

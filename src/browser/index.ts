@@ -18,6 +18,7 @@ export {
   resolveRelayInvitation,
 } from './relay-session.js';
 export type {
+  ReceiverAudioProfile,
   RelayCodecHint,
   RelayInvitation,
   RelayLatencyReport,
