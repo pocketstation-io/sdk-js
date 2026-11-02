@@ -3,7 +3,7 @@
 The package contains native Node support for macOS, Windows, and Linux, but a
 source implementation and a published prebuilt package are separate claims.
 
-Current evidence for JavaScript package 0.1.6:
+Current evidence for JavaScript package 0.1.7:
 
 | Area | Status |
 |---|---|
@@ -12,7 +12,7 @@ Current evidence for JavaScript package 0.1.6:
 | macOS microphone physical capture | `REAL-DEVICE-PROVEN` in the recorded Relay/browser and multistem workflow |
 | Windows and Linux Node packages | `REAL` for installed component cases; physical capture remains unproven |
 | Browser Relay receiver | `REAL` for same-host Chromium, Firefox, and WebKit receipt; WAN, TURN, and physical hearing remain unproven |
-| npm installation | `REAL`; 0.1.6 is published and its six target packages passed clean installed-consumer qualification |
+| npm installation | `REAL`; 0.1.7 is published and its six target packages passed clean installed-consumer qualification |
 
 Desktop capture permissions belong to the host executable. On macOS, the
 terminal or desktop application running Node must receive the applicable

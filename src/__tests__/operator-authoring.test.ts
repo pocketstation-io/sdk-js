@@ -124,7 +124,9 @@ describe('Operator authoring', () => {
       id: 'org.example.operator.native-deadline.v1',
       inputs: [PortSpec.input('text', text)],
       outputs: [PortSpec.output('text', text)],
-      deadlineMs: 20,
+      // Admission and preparation share this deadline. Leave enough headroom
+      // on hosted runners to reach the intentionally stalled process call.
+      deadlineMs: 250,
       create: () => ({
         process: async (_input, _inputPort, context) => {
           processSignal = context.signal;

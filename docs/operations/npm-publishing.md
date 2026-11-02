@@ -6,7 +6,10 @@ and its six `@pocketstation/native-*` packages from
 Version 0.1.7 uses published Core 1.1.15 and Relay connector 0.1.6. It adds explicit
 browser music-stereo reception and reconnect safety; see the
 [release notes](../../RELEASE_NOTES.md).
-This source preparation does not establish archive qualification or publication.
+Version 0.1.7 is published; its exact source, qualification, manifest digest and
+complete publication receipt are retained in the
+[browser stereo release record](browser-stereo-release.md#completed-release-record).
+The steps below retain the reviewed publishing procedure.
 
 Use the existing repository, workflows and package names. The ordinary addon
 omits AEC; explicit AEC builds retain their own qualification requirements.
