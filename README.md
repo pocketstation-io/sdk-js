@@ -10,7 +10,7 @@ The package uses the PocketStation Rust engine for capture, routing, and
 shutdown. JavaScript receives audio after it leaves the realtime capture code,
 so model calls and application work do not run on an audio callback.
 
-> The Node SDK remains under active development. Version 0.1.6 is published
+> The Node SDK remains under active development. Version 0.1.7 is published
 > and uses PocketStation Core 1.1.15.
 > Existing macOS evidence covers selected-application capture and installed
 > same-host Relay receipt in
@@ -26,6 +26,10 @@ automatically; changed membership requires a new Session. See
 for selection, platform and lifecycle limits. The 0.1.6 distribution qualifies
 installed component execution on all six native targets; it does not extend the
 physical-capture claims above to additional hosts or operating systems.
+
+Version 0.1.7 adds explicit browser `audioProfile: 'music-stereo'` reception,
+codec observations and reconnect safety. See [browser Relay reception](docs/reference/browser-relay.md).
+Its root package and all six native packages passed installed-consumer qualification.
 
 ## Package installation and module modes
 

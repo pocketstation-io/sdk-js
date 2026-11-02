@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-## 0.1.7 — source prepared; publication pending
+## 0.1.7 — 2026-11-02
 
 Browser receivers can explicitly request `audioProfile: 'music-stereo'`.
 The default profile preserves existing negotiation. The stereo preference applies
@@ -14,7 +14,8 @@ Chromium, Firefox and WebKit passed controlled independent-channel receive and
 reconnect checks through a real local Relay. These software-PCM results do not
 establish physical-device fidelity, provider playback, WAN delivery or latency.
 Core remains 1.1.15, Relay connector 0.1.6 and ordinary native packages omit AEC.
-See the [release handoff](docs/operations/browser-stereo-release.md).
+All seven packages passed the 38-job archive qualification and were published
+to npm. See the [release record](docs/operations/browser-stereo-release.md).
 
 ## 0.1.6 — 2026-10-31
 

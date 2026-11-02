@@ -1,10 +1,10 @@
 # Browser music-stereo SDK release handoff
 
-**Version 0.1.7 is approved for release; its source is prepared on the release branch.**
-Final tagging, archive qualification, npm publication and the GitHub release are
-delegated to the release operator on the other machine and remain pending.
+**Version 0.1.7 was published on 2 November 2026.**
+Archive qualification, npm publication, tagging and the GitHub release are complete.
+See the release record below. The remaining handoff describes the reviewed procedure.
 Normal verified registry reads on 2 November 2026 returned HTTP404 for all seven
-target versions. Recheck availability before release; this is not a reservation.
+target versions before publication. Recheck availability before any retry.
 Network/authentication/proxy errors mean UNKNOWN; never disable TLS to obtain a result.
 
 ## Approval and source
@@ -139,3 +139,28 @@ Then install pocketstation@0.1.7 normally on a clean supported machine and retai
 actual optional-native identity plus ESM/CJS/types/Session results. A GitHub release
 is a separately approved step after proof. Core/Python holds and CI cost limits stay.
 JamX adoption is still pending; public delivery does not itself update the app.
+
+## Completed release record
+
+The immutable `v0.1.7` tag points to
+`c32c1f592693de0f796530b0304e10e9d55a40ba`.
+[Source CI](https://github.com/pocketstation-io/sdk-js/actions/runs/41451465137)
+passed all seven jobs, followed by
+[archive qualification](https://github.com/pocketstation-io/sdk-js/actions/runs/41454210547)
+with all 38 jobs passing. The release-manifest SHA-256 is
+`091534b131364c26fcaa7cfec86db6d97f1e3ff0b0d8be56ed3fc86f56951ca8`.
+The [hosted dry-run](https://github.com/pocketstation-io/sdk-js/actions/runs/41456424842)
+and [final publisher](https://github.com/pocketstation-io/sdk-js/actions/runs/41464261811)
+passed. The final receipt retains `complete: true` and all seven exact registry
+integrities. Uploads exceeded the publisher's visibility wait while npm processed
+them; each resume reused the same qualified archives and verified existing bytes.
+
+A clean macOS arm64 public-registry install loaded SDK 0.1.7, Core 1.1.15,
+Connector 0.1.6 and N-API 8. ESM/CommonJS class identity, the music-stereo option,
+an application-owned PCM frame and successful Session shutdown passed. The
+clean consumer audit reported zero vulnerabilities. Browser decoded-PCM evidence
+remains the retained pre-release evidence described above; this installed check
+does not establish new physical or network claims.
+
+The [GitHub release](https://github.com/pocketstation-io/sdk-js/releases/tag/v0.1.7)
+is public. JamX adoption remains pending.
