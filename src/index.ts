@@ -9,7 +9,7 @@
  */
 
 /** Current JavaScript SDK version. */
-export const version = '0.1.7';
+export const version = '0.1.8';
 export {
   RuntimeCompatibility,
   runtimeCompatibility,

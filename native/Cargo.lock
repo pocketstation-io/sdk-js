@@ -1570,9 +1570,9 @@ checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
 
 [[package]]
 name = "pocketstation"
-version = "1.1.15"
+version = "1.1.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3e8fb78284d90af882252a3ec1c40f6e048b8a77008beffa2851c2a3fc3ac5a9"
+checksum = "3523990ff7fcc2c5e44fa085aa4786b62dc74b83405180064256179dae3f436e"
 dependencies = [
  "alsa",
  "cc",
@@ -1595,7 +1595,7 @@ dependencies = [
 
 [[package]]
 name = "pocketstation-js"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "futures",
  "futures-timer",

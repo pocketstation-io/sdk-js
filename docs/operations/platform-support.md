@@ -3,7 +3,12 @@
 The package contains native Node support for macOS, Windows, and Linux, but a
 source implementation and a published prebuilt package are separate claims.
 
-Current evidence for JavaScript package 0.1.7:
+Version 0.1.8 is `PARTIAL` pending archive and installed-consumer qualification.
+Its Core 1.1.17 dependency fixes Windows discovery across accessible active render
+endpoints. Physical Wave Link validation is unavailable. This does not expand
+macOS, Linux, mobile, server or custom-backend capture authority.
+
+Retained evidence for published JavaScript package 0.1.7:
 
 | Area | Status |
 |---|---|

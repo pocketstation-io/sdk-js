@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## 0.1.8 — pending publication
+
+Native packages use published Core 1.1.17. Windows application discovery queries
+all accessible active render endpoints, including non-default outputs. A failed
+endpoint does not discard other results; playing wins when the same process is
+observed on multiple outputs. Exited process identities are rejected even while
+a process handle remains open. Public SDK signatures and Relay connector 0.1.6
+are unchanged. Ordinary native packages continue to omit AEC.
+
+Physical Wave Link validation remains unavailable; Windows compilation and
+component checks do not establish physical-device compatibility. Package archive
+and installed-consumer qualification are required before publication. See the
+[release handoff](docs/operations/windows-discovery-release.md).
+
 ## 0.1.7 — 2026-11-02
 
 Browser receivers can explicitly request `audioProfile: 'music-stereo'`.

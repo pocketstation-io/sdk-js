@@ -1,15 +1,13 @@
-# Publish PocketStation for JavaScript 0.1.7
+# Publish PocketStation for JavaScript 0.1.8
 
 This guide is the handoff for releasing the existing `pocketstation` npm package
 and its six `@pocketstation/native-*` packages from
 [`pocketstation-io/sdk-js`](https://github.com/pocketstation-io/sdk-js).
-Version 0.1.7 uses published Core 1.1.15 and Relay connector 0.1.6. It adds explicit
-browser music-stereo reception and reconnect safety; see the
-[release notes](../../RELEASE_NOTES.md).
-Version 0.1.7 is published; its exact source, qualification, manifest digest and
-complete publication receipt are retained in the
+Version 0.1.8 uses published Core 1.1.17 and Relay connector 0.1.6. It brings
+Windows non-default-output discovery through the existing public APIs.
+Publication is pending; follow the [current release handoff](windows-discovery-release.md).
+The previous published 0.1.7 stereo result remains in its separate
 [browser stereo release record](browser-stereo-release.md#completed-release-record).
-The steps below retain the reviewed publishing procedure.
 
 Use the existing repository, workflows and package names. The ordinary addon
 omits AEC; explicit AEC builds retain their own qualification requirements.
@@ -25,7 +23,7 @@ spending time on distribution builds:
 
 ```sh
 for package in pocketstation @pocketstation/native-darwin-arm64 @pocketstation/native-darwin-x64 @pocketstation/native-win32-arm64-msvc @pocketstation/native-win32-x64-msvc @pocketstation/native-linux-arm64-gnu @pocketstation/native-linux-x64-gnu; do
-  npm view "$package@0.1.7" --json --registry=https://registry.npmjs.org
+  npm view "$package@0.1.8" --json --registry=https://registry.npmjs.org
 done
 ```
 
@@ -49,9 +47,9 @@ local login would not authenticate the hosted job. Never imitate CI by setting
 
 Use a fresh checkout or preserve unrelated local work. Inspect the actual
 release branch and existing Actions runs. The final source must contain version
-0.1.7 consistently in the root, six native manifests, native crate,
+0.1.8 consistently in the root, six native manifests, native crate,
 compatibility values and consumer expectations, with the normal registry Core
-pin `=1.1.15`. No local Core override may enter the release.
+pin `=1.1.17`. No local Core override may enter the release.
 
 Use Node 20.17 or newer, the pinned npm 10.8.2 for dependency bootstrap, and
 Python 3.11 or newer. Native builds use Rust 1.95 and the platform prerequisites
@@ -77,7 +75,7 @@ socket-closure and timeout assertions. Required failures need diagnosis and a
 passing result; skipped or cancelled jobs do not count. Build each native
 variant once per job and reuse its bytes for exports and installed consumers.
 
-Core 1.1.15 process-set capture requires the macOS 26 SDK at compile time. The
+Core 1.1.17 process-set capture requires the macOS 26 SDK at compile time. The
 Darwin build rows therefore use the `macos-26` and `macos-26-intel` runners
 with `MACOSX_DEPLOYMENT_TARGET=11.0`; installed consumers continue to execute
 on the macOS 15 runners. The archive freezer verifies both the SDK and final
@@ -139,15 +137,15 @@ gh workflow run publish.yml --repo pocketstation-io/sdk-js --ref main -f qualifi
 ```
 
 Require success and inspect `npm-publication-receipt`. Then check local and
-remote `v0.1.7` tags. Create the tag at `release_commit` only if absent; an
+remote `v0.1.8` tags. Create the tag at `release_commit` only if absent; an
 existing matching tag can be reused, and a different tag must never be moved.
 
 ```sh
-git ls-remote --tags origin refs/tags/v0.1.7 'refs/tags/v0.1.7^{}'
+git ls-remote --tags origin refs/tags/v0.1.8 'refs/tags/v0.1.8^{}'
 # Only if both local and remote tags are absent:
-git tag v0.1.7 "$release_commit"
-git push origin refs/tags/v0.1.7
-gh workflow run publish.yml --repo pocketstation-io/sdk-js --ref v0.1.7 -f qualification_run="$QUALIFICATION_RUN" -f manifest_sha256="$MANIFEST_SHA256" -F publish=true
+git tag v0.1.8 "$release_commit"
+git push origin refs/tags/v0.1.8
+gh workflow run publish.yml --repo pocketstation-io/sdk-js --ref v0.1.8 -f qualification_run="$QUALIFICATION_RUN" -f manifest_sha256="$MANIFEST_SHA256" -F publish=true
 ```
 
 The maintained publisher checks source, run and manifest again, publishes the
@@ -164,8 +162,8 @@ On a clean supported machine, use normal optional dependencies:
 consumer_dir=$(mktemp -d)
 cd "$consumer_dir"
 npm init -y
-npm install --ignore-scripts pocketstation@0.1.7 --registry=https://registry.npmjs.org
-node --input-type=module -e 'import { Session, runtimeCompatibility } from "pocketstation/node"; if (typeof Session !== "function" || runtimeCompatibility.sdkVersion !== "0.1.7" || runtimeCompatibility.coreVersion !== "1.1.15") throw new Error("SDK/native compatibility mismatch"); console.log("PocketStation native package loads")'
+npm install --ignore-scripts pocketstation@0.1.8 --registry=https://registry.npmjs.org
+node --input-type=module -e 'import { Session, runtimeCompatibility } from "pocketstation/node"; if (typeof Session !== "function" || runtimeCompatibility.sdkVersion !== "0.1.8" || runtimeCompatibility.coreVersion !== "1.1.17") throw new Error("SDK/native compatibility mismatch"); console.log("PocketStation native package loads")'
 node -e 'const { Session, discoverProcessInstances } = require("pocketstation/node"); if (typeof Session !== "function" || typeof discoverProcessInstances !== "function" || typeof Session.prototype.captureProcessSet !== "function") throw new Error("Process-set API missing")'
 ```
 
