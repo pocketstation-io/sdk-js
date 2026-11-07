@@ -1,6 +1,6 @@
 {
   "name": "@pocketstation/native-win32-arm64-msvc",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "PocketStation native Node-API addon for win32-arm64-msvc",
   "main": "pocketstation-js.win32-arm64-msvc.node",
   "files": [
